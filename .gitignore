@@ -1,0 +1,19 @@
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Local runtime output
+*.log
+coverage/
+tmp/
+
+# Local PostgreSQL data, dumps, and credentials
+.postgres/
+*.dump
+*.sql.gz
+.pgpass

@@ -1,6 +1,6 @@
 # 个人全球信息知识库
 
-当前阶段：M0——需求、覆盖、弱信号与验收规范，尚未冻结。当前验收目录包含 128 个可失败场景；最近一轮仍发现了新的独立缺陷，因此“连续无新增”计数为 0。
+当前阶段：M1——可执行 schema 与最小垂直切片。M0 已于 2026-08-05 经最终有界审查后有条件冻结；当前验收目录包含 233 个可失败场景。旧“连续无新增”计数停在 0/3，不再继续无限审查；后续问题进入 implementation backlog，重大数据破坏、越权或错误能力声明除外。
 
 这个项目不承诺穷尽世界、消除所有偏差或预测黑天鹅。它的目标是在公开声明的可观察范围内，以不受个人兴趣驱动、权重透明、原始证据可追溯的方式扩大信息覆盖，并尽早识别可能正在发生的变化。
 
@@ -13,6 +13,7 @@
 5. [规范验收测试计划](docs/04-acceptance-test-plan.md)
 6. [统一数据、时间与决策契约](docs/05-canonical-data-and-time-contract.md)
 7. [Codex × Kimi 中继协作协议](docs/06-kimi-codex-relay-collaboration-protocol.md)（外部协作附录，非知识库规范本体）
+8. [设计续跑交接](docs/07-continuation-handoff.md)
 
 ## 当前架构不变量
 
@@ -27,6 +28,21 @@
 - 候选与 proposition family 双身份冻结，合并/拆分不改变前瞻评价分母；
 - 数据缺失、来源断流和不可观察区域必须显式呈现。
 
-## 下一阶段入口
+## 当前实施入口
 
-完成阻断型交叉审查后，从统一契约派生机器可执行 schema，并先做来源授权、语言质量、处理成本和报告时延的可行性试验；覆盖数字通过试验后才升级为正式门槛，再建立 M1 的小规模端到端垂直切片。
+从统一契约派生首批 PostgreSQL DDL 与 JSON Schema，并建立 schema validator、最小反例 fixtures 和 M1 小规模端到端垂直切片；先覆盖 identity/record registry、manifest activation、provider response set、token use、credential lifecycle 与 evaluation arm closure，再做来源授权、语言质量、处理成本和报告时延试验。
+
+首批 M1 工件已建立：
+
+- [PostgreSQL 核心 DDL](schema/postgres/001_m1_core.sql)
+- [Provider response set JSON Schema](schema/json/provider-response-set.schema.json)
+- [可执行闭合逻辑](lib/provider_response_set.rb)
+- [M1 测试与运行说明](schema/README.md)
+
+M0 与 M1 的统一静态回归入口：
+
+```bash
+ruby scripts/validate_project.rb
+```
+
+低配 Ubuntu 云服务器的 PostgreSQL 验证说明见 [云端验证入口](scripts/cloud/README.md)。

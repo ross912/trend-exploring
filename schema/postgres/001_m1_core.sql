@@ -1,0 +1,810 @@
+-- M1 executable schema slice for PostgreSQL 15+.
+-- Client-generated UUIDs are required; no database-side random ID extension is assumed.
+
+BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TYPE activation_role AS ENUM ('authoritative', 'shadow');
+CREATE TYPE credential_state AS ENUM ('active', 'revoked', 'compromised');
+CREATE TYPE response_member_outcome AS ENUM ('success', 'failed', 'missing');
+CREATE TYPE token_use_mode AS ENUM ('single_use', 'multi_use');
+CREATE TYPE token_use_outcome AS ENUM ('accepted', 'rejected');
+CREATE TYPE terminal_decision AS ENUM ('selected', 'not_selected', 'failed');
+CREATE TYPE run_mode AS ENUM (
+  'prospective',
+  'operational_replay',
+  'archive_replay',
+  'retrospective_reanalysis'
+);
+
+CREATE TABLE manifest_series (
+  manifest_series_id uuid PRIMARY KEY,
+  manifest_kind text NOT NULL,
+  canonical_scope_key text NOT NULL,
+  identity_created_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (identity_created_at <= system_available_at),
+  UNIQUE (manifest_kind, canonical_scope_key)
+);
+
+CREATE TABLE manifest_activation_decision (
+  manifest_activation_decision_id uuid PRIMARY KEY,
+  manifest_series_id uuid NOT NULL REFERENCES manifest_series,
+  target_manifest_kind text NOT NULL,
+  target_manifest_id uuid NOT NULL,
+  activation_role activation_role NOT NULL,
+  effective_from timestamptz NOT NULL,
+  effective_until timestamptz,
+  aggregate_revision bigint NOT NULL CHECK (aggregate_revision > 0),
+  predecessor_decision_id uuid,
+  predecessor_revision bigint,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  CHECK (effective_until IS NULL OR effective_from < effective_until),
+  CHECK (
+    (aggregate_revision = 1 AND predecessor_decision_id IS NULL AND predecessor_revision IS NULL)
+    OR
+    (aggregate_revision > 1 AND predecessor_decision_id IS NOT NULL
+      AND predecessor_revision = aggregate_revision - 1)
+  ),
+  UNIQUE (manifest_series_id, aggregate_revision),
+  UNIQUE (manifest_activation_decision_id, manifest_series_id, aggregate_revision),
+  FOREIGN KEY (predecessor_decision_id, manifest_series_id, predecessor_revision)
+    REFERENCES manifest_activation_decision
+      (manifest_activation_decision_id, manifest_series_id, aggregate_revision)
+    DEFERRABLE INITIALLY DEFERRED
+);
+
+ALTER TABLE manifest_activation_decision
+  ADD CONSTRAINT manifest_authoritative_range_exclusion
+  EXCLUDE USING gist (
+    manifest_series_id WITH =,
+    tstzrange(effective_from, effective_until, '[)') WITH &&
+  ) WHERE (activation_role = 'authoritative');
+
+CREATE OR REPLACE FUNCTION validate_manifest_predecessor()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  predecessor_revision bigint;
+BEGIN
+  IF NEW.aggregate_revision = 1 THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT aggregate_revision INTO predecessor_revision
+    FROM manifest_activation_decision
+   WHERE manifest_activation_decision_id = NEW.predecessor_decision_id
+     AND manifest_series_id = NEW.manifest_series_id;
+
+  IF predecessor_revision IS NULL OR predecessor_revision <> NEW.aggregate_revision - 1 THEN
+    RAISE EXCEPTION 'manifest predecessor must be revision - 1';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER manifest_predecessor_guard
+AFTER INSERT ON manifest_activation_decision
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_manifest_predecessor();
+
+CREATE TABLE service_principal (
+  service_principal_id uuid PRIMARY KEY,
+  principal_name text NOT NULL UNIQUE,
+  identity_created_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (identity_created_at <= system_available_at)
+);
+
+CREATE TABLE service_principal_credential_version (
+  service_principal_credential_version_id uuid PRIMARY KEY,
+  service_principal_id uuid NOT NULL REFERENCES service_principal,
+  credential_fingerprint text NOT NULL,
+  audience text NOT NULL,
+  allowed_scopes text[] NOT NULL CHECK (cardinality(allowed_scopes) > 0),
+  effective_from timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from < expires_at),
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (service_principal_id, credential_fingerprint)
+);
+
+CREATE TABLE service_principal_credential_state_event (
+  service_principal_credential_state_event_id uuid PRIMARY KEY,
+  service_principal_credential_version_id uuid NOT NULL
+    REFERENCES service_principal_credential_version,
+  aggregate_revision bigint NOT NULL CHECK (aggregate_revision > 0),
+  predecessor_event_id uuid,
+  predecessor_revision bigint,
+  from_state credential_state NOT NULL,
+  to_state credential_state NOT NULL,
+  revocation_domain_id uuid NOT NULL,
+  revocation_epoch bigint NOT NULL CHECK (revocation_epoch >= 0),
+  reason_code text NOT NULL,
+  valid_at timestamptz NOT NULL,
+  ingest_domain_id uuid NOT NULL,
+  ingest_sequence bigint NOT NULL CHECK (ingest_sequence > 0),
+  event_system_available_at timestamptz NOT NULL,
+  CHECK (
+    (aggregate_revision = 1 AND predecessor_event_id IS NULL AND predecessor_revision IS NULL
+      AND from_state = 'active' AND to_state = 'active')
+    OR
+    (aggregate_revision > 1 AND predecessor_event_id IS NOT NULL
+      AND predecessor_revision = aggregate_revision - 1
+      AND from_state = 'active' AND to_state IN ('revoked', 'compromised'))
+  ),
+  UNIQUE (ingest_domain_id, ingest_sequence),
+  UNIQUE (service_principal_credential_version_id, aggregate_revision),
+  UNIQUE (
+    service_principal_credential_state_event_id,
+    service_principal_credential_version_id,
+    aggregate_revision,
+    to_state
+  ),
+  FOREIGN KEY (
+    predecessor_event_id,
+    service_principal_credential_version_id,
+    predecessor_revision,
+    from_state
+  ) REFERENCES service_principal_credential_state_event (
+    service_principal_credential_state_event_id,
+    service_principal_credential_version_id,
+    aggregate_revision,
+    to_state
+  ) DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE VIEW current_service_principal_credential_state AS
+SELECT DISTINCT ON (service_principal_credential_version_id)
+  service_principal_credential_version_id,
+  to_state AS current_state,
+  aggregate_revision,
+  revocation_domain_id,
+  revocation_epoch,
+  event_system_available_at
+FROM service_principal_credential_state_event
+ORDER BY service_principal_credential_version_id, aggregate_revision DESC;
+
+CREATE TABLE model_invocation (
+  model_invocation_id uuid PRIMARY KEY,
+  task_manifest_id uuid NOT NULL,
+  provider_id uuid NOT NULL,
+  model_id uuid NOT NULL,
+  outbound_payload_manifest_id uuid NOT NULL,
+  provider_context_snapshot_id uuid,
+  owner_scope_id uuid NOT NULL,
+  revocation_dependency_set_hash text NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at)
+);
+
+CREATE TABLE provider_response_set_profile (
+  provider_response_set_profile_id uuid PRIMARY KEY,
+  response_mode text NOT NULL,
+  member_kind text NOT NULL,
+  minimum_members integer NOT NULL CHECK (minimum_members > 0),
+  maximum_members integer CHECK (maximum_members IS NULL OR maximum_members >= minimum_members),
+  continuation_required boolean NOT NULL,
+  schema_version text NOT NULL,
+  schema_hash text NOT NULL,
+  manifest_signature text NOT NULL,
+  owner_service_principal_id uuid NOT NULL REFERENCES service_principal,
+  input_record_ids uuid[] NOT NULL,
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL
+);
+
+CREATE TABLE provider_response_set (
+  provider_response_set_id uuid PRIMARY KEY,
+  model_invocation_id uuid NOT NULL UNIQUE REFERENCES model_invocation,
+  provider_response_set_profile_id uuid NOT NULL REFERENCES provider_response_set_profile,
+  expected_member_count integer NOT NULL CHECK (expected_member_count > 0),
+  member_set_hash text NOT NULL CHECK (member_set_hash ~ '^[a-f0-9]{64}$'),
+  frozen_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (frozen_at <= recorded_at AND recorded_at <= system_available_at),
+  UNIQUE (
+    provider_response_set_id,
+    model_invocation_id,
+    provider_response_set_profile_id
+  ),
+  UNIQUE (
+    provider_response_set_id,
+    model_invocation_id,
+    provider_response_set_profile_id,
+    expected_member_count,
+    member_set_hash
+  )
+);
+
+CREATE TABLE provider_response_member_unit (
+  provider_response_member_unit_id uuid PRIMARY KEY,
+  model_invocation_id uuid NOT NULL REFERENCES model_invocation,
+  provider_response_set_profile_id uuid NOT NULL REFERENCES provider_response_set_profile,
+  provider_response_set_id uuid NOT NULL,
+  member_key text NOT NULL,
+  ordinal integer NOT NULL CHECK (ordinal > 0),
+  page_key text,
+  shard_key text,
+  continuation_expected boolean NOT NULL DEFAULT false,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (model_invocation_id, member_key),
+  UNIQUE (model_invocation_id, ordinal),
+  UNIQUE (provider_response_member_unit_id, model_invocation_id),
+  FOREIGN KEY (
+    provider_response_set_id,
+    model_invocation_id,
+    provider_response_set_profile_id
+  ) REFERENCES provider_response_set (
+    provider_response_set_id,
+    model_invocation_id,
+    provider_response_set_profile_id
+  )
+);
+
+CREATE TABLE provider_response_member_decision (
+  provider_response_member_decision_id uuid PRIMARY KEY,
+  provider_response_member_unit_id uuid NOT NULL UNIQUE,
+  model_invocation_id uuid NOT NULL,
+  outcome response_member_outcome NOT NULL,
+  reason_code text,
+  continuation_closed boolean NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  CHECK ((outcome = 'success') = (reason_code IS NULL)),
+  FOREIGN KEY (provider_response_member_unit_id, model_invocation_id)
+    REFERENCES provider_response_member_unit
+      (provider_response_member_unit_id, model_invocation_id),
+  UNIQUE (provider_response_member_decision_id, model_invocation_id, outcome)
+);
+
+CREATE TABLE provider_response_receipt (
+  provider_response_receipt_id uuid PRIMARY KEY,
+  provider_response_member_decision_id uuid NOT NULL UNIQUE,
+  model_invocation_id uuid NOT NULL,
+  outcome response_member_outcome NOT NULL DEFAULT 'success',
+  response_mode text NOT NULL,
+  captured_exchange_id text NOT NULL,
+  authenticated_peer text NOT NULL,
+  provider_job_id text,
+  raw_response_hash text NOT NULL,
+  accepted_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (accepted_at <= system_available_at),
+  CHECK (recorded_at <= system_available_at),
+  FOREIGN KEY (provider_response_member_decision_id, model_invocation_id, outcome)
+    REFERENCES provider_response_member_decision
+      (provider_response_member_decision_id, model_invocation_id, outcome),
+  CONSTRAINT provider_receipt_success_only CHECK (outcome = 'success'),
+  UNIQUE (
+    provider_response_receipt_id,
+    provider_response_member_decision_id,
+    model_invocation_id
+  )
+);
+
+CREATE TABLE model_output_artifact (
+  model_output_artifact_id uuid PRIMARY KEY,
+  provider_response_member_decision_id uuid NOT NULL UNIQUE,
+  provider_response_receipt_id uuid NOT NULL UNIQUE,
+  model_invocation_id uuid NOT NULL,
+  raw_content_hash text NOT NULL,
+  storage_uri text NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  FOREIGN KEY (
+    provider_response_receipt_id,
+    provider_response_member_decision_id,
+    model_invocation_id
+  ) REFERENCES provider_response_receipt (
+    provider_response_receipt_id,
+    provider_response_member_decision_id,
+    model_invocation_id
+  )
+);
+
+CREATE TABLE provider_response_set_closure (
+  provider_response_set_id uuid PRIMARY KEY REFERENCES provider_response_set,
+  closed_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION validate_response_plan_timing()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  invocation_recorded_at timestamptz;
+  invocation_available_at timestamptz;
+BEGIN
+  SELECT recorded_at, system_available_at
+    INTO invocation_recorded_at, invocation_available_at
+    FROM model_invocation
+   WHERE model_invocation_id = NEW.model_invocation_id;
+
+  IF TG_TABLE_NAME = 'provider_response_set' THEN
+    IF NEW.frozen_at > invocation_recorded_at
+       OR NEW.system_available_at > invocation_available_at THEN
+      RAISE EXCEPTION 'response plan must be frozen and available by invocation';
+    END IF;
+  ELSIF TG_TABLE_NAME = 'provider_response_member_unit' THEN
+    IF NEW.recorded_at > invocation_recorded_at
+       OR NEW.system_available_at > invocation_available_at THEN
+      RAISE EXCEPTION 'response member universe must exist by invocation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER response_plan_timing_guard
+AFTER INSERT ON provider_response_set
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_response_plan_timing();
+
+CREATE CONSTRAINT TRIGGER response_member_timing_guard
+AFTER INSERT ON provider_response_member_unit
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_response_plan_timing();
+
+CREATE OR REPLACE FUNCTION prevent_response_append_after_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  set_id uuid;
+BEGIN
+  SELECT provider_response_set_id
+    INTO set_id
+    FROM provider_response_set
+   WHERE model_invocation_id = NEW.model_invocation_id
+   FOR UPDATE;
+
+  IF set_id IS NULL THEN
+    RAISE EXCEPTION 'provider response set does not exist for invocation';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM provider_response_set_closure c
+     WHERE c.provider_response_set_id = set_id
+  ) THEN
+    RAISE EXCEPTION 'provider response set is already closed';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION lock_response_set_for_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1
+    FROM provider_response_set
+   WHERE provider_response_set_id = NEW.provider_response_set_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'provider response set does not exist';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER response_set_closure_lock_guard
+BEFORE INSERT ON provider_response_set_closure
+FOR EACH ROW EXECUTE FUNCTION lock_response_set_for_closure();
+
+CREATE TRIGGER response_member_unit_closed_guard
+BEFORE INSERT ON provider_response_member_unit
+FOR EACH ROW EXECUTE FUNCTION prevent_response_append_after_closure();
+
+CREATE TRIGGER response_member_decision_closed_guard
+BEFORE INSERT ON provider_response_member_decision
+FOR EACH ROW EXECUTE FUNCTION prevent_response_append_after_closure();
+
+CREATE TRIGGER response_receipt_closed_guard
+BEFORE INSERT ON provider_response_receipt
+FOR EACH ROW EXECUTE FUNCTION prevent_response_append_after_closure();
+
+CREATE TRIGGER response_output_closed_guard
+BEFORE INSERT ON model_output_artifact
+FOR EACH ROW EXECUTE FUNCTION prevent_response_append_after_closure();
+
+CREATE OR REPLACE FUNCTION validate_provider_response_set_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  unit_count integer;
+  decision_count integer;
+  successful_count integer;
+  output_count integer;
+  open_continuations integer;
+  profile_min integer;
+  profile_max integer;
+  calculated_member_set_hash text;
+  set_invocation_id uuid;
+  set_profile_id uuid;
+  set_expected_member_count integer;
+  set_member_set_hash text;
+BEGIN
+  SELECT model_invocation_id, provider_response_set_profile_id,
+         expected_member_count, member_set_hash
+    INTO set_invocation_id, set_profile_id,
+         set_expected_member_count, set_member_set_hash
+    FROM provider_response_set
+   WHERE provider_response_set_id = NEW.provider_response_set_id;
+
+  SELECT minimum_members, maximum_members
+    INTO profile_min, profile_max
+    FROM provider_response_set_profile
+   WHERE provider_response_set_profile_id = set_profile_id;
+
+  SELECT count(*) INTO unit_count
+    FROM provider_response_member_unit
+   WHERE model_invocation_id = set_invocation_id
+     AND provider_response_set_profile_id = set_profile_id
+     AND provider_response_set_id = NEW.provider_response_set_id;
+
+  SELECT count(d.provider_response_member_decision_id),
+         count(*) FILTER (WHERE d.outcome = 'success'),
+         count(*) FILTER (WHERE u.continuation_expected AND NOT d.continuation_closed)
+    INTO decision_count, successful_count, open_continuations
+    FROM provider_response_member_unit u
+    LEFT JOIN provider_response_member_decision d
+      ON d.provider_response_member_unit_id = u.provider_response_member_unit_id
+   WHERE u.model_invocation_id = set_invocation_id
+     AND u.provider_response_set_profile_id = set_profile_id
+     AND u.provider_response_set_id = NEW.provider_response_set_id;
+
+  SELECT count(*) INTO output_count
+    FROM model_output_artifact
+   WHERE model_invocation_id = set_invocation_id;
+
+  SELECT encode(
+           digest(
+             string_agg(
+               u.provider_response_member_unit_id::text || '|' ||
+               encode(convert_to(u.member_key, 'UTF8'), 'hex') || '|' ||
+               u.ordinal::text || '|' ||
+               CASE WHEN u.page_key IS NULL THEN '-'
+                    ELSE encode(convert_to(u.page_key, 'UTF8'), 'hex') END || '|' ||
+               CASE WHEN u.shard_key IS NULL THEN '-'
+                    ELSE encode(convert_to(u.shard_key, 'UTF8'), 'hex') END || '|' ||
+               CASE WHEN u.continuation_expected THEN '1' ELSE '0' END,
+               E'\n' ORDER BY u.ordinal
+             ),
+             'sha256'
+           ),
+           'hex'
+         )
+    INTO calculated_member_set_hash
+    FROM provider_response_member_unit u
+   WHERE u.model_invocation_id = set_invocation_id
+     AND u.provider_response_set_profile_id = set_profile_id
+     AND u.provider_response_set_id = NEW.provider_response_set_id;
+
+  IF unit_count <> set_expected_member_count
+     OR decision_count <> unit_count
+     OR output_count <> successful_count
+     OR open_continuations <> 0
+     OR calculated_member_set_hash IS DISTINCT FROM set_member_set_hash
+     OR unit_count < profile_min
+     OR (profile_max IS NOT NULL AND unit_count > profile_max) THEN
+    RAISE EXCEPTION 'provider response set is not closed';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER provider_response_set_closure_guard
+AFTER INSERT ON provider_response_set_closure
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_provider_response_set_closure();
+
+CREATE TABLE token_use_policy_manifest (
+  token_use_policy_manifest_id uuid PRIMARY KEY,
+  token_type text NOT NULL,
+  action text NOT NULL,
+  use_mode token_use_mode NOT NULL,
+  maximum_uses integer,
+  require_cursor_monotonicity boolean NOT NULL,
+  schema_version text NOT NULL,
+  schema_hash text NOT NULL,
+  manifest_signature text NOT NULL,
+  owner_service_principal_id uuid NOT NULL REFERENCES service_principal,
+  input_record_ids uuid[] NOT NULL,
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (
+    (use_mode = 'single_use' AND maximum_uses = 1)
+    OR (use_mode = 'multi_use' AND maximum_uses IS NOT NULL AND maximum_uses > 1)
+  ),
+  UNIQUE (token_type, action, effective_from),
+  UNIQUE (token_use_policy_manifest_id, token_type, action)
+);
+
+CREATE TABLE presentation_capability_token (
+  presentation_capability_token_id uuid PRIMARY KEY,
+  token_use_policy_manifest_id uuid NOT NULL REFERENCES token_use_policy_manifest,
+  token_type text NOT NULL,
+  action text NOT NULL,
+  jti text NOT NULL UNIQUE,
+  subject_id uuid NOT NULL,
+  head_id uuid,
+  query_shape_hash text,
+  scope_binding_hash text GENERATED ALWAYS AS (
+    encode(
+      digest(
+        token_type || '|' || action || '|' || subject_id::text || '|' ||
+        coalesce(head_id::text, '-') || '|' || coalesce(query_shape_hash, '-'),
+        'sha256'
+      ),
+      'hex'
+    )
+  ) STORED,
+  issued_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  token_use_epoch bigint NOT NULL CHECK (token_use_epoch >= 0),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (issued_at < expires_at),
+  CHECK (recorded_at <= system_available_at),
+  FOREIGN KEY (token_use_policy_manifest_id, token_type, action)
+    REFERENCES token_use_policy_manifest
+      (token_use_policy_manifest_id, token_type, action),
+  UNIQUE (presentation_capability_token_id, scope_binding_hash)
+);
+
+CREATE TABLE token_use_unit (
+  token_use_unit_id uuid PRIMARY KEY,
+  presentation_capability_token_id uuid NOT NULL REFERENCES presentation_capability_token,
+  scope_binding_hash text NOT NULL,
+  request_nonce text NOT NULL,
+  cursor_ordinal bigint,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  UNIQUE (presentation_capability_token_id, request_nonce),
+  FOREIGN KEY (presentation_capability_token_id, scope_binding_hash)
+    REFERENCES presentation_capability_token
+      (presentation_capability_token_id, scope_binding_hash)
+);
+
+CREATE TABLE token_use_decision (
+  token_use_decision_id uuid PRIMARY KEY,
+  token_use_unit_id uuid NOT NULL UNIQUE REFERENCES token_use_unit,
+  outcome token_use_outcome NOT NULL,
+  reason_code text,
+  decided_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK ((outcome = 'accepted') = (reason_code IS NULL)),
+  CHECK (decided_at <= system_available_at),
+  CHECK (recorded_at <= system_available_at)
+);
+
+CREATE OR REPLACE FUNCTION validate_token_use_decision()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  token_id uuid;
+  policy_mode token_use_mode;
+  allowed_uses integer;
+  accepted_uses integer;
+  current_cursor bigint;
+  prior_cursor bigint;
+  enforce_cursor_monotonicity boolean;
+  token_issued_at timestamptz;
+  token_expires_at timestamptz;
+  issued_epoch bigint;
+  current_epoch bigint;
+BEGIN
+  SELECT t.presentation_capability_token_id, p.use_mode, p.maximum_uses,
+         u.cursor_ordinal, p.require_cursor_monotonicity,
+         t.issued_at, t.expires_at, t.token_use_epoch
+    INTO token_id, policy_mode, allowed_uses, current_cursor,
+         enforce_cursor_monotonicity, token_issued_at, token_expires_at, issued_epoch
+    FROM token_use_unit u
+    JOIN presentation_capability_token t
+      ON t.presentation_capability_token_id = u.presentation_capability_token_id
+    JOIN token_use_policy_manifest p
+      ON p.token_use_policy_manifest_id = t.token_use_policy_manifest_id
+   WHERE u.token_use_unit_id = NEW.token_use_unit_id
+   FOR UPDATE OF t;
+
+  IF NEW.outcome <> 'accepted' THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT max(token_use_epoch) INTO current_epoch FROM token_use_ledger_checkpoint;
+  IF current_epoch IS NULL OR issued_epoch <> current_epoch THEN
+    RAISE EXCEPTION 'token use epoch is stale or unavailable';
+  END IF;
+  IF NEW.decided_at < token_issued_at OR NEW.decided_at >= token_expires_at THEN
+    RAISE EXCEPTION 'token is not valid at decision time';
+  END IF;
+
+  SELECT count(*) INTO accepted_uses
+    FROM token_use_decision d
+    JOIN token_use_unit u ON u.token_use_unit_id = d.token_use_unit_id
+   WHERE u.presentation_capability_token_id = token_id
+     AND d.outcome = 'accepted';
+
+  IF accepted_uses > allowed_uses THEN
+    RAISE EXCEPTION 'token use limit exceeded';
+  END IF;
+
+  IF policy_mode = 'multi_use' AND enforce_cursor_monotonicity THEN
+    IF current_cursor IS NULL THEN
+      RAISE EXCEPTION 'multi-use token requires cursor ordinal';
+    END IF;
+    SELECT max(u.cursor_ordinal) INTO prior_cursor
+      FROM token_use_decision d
+      JOIN token_use_unit u ON u.token_use_unit_id = d.token_use_unit_id
+     WHERE u.presentation_capability_token_id = token_id
+       AND d.outcome = 'accepted'
+       AND d.token_use_decision_id <> NEW.token_use_decision_id;
+    IF prior_cursor IS NOT NULL AND current_cursor <= prior_cursor THEN
+      RAISE EXCEPTION 'multi-use cursor must advance monotonically';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER token_use_guard
+AFTER INSERT ON token_use_decision
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_token_use_decision();
+
+CREATE TABLE token_use_ledger_checkpoint (
+  token_use_ledger_checkpoint_id uuid PRIMARY KEY,
+  token_use_epoch bigint NOT NULL UNIQUE CHECK (token_use_epoch >= 0),
+  accepted_jti_set_hash text NOT NULL,
+  accepted_use_count bigint NOT NULL CHECK (accepted_use_count >= 0),
+  previous_checkpoint_id uuid,
+  predecessor_epoch bigint,
+  snapshot_frozen_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (
+    (token_use_epoch = 0 AND previous_checkpoint_id IS NULL AND predecessor_epoch IS NULL)
+    OR (token_use_epoch > 0 AND previous_checkpoint_id IS NOT NULL
+      AND predecessor_epoch = token_use_epoch - 1)
+  ),
+  UNIQUE (token_use_ledger_checkpoint_id, token_use_epoch),
+  UNIQUE (token_use_epoch, accepted_use_count),
+  FOREIGN KEY (previous_checkpoint_id, predecessor_epoch)
+    REFERENCES token_use_ledger_checkpoint
+      (token_use_ledger_checkpoint_id, token_use_epoch)
+    DEFERRABLE INITIALLY DEFERRED
+);
+
+ALTER TABLE presentation_capability_token
+  ADD CONSTRAINT presentation_token_epoch_checkpoint_fk
+  FOREIGN KEY (token_use_epoch)
+  REFERENCES token_use_ledger_checkpoint (token_use_epoch)
+  DEFERRABLE INITIALLY DEFERRED;
+
+CREATE TABLE evaluation_arm_manifest (
+  evaluation_arm_manifest_id uuid PRIMARY KEY,
+  arm_key text NOT NULL,
+  scope_snapshot_id uuid NOT NULL,
+  outcome_frame_manifest_id uuid NOT NULL,
+  cutoff_at timestamptz NOT NULL,
+  k integer NOT NULL CHECK (k > 0),
+  schema_version text NOT NULL,
+  schema_hash text NOT NULL,
+  manifest_signature text NOT NULL,
+  owner_service_principal_id uuid NOT NULL REFERENCES service_principal,
+  input_record_ids uuid[] NOT NULL,
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  UNIQUE (scope_snapshot_id, arm_key, cutoff_at)
+);
+
+CREATE TABLE evaluation_arm_generation_unit (
+  evaluation_arm_generation_unit_id uuid PRIMARY KEY,
+  evaluation_arm_manifest_id uuid NOT NULL REFERENCES evaluation_arm_manifest,
+  ordinal integer NOT NULL CHECK (ordinal > 0),
+  candidate_ref uuid NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  UNIQUE (evaluation_arm_manifest_id, ordinal),
+  UNIQUE (evaluation_arm_generation_unit_id, evaluation_arm_manifest_id)
+);
+
+CREATE TABLE evaluation_arm_generation_decision (
+  evaluation_arm_generation_decision_id uuid PRIMARY KEY,
+  evaluation_arm_generation_unit_id uuid NOT NULL UNIQUE,
+  evaluation_arm_manifest_id uuid NOT NULL,
+  outcome terminal_decision NOT NULL,
+  reason_code text,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  FOREIGN KEY (evaluation_arm_generation_unit_id, evaluation_arm_manifest_id)
+    REFERENCES evaluation_arm_generation_unit
+      (evaluation_arm_generation_unit_id, evaluation_arm_manifest_id),
+  CHECK ((outcome = 'selected') = (reason_code IS NULL))
+);
+
+CREATE TABLE evaluation_arm_output_snapshot (
+  evaluation_arm_output_snapshot_id uuid PRIMARY KEY,
+  evaluation_arm_manifest_id uuid NOT NULL UNIQUE REFERENCES evaluation_arm_manifest,
+  ordered_candidate_refs uuid[] NOT NULL,
+  member_set_hash text NOT NULL,
+  snapshot_frozen_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (cardinality(ordered_candidate_refs) > 0)
+);
+
+CREATE OR REPLACE FUNCTION reject_row_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
+END;
+$$;
+
+DO $$
+DECLARE
+  immutable_table text;
+BEGIN
+  FOREACH immutable_table IN ARRAY ARRAY[
+    'manifest_series',
+    'manifest_activation_decision',
+    'service_principal',
+    'service_principal_credential_version',
+    'service_principal_credential_state_event',
+    'model_invocation',
+    'provider_response_set_profile',
+    'provider_response_set',
+    'provider_response_member_unit',
+    'provider_response_member_decision',
+    'provider_response_receipt',
+    'model_output_artifact',
+    'provider_response_set_closure',
+    'token_use_policy_manifest',
+    'presentation_capability_token',
+    'token_use_unit',
+    'token_use_decision',
+    'token_use_ledger_checkpoint',
+    'evaluation_arm_manifest',
+    'evaluation_arm_generation_unit',
+    'evaluation_arm_generation_decision',
+    'evaluation_arm_output_snapshot'
+  ]
+  LOOP
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON %I '
+      'FOR EACH ROW EXECUTE FUNCTION reject_row_mutation()',
+      immutable_table || '_reject_mutation',
+      immutable_table
+    );
+  END LOOP;
+END;
+$$;
+
+COMMIT;

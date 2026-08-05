@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.example/schemas/provider-response-set.schema.json",
+  "title": "Closed Provider Response Set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "responseSet",
+    "expectedMembers",
+    "decisions",
+    "receipts",
+    "outputs"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "m1.0" },
+    "responseSet": { "$ref": "#/$defs/responseSet" },
+    "expectedMembers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/memberUnit" }
+    },
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/memberDecision" }
+    },
+    "receipts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/receipt" }
+    },
+    "outputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/output" }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "responseSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "responseSetId",
+        "invocationId",
+        "profileId",
+        "expectedMemberCount",
+        "memberSetHash",
+        "closedAt"
+      ],
+      "properties": {
+        "responseSetId": { "$ref": "#/$defs/uuid" },
+        "invocationId": { "$ref": "#/$defs/uuid" },
+        "profileId": { "$ref": "#/$defs/uuid" },
+        "expectedMemberCount": { "type": "integer", "minimum": 1 },
+        "memberSetHash": { "$ref": "#/$defs/sha256" },
+        "closedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "memberUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unitId",
+        "memberKey",
+        "ordinal",
+        "continuationExpected"
+      ],
+      "properties": {
+        "unitId": { "$ref": "#/$defs/uuid" },
+        "memberKey": { "type": "string", "minLength": 1 },
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "pageKey": { "type": "string", "minLength": 1 },
+        "shardKey": { "type": "string", "minLength": 1 },
+        "continuationExpected": { "type": "boolean" }
+      }
+    },
+    "memberDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "unitId",
+        "outcome",
+        "continuationClosed"
+      ],
+      "properties": {
+        "decisionId": { "$ref": "#/$defs/uuid" },
+        "unitId": { "$ref": "#/$defs/uuid" },
+        "outcome": { "enum": ["success", "failed", "missing"] },
+        "reasonCode": { "type": "string", "minLength": 1 },
+        "continuationClosed": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "outcome": { "const": "success" } },
+            "required": ["outcome"]
+          },
+          "then": { "not": { "required": ["reasonCode"] } },
+          "else": { "required": ["reasonCode"] }
+        }
+      ]
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiptId",
+        "decisionId",
+        "unitId",
+        "capturedExchangeId",
+        "authenticatedPeer",
+        "rawResponseHash"
+      ],
+      "properties": {
+        "receiptId": { "$ref": "#/$defs/uuid" },
+        "decisionId": { "$ref": "#/$defs/uuid" },
+        "unitId": { "$ref": "#/$defs/uuid" },
+        "capturedExchangeId": { "type": "string", "minLength": 1 },
+        "authenticatedPeer": { "type": "string", "minLength": 1 },
+        "rawResponseHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "decisionId",
+        "receiptId",
+        "rawContentHash",
+        "storageUri"
+      ],
+      "properties": {
+        "artifactId": { "$ref": "#/$defs/uuid" },
+        "decisionId": { "$ref": "#/$defs/uuid" },
+        "receiptId": { "$ref": "#/$defs/uuid" },
+        "rawContentHash": { "$ref": "#/$defs/sha256" },
+        "storageUri": { "type": "string", "pattern": "^blob://" }
+      }
+    }
+  },
+  "x-m1-invariants": [
+    "responseSet.expectedMemberCount equals expectedMembers.length",
+    "member unitId/memberKey/ordinal values are individually unique",
+    "every expected member has exactly one decision",
+    "success decisions have exactly one receipt and one output",
+    "failed or missing decisions have no receipt and no output",
+    "continuationExpected members require continuationClosed=true",
+    "memberSetHash equals SHA-256 of the canonical ordered full member projection"
+  ]
+}

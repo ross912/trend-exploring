@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "m1.0",
+  "mappings": [
+    { "table": "manifest_series", "canonicalObject": "ManifestSeries", "role": "identity", "timeProfile": "identity_time" },
+    { "table": "manifest_activation_decision", "canonicalObject": "ManifestActivationDecision", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "service_principal", "canonicalObject": "ServicePrincipal", "role": "identity", "timeProfile": "identity_time" },
+    { "table": "service_principal_credential_version", "canonicalObject": "ServicePrincipalCredentialVersion", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "service_principal_credential_state_event", "canonicalObject": "ServicePrincipalCredentialStateEvent", "role": "event", "timeProfile": "event_time" },
+    { "table": "model_invocation", "canonicalObject": "ModelInvocation", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "provider_response_set_profile", "canonicalObject": "ProviderResponseSetProfile", "role": "manifest", "timeProfile": "manifest_time" },
+    { "table": "provider_response_set", "canonicalObject": "ProviderResponseSet", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "provider_response_member_unit", "canonicalObject": "ProviderResponseMemberUnit", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "provider_response_member_decision", "canonicalObject": "ProviderResponseMemberDecision", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "provider_response_receipt", "canonicalObject": "ProviderResponseReceipt", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "model_output_artifact", "canonicalObject": "ModelOutputArtifact", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "provider_response_set_closure", "canonicalObject": "ProviderResponseSet", "role": "child", "timeProfile": "inherits_parent" },
+    { "table": "token_use_policy_manifest", "canonicalObject": "TokenUsePolicyManifest", "role": "manifest", "timeProfile": "manifest_time" },
+    { "table": "presentation_capability_token", "canonicalObject": "PresentationCapabilityToken", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "token_use_unit", "canonicalObject": "TokenUseUnit", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "token_use_decision", "canonicalObject": "TokenUseDecision", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "token_use_ledger_checkpoint", "canonicalObject": "TokenUseLedgerCheckpoint", "role": "record", "timeProfile": "standalone_snapshot_time" },
+    { "table": "evaluation_arm_manifest", "canonicalObject": "EvaluationArmManifest", "role": "manifest", "timeProfile": "manifest_time" },
+    { "table": "evaluation_arm_generation_unit", "canonicalObject": "EvaluationArmGenerationUnit", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "evaluation_arm_generation_decision", "canonicalObject": "EvaluationArmGenerationDecision", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "evaluation_arm_output_snapshot", "canonicalObject": "EvaluationArmOutputSnapshot", "role": "record", "timeProfile": "standalone_snapshot_time" }
+  ]
+}
