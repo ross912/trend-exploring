@@ -1,0 +1,734 @@
+{
+  "schemaVersion": "reference.v1",
+  "reviewedAt": "2026-08-05",
+  "purpose": "Track external open-source components that may inform or accelerate trend-exploring without copying third-party source code into this repository.",
+  "policies": {
+    "thirdPartyCodeCopied": false,
+    "reviewIsTimeBound": true,
+    "reverifyBeforeAdoption": true,
+    "licenseDecisionRequiredBeforeDistribution": true,
+    "neutralRadarInvariant": "Personal interests, clicks, memory, and profile data must not affect global collection, candidate generation, ranking, or reports."
+  },
+  "projects": [
+    {
+      "id": "worldmonitor",
+      "repository": "koala73/worldmonitor",
+      "url": "https://github.com/koala73/worldmonitor",
+      "description": "Global intelligence dashboard with curated feeds, multilingual coverage, cross-stream correlation, maps, APIs, and MCP surfaces.",
+      "reviewSnapshot": {
+        "stars": 78996,
+        "lastPushedAt": "2026-08-05T12:26:56Z"
+      },
+      "license": {
+        "expression": "AGPL-3.0-only",
+        "reusePolicy": "reference_only",
+        "note": "Do not copy code into the private product without a deliberate AGPL-compatible licensing decision."
+      },
+      "categories": [
+        "global_intelligence",
+        "product_surface",
+        "source_catalog",
+        "cross_stream_correlation"
+      ],
+      "disposition": "reference_only",
+      "similarity": {
+        "productSurface": "high",
+        "dataContract": "low",
+        "governance": "low",
+        "weakSignalEvaluation": "medium"
+      },
+      "components": [
+        {
+          "id": "worldmonitor.source_catalog",
+          "name": "Curated source catalog and freshness monitor",
+          "priority": "next",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M1.source_registry",
+            "M1.source_feasibility",
+            "M2.processing_watermarks"
+          ],
+          "triggers": [
+            "Design the first multilingual source inventory",
+            "Implement source health and freshness reporting"
+          ],
+          "borrow": [
+            "Data-source catalog presentation",
+            "Freshness grouping",
+            "Feed validation workflow"
+          ],
+          "mustPreserve": [
+            "Rights and observability must be explicit",
+            "Popularity must not substitute for coverage allocation"
+          ]
+        },
+        {
+          "id": "worldmonitor.cross_stream",
+          "name": "Cross-stream event convergence",
+          "priority": "later",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M3.cross_stream_diffusion",
+            "M3.weak_signal_detection"
+          ],
+          "triggers": [
+            "Implement signals spanning news, economic, disaster, and action streams"
+          ],
+          "borrow": [
+            "Cross-domain correlation UX",
+            "Multi-layer situational view"
+          ],
+          "mustPreserve": [
+            "Correlation is not causation",
+            "Every derived link must retain source and model lineage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "trendradar",
+      "repository": "sansan0/TrendRadar",
+      "url": "https://github.com/sansan0/TrendRadar",
+      "description": "Chinese-oriented multi-platform hot-list and RSS monitor with AI analysis, scheduled reports, MCP, and notification channels.",
+      "reviewSnapshot": {
+        "stars": 61175,
+        "lastPushedAt": "2026-07-17T13:54:28Z"
+      },
+      "license": {
+        "expression": "GPL-3.0-only",
+        "reusePolicy": "reference_only",
+        "note": "Use architecture and UX observations only until the product license is decided."
+      },
+      "categories": [
+        "trend_monitoring",
+        "reporting",
+        "notifications",
+        "mcp"
+      ],
+      "disposition": "reference_only",
+      "similarity": {
+        "productSurface": "high",
+        "dataContract": "low",
+        "governance": "low",
+        "weakSignalEvaluation": "low"
+      },
+      "components": [
+        {
+          "id": "trendradar.report_delivery",
+          "name": "Scheduled reports and multi-channel delivery",
+          "priority": "next",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M2.report_scheduler",
+            "M2.report_rendering",
+            "M2.notification_delivery"
+          ],
+          "triggers": [
+            "Build the 08:00 and 19:00 shadow editions",
+            "Add delivery channel adapters"
+          ],
+          "borrow": [
+            "Timeline scheduling concepts",
+            "Channel-specific formatting",
+            "Batch splitting and delivery diagnostics"
+          ],
+          "mustPreserve": [
+            "Committed report representation must equal delivered bytes",
+            "Delivery failures must not create a successful edition"
+          ]
+        },
+        {
+          "id": "trendradar.mcp_surface",
+          "name": "Read-only MCP query surface",
+          "priority": "later",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M4.conversation_tools",
+            "M5.radar_query_api"
+          ],
+          "triggers": [
+            "Expose historical reports and signal queries to AI clients"
+          ],
+          "borrow": [
+            "Tool taxonomy",
+            "STDIO and HTTP deployment patterns"
+          ],
+          "mustPreserve": [
+            "Tools must enforce snapshot membership and revocation epochs",
+            "Personal query context must not feed global ranking"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newsnow",
+      "repository": "ourongxing/newsnow",
+      "url": "https://github.com/ourongxing/newsnow",
+      "description": "Typed TypeScript adapters for many Chinese and international real-time news and hot-list sources.",
+      "reviewSnapshot": {
+        "stars": 21347,
+        "lastPushedAt": "2026-07-07T02:33:08Z"
+      },
+      "license": {
+        "expression": "MIT",
+        "reusePolicy": "evaluate_code_reuse",
+        "note": "Each upstream source still requires independent rights, robots, terms, and retention review."
+      },
+      "categories": [
+        "source_connectors",
+        "hot_lists",
+        "typed_adapters"
+      ],
+      "disposition": "shortlist",
+      "similarity": {
+        "productSurface": "medium",
+        "dataContract": "medium",
+        "governance": "low",
+        "weakSignalEvaluation": "low"
+      },
+      "components": [
+        {
+          "id": "newsnow.connector_contract",
+          "name": "Typed source-adapter contract",
+          "priority": "now",
+          "adoptionMode": "evaluate_code_reuse",
+          "targets": [
+            "M1.source_connectors",
+            "M1.source_registry"
+          ],
+          "triggers": [
+            "Implement the first real source connector",
+            "Define a connector conformance fixture"
+          ],
+          "borrow": [
+            "Per-source module layout",
+            "Shared source metadata types",
+            "Adaptive fetch interval ideas"
+          ],
+          "mustPreserve": [
+            "A connector license does not grant rights to upstream content",
+            "Hot-list rank must be stored as source assertion, not world importance",
+            "Failures and missing pages must remain in the denominator"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mediacloud_story_indexer",
+      "repository": "mediacloud/story-indexer",
+      "url": "https://github.com/mediacloud/story-indexer",
+      "description": "The ingestion pipeline used by Media Cloud's online news archive, including RSS queueing, fetching, metadata extraction, and indexing workers.",
+      "reviewSnapshot": {
+        "stars": 7,
+        "lastPushedAt": "2026-07-20T03:30:10Z"
+      },
+      "license": {
+        "expression": "Apache-2.0",
+        "reusePolicy": "evaluate_code_reuse",
+        "note": "Low star count is not a negative signal here; it is an actively maintained infrastructure component in the Media Cloud organization."
+      },
+      "categories": [
+        "news_archive",
+        "ingestion_pipeline",
+        "rss",
+        "metadata_extraction"
+      ],
+      "disposition": "shortlist",
+      "similarity": {
+        "productSurface": "low",
+        "dataContract": "high",
+        "governance": "medium",
+        "weakSignalEvaluation": "low"
+      },
+      "components": [
+        {
+          "id": "mediacloud.ingestion_pipeline",
+          "name": "Queued news ingestion stages",
+          "priority": "now",
+          "adoptionMode": "evaluate_code_reuse",
+          "targets": [
+            "M1.collection_pipeline",
+            "M1.raw_archive",
+            "M1.processing_watermarks"
+          ],
+          "triggers": [
+            "Implement fetch to capture to metadata extraction",
+            "Define retry and terminal failure boundaries"
+          ],
+          "borrow": [
+            "RSS puller and queuer separation",
+            "Worker pipeline boundaries",
+            "HTML fixture testing patterns"
+          ],
+          "mustPreserve": [
+            "Raw bytes must be stored before derived parsing",
+            "Retries must not create duplicate logical captures",
+            "Watermarks cannot cross open gaps"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "freshrss",
+      "repository": "FreshRSS/FreshRSS",
+      "url": "https://github.com/FreshRSS/FreshRSS",
+      "description": "Mature self-hosted RSS/Atom aggregator with WebSub, scraping, authentication, extensions, and multiple database backends.",
+      "reviewSnapshot": {
+        "stars": 15700,
+        "lastPushedAt": "2026-08-04T20:09:12Z"
+      },
+      "license": {
+        "expression": "AGPL-3.0-only",
+        "reusePolicy": "reference_only",
+        "note": "Consider as a separately deployed service only after architecture and AGPL obligations are reviewed."
+      },
+      "categories": [
+        "rss",
+        "websub",
+        "scraping",
+        "operations"
+      ],
+      "disposition": "reference_only",
+      "similarity": {
+        "productSurface": "medium",
+        "dataContract": "medium",
+        "governance": "low",
+        "weakSignalEvaluation": "none"
+      },
+      "components": [
+        {
+          "id": "freshrss.feed_operations",
+          "name": "Feed polling, WebSub, and scraping operations",
+          "priority": "next",
+          "adoptionMode": "reference_only",
+          "targets": [
+            "M1.source_connectors",
+            "M1.collection_scheduler"
+          ],
+          "triggers": [
+            "Harden feed discovery and conditional fetch behavior",
+            "Add WebSub-capable sources"
+          ],
+          "borrow": [
+            "Conditional feed updates",
+            "WebSub operating model",
+            "Low-resource deployment lessons"
+          ],
+          "mustPreserve": [
+            "Subscription choices must not define the global coverage universe",
+            "Scraping must pass source-specific rights review"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "opencti",
+      "repository": "OpenCTI-Platform/opencti",
+      "url": "https://github.com/OpenCTI-Platform/opencti",
+      "description": "Threat-intelligence knowledge platform with connectors, primary-source linkage, entities, relationships, first/last seen time, confidence, GraphQL, and import/export.",
+      "reviewSnapshot": {
+        "stars": 9771,
+        "lastPushedAt": "2026-08-05T12:41:42Z"
+      },
+      "license": {
+        "expression": "Apache-2.0 for Community Edition; proprietary terms for Enterprise Edition",
+        "reusePolicy": "file_level_review",
+        "note": "Confirm that any evaluated file belongs to Community Edition before reuse."
+      },
+      "categories": [
+        "knowledge_graph",
+        "provenance",
+        "connectors",
+        "confidence"
+      ],
+      "disposition": "shortlist",
+      "similarity": {
+        "productSurface": "medium",
+        "dataContract": "high",
+        "governance": "high",
+        "weakSignalEvaluation": "low"
+      },
+      "components": [
+        {
+          "id": "opencti.provenance_model",
+          "name": "Primary-source, relationship, and confidence model",
+          "priority": "now",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "crosscut.provenance",
+            "M2.evidence_graph",
+            "M3.signal_evidence"
+          ],
+          "triggers": [
+            "Implement canonical entity and evidence relationships",
+            "Design source-linked confidence views"
+          ],
+          "borrow": [
+            "Every information item linked to a primary source",
+            "First and last seen presentation",
+            "Connector and schema separation"
+          ],
+          "mustPreserve": [
+            "Confidence cannot replace evidence entailment",
+            "Source claims and AI inferences require different gates",
+            "Threat-domain STIX entities must not leak into the general ontology"
+          ]
+        },
+        {
+          "id": "opencti.connector_runtime",
+          "name": "Connector runtime and integration tests",
+          "priority": "next",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M1.connector_runtime",
+            "M1.connector_observability"
+          ],
+          "triggers": [
+            "Run more than one independently deployed connector"
+          ],
+          "borrow": [
+            "Connector helper boundaries",
+            "Rate-limit and integration-test patterns"
+          ],
+          "mustPreserve": [
+            "Connector identity, configuration, and execution records remain immutable and separate"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "misp",
+      "repository": "MISP/MISP",
+      "url": "https://github.com/MISP/MISP",
+      "description": "Structured intelligence sharing platform with events, attribute-level distribution, correlation, taxonomies, sightings, collaboration, APIs, and audit controls.",
+      "reviewSnapshot": {
+        "stars": 6452,
+        "lastPushedAt": "2026-08-03T14:38:28Z"
+      },
+      "license": {
+        "expression": "AGPL-3.0-only",
+        "reusePolicy": "reference_only",
+        "note": "Reference governance concepts only unless an AGPL-compatible product decision is made."
+      },
+      "categories": [
+        "event_governance",
+        "taxonomy",
+        "correlation",
+        "distribution",
+        "sightings"
+      ],
+      "disposition": "reference_only",
+      "similarity": {
+        "productSurface": "low",
+        "dataContract": "high",
+        "governance": "high",
+        "weakSignalEvaluation": "medium"
+      },
+      "components": [
+        {
+          "id": "misp.sightings_taxonomy",
+          "name": "Sightings, taxonomy, and correlation workflow",
+          "priority": "next",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M2.observation_model",
+            "M3.signal_lifecycle",
+            "M3.validation_evidence"
+          ],
+          "triggers": [
+            "Implement repeated observations and counter-evidence",
+            "Define controlled signal taxonomies"
+          ],
+          "borrow": [
+            "Sighting as a first-class observation",
+            "Adjustable taxonomies",
+            "Correlation warning and false-positive controls"
+          ],
+          "mustPreserve": [
+            "A repeated source is not an independent sighting",
+            "Correlation must retain its method and evidence"
+          ]
+        },
+        {
+          "id": "misp.distribution_policy",
+          "name": "Attribute-level distribution controls",
+          "priority": "later",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "crosscut.rights",
+            "M2.presentation_rights"
+          ],
+          "triggers": [
+            "Implement multi-audience exports or shared collections"
+          ],
+          "borrow": [
+            "Granular sharing groups",
+            "Export filtering"
+          ],
+          "mustPreserve": [
+            "Every delivery rechecks the current rights and revocation epoch"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kats",
+      "repository": "facebookresearch/Kats",
+      "url": "https://github.com/facebookresearch/Kats",
+      "description": "Time-series toolkit with change-point detection, anomaly detection, forecasting, feature extraction, evaluators, and simulators.",
+      "reviewSnapshot": {
+        "stars": 6437,
+        "lastPushedAt": "2026-07-27T19:10:46Z"
+      },
+      "license": {
+        "expression": "MIT",
+        "reusePolicy": "evaluate_dependency",
+        "note": "Evaluate maintained modules and transitive dependencies before selecting it as a runtime dependency."
+      },
+      "categories": [
+        "change_point_detection",
+        "anomaly_detection",
+        "time_series",
+        "evaluation"
+      ],
+      "disposition": "shortlist",
+      "similarity": {
+        "productSurface": "none",
+        "dataContract": "low",
+        "governance": "low",
+        "weakSignalEvaluation": "high"
+      },
+      "components": [
+        {
+          "id": "kats.change_point_baseline",
+          "name": "Change-point and anomaly baseline",
+          "priority": "later",
+          "adoptionMode": "evaluate_dependency",
+          "targets": [
+            "M3.weak_signal_detection",
+            "M3.detector_evaluation"
+          ],
+          "triggers": [
+            "Establish non-LLM baselines for temporal change detection"
+          ],
+          "borrow": [
+            "CUSUM and trend detectors",
+            "Synthetic anomaly injection",
+            "Detector evaluator patterns"
+          ],
+          "mustPreserve": [
+            "Detection opportunity denominators must be frozen before scoring",
+            "Statistical alerts do not become claims without evidence gates"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ossinsight",
+      "repository": "pingcap/ossinsight",
+      "url": "https://github.com/pingcap/ossinsight",
+      "description": "Large-scale event analytics product for velocity, ranking, collections, geographic distribution, and natural-language-to-SQL exploration.",
+      "reviewSnapshot": {
+        "stars": 2480,
+        "lastPushedAt": "2026-07-15T02:28:40Z"
+      },
+      "license": {
+        "expression": "Apache-2.0",
+        "reusePolicy": "evaluate_code_reuse",
+        "note": "Prefer metric definitions and query patterns over importing the whole GitHub-specific stack."
+      },
+      "categories": [
+        "trend_metrics",
+        "event_analytics",
+        "sql_exploration",
+        "visualization"
+      ],
+      "disposition": "shortlist",
+      "similarity": {
+        "productSurface": "medium",
+        "dataContract": "medium",
+        "governance": "low",
+        "weakSignalEvaluation": "high"
+      },
+      "components": [
+        {
+          "id": "ossinsight.velocity_metrics",
+          "name": "Velocity and cohort trend metrics",
+          "priority": "later",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M3.diffusion_features",
+            "M3.trend_metrics",
+            "M3.baseline_comparison"
+          ],
+          "triggers": [
+            "Implement growth velocity and cross-cohort trend views"
+          ],
+          "borrow": [
+            "Velocity rather than cumulative popularity",
+            "Curated comparison collections",
+            "SQL-backed transparent metrics"
+          ],
+          "mustPreserve": [
+            "Rankings require explicit denominators and observation windows",
+            "Popularity and weak-signal exposure remain separate channels"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "opennews",
+      "repository": "IUnlimit/opennews",
+      "url": "https://github.com/IUnlimit/opennews",
+      "description": "Small financial-news pipeline using multi-source ingestion, NLP, impact scoring, PostgreSQL, Neo4j, LangGraph, and a dashboard.",
+      "reviewSnapshot": {
+        "stars": 48,
+        "lastPushedAt": "2026-04-09T03:06:04Z"
+      },
+      "license": {
+        "expression": "MIT",
+        "reusePolicy": "evaluate_code_reuse",
+        "note": "Treat as a prototype reference; do not infer production maturity from its complete-looking architecture."
+      },
+      "categories": [
+        "news_knowledge_graph",
+        "impact_scoring",
+        "langgraph",
+        "prototype"
+      ],
+      "disposition": "defer",
+      "similarity": {
+        "productSurface": "medium",
+        "dataContract": "medium",
+        "governance": "low",
+        "weakSignalEvaluation": "medium"
+      },
+      "components": [
+        {
+          "id": "opennews.pipeline_prototype",
+          "name": "News-to-graph vertical-slice prototype",
+          "priority": "later",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M2.entity_extraction",
+            "M2.evidence_graph",
+            "M3.impact_features"
+          ],
+          "triggers": [
+            "Prototype the first news to entity graph to report flow"
+          ],
+          "borrow": [
+            "Small end-to-end module boundaries",
+            "PostgreSQL plus Neo4j experiment design"
+          ],
+          "mustPreserve": [
+            "Graph writes must retain raw-record lineage",
+            "Impact scores are provisional features, not factual claims"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "auto_news",
+      "repository": "finaldie/auto-news",
+      "url": "https://github.com/finaldie/auto-news",
+      "description": "Personal multi-source news aggregator with RSS, Reddit, social/video sources, multiple LLM backends, summaries, and experimental research agents.",
+      "reviewSnapshot": {
+        "stars": 902,
+        "lastPushedAt": "2025-07-19T06:31:38Z"
+      },
+      "license": {
+        "expression": "MIT",
+        "reusePolicy": "evaluate_code_reuse",
+        "note": "Its personal-interest workflow must remain outside the global radar path."
+      },
+      "categories": [
+        "multi_source",
+        "llm_orchestration",
+        "summarization",
+        "personal_reader"
+      ],
+      "disposition": "defer",
+      "similarity": {
+        "productSurface": "medium",
+        "dataContract": "low",
+        "governance": "low",
+        "weakSignalEvaluation": "low"
+      },
+      "components": [
+        {
+          "id": "auto_news.llm_adapters",
+          "name": "Multi-provider LLM adapter boundary",
+          "priority": "later",
+          "adoptionMode": "study_then_reimplement",
+          "targets": [
+            "M2.model_provider_adapters",
+            "M2.summary_generation"
+          ],
+          "triggers": [
+            "Support more than one model provider in shadow mode"
+          ],
+          "borrow": [
+            "Provider abstraction",
+            "Local-model option",
+            "Summary workflow decomposition"
+          ],
+          "mustPreserve": [
+            "All model calls pass outbound payload and provider response closure",
+            "Personal notes and interests remain in the personal domain"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aleph",
+      "repository": "alephdata/aleph",
+      "url": "https://github.com/alephdata/aleph",
+      "description": "Investigative document and structured-data search platform with entity extraction and graph-oriented exploration.",
+      "reviewSnapshot": {
+        "stars": 2409,
+        "lastPushedAt": "2026-02-20T22:43:51Z"
+      },
+      "license": {
+        "expression": "MIT",
+        "reusePolicy": "reference_only",
+        "note": "The open-source version announced maintenance sunset after December 2025; do not adopt it as a new platform dependency."
+      },
+      "categories": [
+        "document_ingestion",
+        "entity_extraction",
+        "investigative_search",
+        "maintenance_sunset"
+      ],
+      "disposition": "defer",
+      "similarity": {
+        "productSurface": "medium",
+        "dataContract": "medium",
+        "governance": "medium",
+        "weakSignalEvaluation": "none"
+      },
+      "components": [
+        {
+          "id": "aleph.document_ingestion",
+          "name": "Document ingestion and entity exploration UX",
+          "priority": "later",
+          "adoptionMode": "reference_only",
+          "targets": [
+            "M2.document_processing",
+            "M2.entity_exploration_ui"
+          ],
+          "triggers": [
+            "Add large document collections and investigative entity search"
+          ],
+          "borrow": [
+            "Document browsing concepts",
+            "Entity cross-linking UX"
+          ],
+          "mustPreserve": [
+            "Do not build new runtime dependencies on a sunsetted codebase"
+          ]
+        }
+      ]
+    }
+  ]
+}

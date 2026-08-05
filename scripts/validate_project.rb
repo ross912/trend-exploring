@@ -12,7 +12,7 @@ CONTRACT_PATH = File.join(ROOT, "docs/05-canonical-data-and-time-contract.md")
 OBJECT_MAP_PATH = File.join(ROOT, "schema/object-map.json")
 JSON_SCHEMA_PATH = File.join(ROOT, "schema/json/provider-response-set.schema.json")
 M1_VALIDATOR_PATH = File.join(ROOT, "scripts/validate_m1.rb")
-M1_TEST_PATH = File.join(ROOT, "test/provider_response_set_test.rb")
+PROJECT_TEST_GLOB = File.join(ROOT, "test/*_test.rb")
 
 M0_BASELINE_COUNTS = {
   "acceptance tests" => 233,
@@ -234,12 +234,14 @@ end
 m1_stdout, m1_stderr, m1_status = Open3.capture3(RbConfig.ruby, M1_VALIDATOR_PATH)
 errors << "M1 validator failed: #{m1_stderr.strip}" unless m1_status.success?
 
+test_loader = "Dir[#{PROJECT_TEST_GLOB.inspect}].sort.each { |path| require File.expand_path(path) }"
 test_stdout, test_stderr, test_status = Open3.capture3(
   RbConfig.ruby,
   "-I#{File.join(ROOT, 'lib')}",
-  M1_TEST_PATH
+  "-e",
+  test_loader
 )
-errors << "M1 tests failed: #{test_stderr.strip}\n#{test_stdout.strip}" unless test_status.success?
+errors << "project tests failed: #{test_stderr.strip}\n#{test_stdout.strip}" unless test_status.success?
 
 if errors.empty?
   puts "M0+M1 VALIDATION PASSED"
@@ -249,7 +251,7 @@ if errors.empty?
   puts "  markdown documents: #{documents.length}"
   puts "  M1 validator: passed"
   summary = test_stdout.lines.find { |line| line.include?("runs,") }
-  puts "  M1 tests: #{summary.to_s.strip}"
+  puts "  project tests: #{summary.to_s.strip}"
 else
   warn "M0+M1 VALIDATION FAILED"
   errors.each { |error| warn "  - #{error}" }

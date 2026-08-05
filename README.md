@@ -14,6 +14,7 @@
 6. [统一数据、时间与决策契约](docs/05-canonical-data-and-time-contract.md)
 7. [Codex × Kimi 中继协作协议](docs/06-kimi-codex-relay-collaboration-protocol.md)（外部协作附录，非知识库规范本体）
 8. [设计续跑交接](docs/07-continuation-handoff.md)
+9. [外部开源项目参考目录](reference/README.md)
 
 ## 当前架构不变量
 
