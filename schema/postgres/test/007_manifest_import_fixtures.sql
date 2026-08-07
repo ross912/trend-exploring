@@ -9,6 +9,20 @@ INSERT INTO service_principal VALUES
    '2026-08-07 01:00+00', '2026-08-07 01:00+00')
 ON CONFLICT (service_principal_id) DO NOTHING;
 
+INSERT INTO governance_signing_key_version (
+  signing_key_version_id, service_principal_id, key_purpose,
+  key_fingerprint, key_state, authorized_manifest_kinds,
+  effective_from, expires_at, system_available_at
+) VALUES
+  ('86100000-0000-4000-8000-000000000001',
+   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'test-governance',
+   'manifest-import-event-key-v1', 'active', ARRAY['event-registry']::text[],
+   '2026-08-07 01:00+00', '2027-08-07 01:00+00', '2026-08-07 01:00+00'),
+  ('86100000-0000-4000-8000-000000000002',
+   'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'test-governance',
+   'manifest-import-catalog-key-v1', 'active', ARRAY['test-catalog']::text[],
+   '2026-08-07 01:00+00', '2027-08-07 01:00+00', '2026-08-07 01:00+00');
+
 INSERT INTO test_governance_policy VALUES
   ('96000000-0000-4000-8000-000000000001', 9001,
    'm1.test-governance.v1', repeat('b', 64), 'signed-policy-fixture',
@@ -54,7 +68,8 @@ SELECT import_event_registry_manifest(
     )
   ),
   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-  '2026-08-07 01:00+00', '2026-08-07 01:00+00', true
+  '2026-08-07 01:00+00', '2026-08-07 01:00+00', true,
+  '86100000-0000-4000-8000-000000000001', '2026-08-07 01:00+00'
 );
 
 SELECT import_test_catalog_manifest(
@@ -104,7 +119,8 @@ SELECT import_test_catalog_manifest(
   ),
   'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   '2026-08-07 01:00+00', '2026-08-07 01:00+00',
-  ARRAY['96000000-0000-4000-8000-000000000011']::uuid[], true
+  ARRAY['96000000-0000-4000-8000-000000000011']::uuid[], true,
+  '86100000-0000-4000-8000-000000000002', '2026-08-07 01:00+00'
 );
 COMMIT;
 
@@ -159,7 +175,8 @@ BEGIN
         ))
       ),
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      '2026-08-07 01:03+00', '2026-08-07 01:03+00', true
+      '2026-08-07 01:03+00', '2026-08-07 01:03+00', true,
+      '86100000-0000-4000-8000-000000000001', '2026-08-07 01:03+00'
     );
     RAISE EXCEPTION 'event transition with unknown state was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
@@ -207,7 +224,8 @@ BEGIN
         'eventTypes', jsonb_build_array()
       ),
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      '2026-08-07 01:02+00', '2026-08-07 01:02+00', true
+      '2026-08-07 01:02+00', '2026-08-07 01:02+00', true,
+      '86100000-0000-4000-8000-000000000001', '2026-08-07 01:02+00'
     );
     RAISE EXCEPTION 'duplicate event registry was accepted';
   EXCEPTION WHEN raise_exception THEN

@@ -6,6 +6,17 @@ INSERT INTO service_principal VALUES
   ('a7000000-0000-4000-8000-000000000023', 'ctr013-family-fixture',
    '2026-08-07 07:00+00', '2026-08-07 07:00+00');
 
+INSERT INTO governance_signing_key_version (
+  signing_key_version_id, service_principal_id, key_purpose,
+  key_fingerprint, key_state, authorized_manifest_kinds,
+  effective_from, expires_at, system_available_at
+) VALUES (
+  '86130000-0000-4000-8000-000000000023',
+  'a7000000-0000-4000-8000-000000000023', 'test-governance',
+  'ctr013-event-registry-key-v1', 'active', ARRAY['event-registry']::text[],
+  '2026-08-07 07:00+00', '2027-08-07 07:00+00', '2026-08-07 07:00+00'
+);
+
 SELECT import_event_registry_manifest(
   jsonb_build_object(
     'schemaVersion', 'm1.event-registry.ctr013.v1',
@@ -47,7 +58,8 @@ SELECT import_event_registry_manifest(
     )
   ),
   'a7000000-0000-4000-8000-000000000023',
-  '2026-08-07 07:00+00', '2026-08-07 07:00+00', true
+  '2026-08-07 07:00+00', '2026-08-07 07:00+00', true,
+  '86130000-0000-4000-8000-000000000023', '2026-08-07 07:00+00'
 );
 
 INSERT INTO global_identity_registry VALUES

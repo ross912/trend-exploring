@@ -6,13 +6,19 @@ INSERT INTO service_principal VALUES
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'fixture-quorum-secondary',
    '2026-08-07 00:00+00', '2026-08-07 00:00+00')
 ON CONFLICT (service_principal_id) DO NOTHING;
-INSERT INTO governance_signing_key_version VALUES
+INSERT INTO governance_signing_key_version (
+  signing_key_version_id, service_principal_id, key_purpose,
+  key_fingerprint, key_state, authorized_manifest_kinds,
+  effective_from, expires_at, system_available_at
+) VALUES
   ('86000000-0000-4000-8000-000000000001',
    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'test-governance', 'key-bbbb-v1',
-   'active', '2026-08-07 00:00+00', '2027-08-07 00:00+00', '2026-08-07 00:00+00'),
+   'active', ARRAY['test-governance']::text[],
+   '2026-08-07 00:00+00', '2027-08-07 00:00+00', '2026-08-07 00:00+00'),
   ('86000000-0000-4000-8000-000000000002',
    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'test-governance', 'key-aaaa-v1',
-   'active', '2026-08-07 00:00+00', '2027-08-07 00:00+00', '2026-08-07 00:00+00');
+   'active', ARRAY['test-governance']::text[],
+   '2026-08-07 00:00+00', '2027-08-07 00:00+00', '2026-08-07 00:00+00');
 
 INSERT INTO approval_decision VALUES
   ('80000000-0000-4000-8000-000000000001', 'test_definition_version',

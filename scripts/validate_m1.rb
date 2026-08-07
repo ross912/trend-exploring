@@ -297,6 +297,7 @@ begin
     errors << "missing manifest import function: #{function_name}" unless import_sql.match?(/CREATE OR REPLACE FUNCTION\s+#{function_name}\b/i)
   end
   errors << "manifest import must require signature verification" unless import_sql.include?("p_signature_verified") && import_sql.include?("signature is not verified")
+  errors << "manifest import must bind an authorized signing key" unless import_sql.include?("p_signing_key_version_id") && import_sql.include?("assert_manifest_signature_authorized")
 rescue JSON::ParserError, Errno::ENOENT, KeyError => e
   errors << "EventBase/import contract error: #{e.message}"
 end
@@ -415,7 +416,7 @@ if errors.empty?
   puts "  canonical schema compiler: 247 registry objects; deterministic metadata DDL"
   puts "  manifest compiler: deterministic envelope/payload hash; activation signature required"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
-  puts "  Governance quorum: 2 tables and deferred approval trigger"
+  puts "  Governance quorum: 2 tables, deferred approval trigger, and manifest-key authorization"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
   puts "  JSON Schema: #{SCHEMA_PATH}"
   puts "  valid fixture: accepted"

@@ -21,7 +21,9 @@ CREATE OR REPLACE FUNCTION import_event_registry_manifest(
   p_owner_service_principal_id uuid,
   p_effective_from timestamptz,
   p_system_available_at timestamptz,
-  p_signature_verified boolean DEFAULT false
+  p_signature_verified boolean DEFAULT false,
+  p_signing_key_version_id uuid DEFAULT NULL,
+  p_signed_at timestamptz DEFAULT NULL
 )
 RETURNS text LANGUAGE plpgsql AS $$
 DECLARE
@@ -44,12 +46,19 @@ BEGIN
   IF jsonb_typeof(p_registry) <> 'object'
      OR p_registry->>'signatureStatus' <> 'signed'
      OR coalesce(p_registry->>'manifestSignature', '') = ''
-     OR NOT p_signature_verified THEN
+     OR NOT p_signature_verified
+     OR p_signing_key_version_id IS NULL
+     OR p_signed_at IS NULL THEN
     RAISE EXCEPTION 'event registry signature is not verified';
   END IF;
   registry_version := p_registry->>'schemaVersion';
   schema_hash := p_registry->>'schemaHash';
   manifest_signature := p_registry->>'manifestSignature';
+  PERFORM assert_manifest_signature_authorized(
+    'event-registry', manifest_signature, p_owner_service_principal_id,
+    p_signing_key_version_id, p_signed_at, p_effective_from,
+    p_system_available_at, p_signature_verified
+  );
   IF coalesce(registry_version, '') = '' THEN
     RAISE EXCEPTION 'event registry manifest is malformed';
   END IF;
@@ -145,7 +154,9 @@ CREATE OR REPLACE FUNCTION import_test_catalog_manifest(
   p_effective_from timestamptz,
   p_system_available_at timestamptz,
   p_input_record_ids uuid[] DEFAULT ARRAY[]::uuid[],
-  p_signature_verified boolean DEFAULT false
+  p_signature_verified boolean DEFAULT false,
+  p_signing_key_version_id uuid DEFAULT NULL,
+  p_signed_at timestamptz DEFAULT NULL
 )
 RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE
@@ -165,11 +176,18 @@ BEGIN
   IF jsonb_typeof(p_catalog) <> 'object'
      OR p_catalog->>'signatureStatus' <> 'signed'
      OR coalesce(p_catalog->>'manifestSignature', '') = ''
-     OR NOT p_signature_verified THEN
+     OR NOT p_signature_verified
+     OR p_signing_key_version_id IS NULL
+     OR p_signed_at IS NULL THEN
     RAISE EXCEPTION 'test catalog signature is not verified';
   END IF;
   schema_hash := p_catalog->>'schemaHash';
   manifest_signature := p_catalog->>'manifestSignature';
+  PERFORM assert_manifest_signature_authorized(
+    'test-catalog', manifest_signature, p_owner_service_principal_id,
+    p_signing_key_version_id, p_signed_at, p_effective_from,
+    p_system_available_at, p_signature_verified
+  );
   policy_version := NULLIF(p_catalog->>'testGovernancePolicyVersion', '')::uuid;
   target_phase := p_catalog->>'targetPhase';
   target_gate := p_catalog->>'targetGate';

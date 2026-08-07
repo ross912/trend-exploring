@@ -37,7 +37,7 @@
 - `postgres/test/013_manifest_activation_concurrency.sh`：双进程同 series/revision 竞争，验证 row lock + expected-head CAS 只有一个 winner。
 - `postgres/test/018_coverage_item_fixtures.sql` / `019_coverage_item_concurrency.sh`：CoverageItem canonical UUIDv5、projection-key 唯一、generation unit、append-only 与双进程并发反例。
 - `postgres/005_m1_gate_report.sql` / `postgres/test/010_m1_gate_report_fixtures.sql`：数据库直接按 catalog/run/result 计算 M1 phase-exit report，缺结果和非 pass 结果 fail closed。
-- `postgres/006_governance_quorum.sql` / `governance-quorum-map.json` / `postgres/test/012_governance_quorum_smoke.sql`：ApprovalDecision signer/key quorum、purpose/state/validity 校验和 append-only child。
+- `postgres/006_governance_quorum.sql` / `governance-quorum-map.json` / `postgres/test/012_governance_quorum_smoke.sql` / `postgres/test/024_test_governance_signature_fixtures.sql`：ApprovalDecision signer/key quorum、manifest kind allowlist、active/expiry/revocation 校验和 append-only child；导入仍要求 ingress 已完成密码学 detached-signature 验证。
 - `../scripts/generate_test_catalog.rb`：从 `docs/04-acceptance-test-plan.md` 确定性编译目标 phase 的 definitions/members/hash；未接入治理签名时显式输出 `unsigned`。
 - `../scripts/generate_event_registry.rb`：确定性编译 05 号契约的 29 个 event type、semantic/family/state transitions；未接入治理签名时显式输出 `unsigned`。
 - `../scripts/generate_permission_matrix.rb`：确定性生成 8 个用途集合的 deny-by-default 权限矩阵；推理、训练、展示和 prevalence 不共享隐式授权。

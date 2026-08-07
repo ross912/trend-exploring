@@ -12,12 +12,60 @@ CREATE TABLE governance_signing_key_version (
   key_purpose text NOT NULL CHECK (key_purpose = 'test-governance'),
   key_fingerprint text NOT NULL CHECK (btrim(key_fingerprint) <> ''),
   key_state governance_key_state NOT NULL,
+  authorized_manifest_kinds text[] NOT NULL DEFAULT ARRAY['test-governance']::text[],
   effective_from timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
   system_available_at timestamptz NOT NULL,
+  CHECK (cardinality(authorized_manifest_kinds) > 0),
   CHECK (effective_from < expires_at),
   CHECK (effective_from <= system_available_at)
 );
+
+CREATE OR REPLACE FUNCTION assert_manifest_signature_authorized(
+  p_manifest_kind text,
+  p_manifest_signature text,
+  p_owner_service_principal_id uuid,
+  p_signing_key_version_id uuid,
+  p_signed_at timestamptz,
+  p_effective_from timestamptz,
+  p_system_available_at timestamptz,
+  p_signature_verified boolean
+)
+RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE
+  signing_key governance_signing_key_version%ROWTYPE;
+BEGIN
+  -- Cryptographic verification remains an ingress responsibility; this
+  -- function closes the database-side authorization/lifecycle boundary.
+  IF NOT p_signature_verified
+     OR btrim(coalesce(p_manifest_signature, '')) = ''
+     OR p_signing_key_version_id IS NULL
+     OR p_signed_at IS NULL THEN
+    RAISE EXCEPTION 'manifest signature is not verified';
+  END IF;
+
+  SELECT * INTO signing_key
+    FROM governance_signing_key_version
+   WHERE signing_key_version_id = p_signing_key_version_id
+   FOR KEY SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'manifest signing key does not exist';
+  END IF;
+
+  IF signing_key.key_state <> 'active'
+     OR signing_key.key_purpose <> 'test-governance'
+     OR NOT (p_manifest_kind = ANY (signing_key.authorized_manifest_kinds))
+     OR p_signed_at < signing_key.effective_from
+     OR p_signed_at >= signing_key.expires_at
+     OR p_effective_from < signing_key.effective_from
+     OR p_effective_from >= signing_key.expires_at
+     OR p_signed_at > p_system_available_at
+     OR p_owner_service_principal_id IS NULL THEN
+    RAISE EXCEPTION 'manifest signing key is not currently authorized';
+  END IF;
+  RETURN true;
+END;
+$$;
 
 CREATE TABLE approval_decision_signer (
   approval_decision_id uuid NOT NULL
