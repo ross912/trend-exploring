@@ -18,6 +18,8 @@ SOURCE_SQL_PATH = File.join(ROOT, "schema/postgres/004_m1_source_archive.sql")
 SOURCE_MAP_PATH = File.join(ROOT, "schema/m1-source-map.json")
 COVERAGE_SQL_PATH = File.join(ROOT, "schema/postgres/007_m1_coverage_item.sql")
 COVERAGE_MAP_PATH = File.join(ROOT, "schema/m1-coverage-map.json")
+PRESENTATION_SQL_PATH = File.join(ROOT, "schema/postgres/008_m1_presentation.sql")
+PRESENTATION_MAP_PATH = File.join(ROOT, "schema/m1-presentation-map.json")
 DATA_BOUNDARY_PATH = File.join(ROOT, "schema/data-domain-boundary.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
 COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
@@ -194,6 +196,21 @@ rescue JSON::ParserError, Errno::ENOENT, KeyError => e
 end
 
 begin
+  presentation_sql = File.read(PRESENTATION_SQL_PATH)
+  presentation_map = JSON.parse(File.read(PRESENTATION_MAP_PATH)).fetch("mappings")
+  presentation_tables = presentation_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+  mapped_presentation_tables = presentation_map.map { |mapping| mapping.fetch("table") }
+  errors << "M1 presentation tables missing mappings: #{(presentation_tables - mapped_presentation_tables).join(',')}" unless (presentation_tables - mapped_presentation_tables).empty?
+  errors << "M1 presentation map has unknown tables: #{(mapped_presentation_tables - presentation_tables).join(',')}" unless (mapped_presentation_tables - presentation_tables).empty?
+  errors << "M1 presentation migration must be transactional" unless presentation_sql.include?("BEGIN;") && presentation_sql.rstrip.end_with?("COMMIT;")
+  errors << "M1 presentation claim identity guard is missing" unless presentation_sql.include?("validate_claim_generation_identity")
+  errors << "M1 presentation child closure guard is missing" unless presentation_sql.include?("presentation_content_closure_guard")
+  errors << "M1 presentation source reference XOR guard is missing" unless presentation_sql.include?("claim_citation_id IS NULL") && presentation_sql.include?("raw_source_listing_reference_id IS NULL")
+rescue JSON::ParserError, Errno::ENOENT, KeyError => e
+  errors << "M1 presentation contract error: #{e.message}"
+end
+
+begin
   M1::DataBoundary.validate!(M1::DataBoundary.load(DATA_BOUNDARY_PATH))
 rescue M1::DataBoundary::Error, Errno::ENOENT => e
   errors << "M1 data-domain boundary contract error: #{e.message}"
@@ -328,6 +345,7 @@ if errors.empty?
   puts "  M1 source/archive slice: 15 tables"
   puts "  M1 coverage identity slice: 2 tables; UUIDv5/projection-key guards"
   puts "  M1 data-domain boundary: global/private forbidden-input contract; runtime enforcement pending"
+  puts "  M1 presentation identity slice: 8 tables; typed child/XOR/plan guards"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"

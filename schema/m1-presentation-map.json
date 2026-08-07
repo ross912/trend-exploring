@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "m1.0",
+  "purpose": "M1 typed claim-slot and presentation render-plan mappings.",
+  "mappings": [
+    { "table": "claim_generation_unit", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "claim_generation_decision", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "presentation_render_plan", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "presentation_content_unit", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "presentation_title_content", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "presentation_body_content", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "presentation_claim_content", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "source_text_ref", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" }
+  ]
+}

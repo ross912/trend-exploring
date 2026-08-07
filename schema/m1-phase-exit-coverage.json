@@ -21,7 +21,7 @@
     { "testCode": "CTR-011", "status": "fixture_passed", "evidence": "schema/postgres/test/015_inherited_catalog_fixtures.sql" },
     { "testCode": "CTR-012", "status": "fixture_passed", "evidence": "lib/canonical_contract.rb; test/canonical_contract_test.rb" },
     { "testCode": "CTR-013", "status": "partial", "evidence": "schema/postgres/test/005_event_base_fixtures.sql" },
-    { "testCode": "CTR-014", "status": "not_implemented", "evidence": "" },
+    { "testCode": "CTR-014", "status": "partial", "evidence": "schema/postgres/008_m1_presentation.sql; schema/postgres/test/020_presentation_fixtures.sql" },
     { "testCode": "CTR-015", "status": "partial", "evidence": "schema/postgres/007_m1_coverage_item.sql; schema/postgres/test/018_coverage_item_fixtures.sql; schema/postgres/test/019_coverage_item_concurrency.sh" },
     { "testCode": "CTR-016", "status": "fixture_passed", "evidence": "schema/postgres/test/005_event_base_fixtures.sql" },
     { "testCode": "CTR-017", "status": "fixture_passed", "evidence": "schema/postgres/test/011_manifest_activation_fixtures.sql; schema/postgres/test/013_manifest_activation_concurrency.sh" },
