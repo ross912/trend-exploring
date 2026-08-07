@@ -8,10 +8,12 @@
 - `postgres/002_event_base.sql`：EventBase/EventCausalParent 基础设施，包含 typed GlobalIdentityRegistry、不可变 EventType registry header/definition/state/transition/API-alias children、exclusive revision CAS、同域 sequence、跨域 queue proof、可用时间与 DAG/cycle guard；八张基础设施表均有 append-only guard。
 - `postgres/003_manifest_import.sql`：只接受外部已验证签名的 TestCatalog/EventRegistry import 函数；unsigned、未导入 governance policy 和重复 registry/catalog version 均 fail closed。
 - `postgres/004_m1_source_archive.sql`：M1 来源/权限/档案垂直切片，覆盖 collection opportunity 分母、publisher owner/dependency、RawItemVersion、PurposeAuthorization、四类 RawArtifact、blob binding、restore/format migration 与 language-evaluation manifest。
+- `postgres/007_m1_coverage_item.sql`：CoverageItem 与 candidate-generation unit 的 canonical projection key、UUIDv5 身份重算、typed input、并发唯一性和 append-only guard；配套 map 与 018/019 夹具单独在干净 PostgreSQL 集群回归。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `event-infrastructure-map.json`：002 migration 的五张基础设施表映射；它们不重复登记领域对象。
 - `m1-source-map.json`：004 migration 的 15 张 M1 来源/档案表映射。
+- `m1-coverage-map.json`：007 migration 的 2 张 CoverageItem 身份切片表映射。
 - `m1-phase-exit-coverage.json`：M1 phase-exit 30 个 required IDs 的证据覆盖矩阵；partial/not_implemented 自动保持 gate blocked。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。
 - `fixtures/provider-response-set.omitted-member.invalid.json`：只保存成功 B、遗漏失败 A 的 ADV-013 反例。
@@ -25,6 +27,7 @@
 - `postgres/test/008_m1_source_archive_fixtures.sql` / `009_m1_source_smoke.sql`：M1 来源/权限/档案 phase-exit 垂直切片正反例与 59 表 append-only smoke。
 - `postgres/test/011_manifest_activation_fixtures.sql`：ManifestActivationDecision expected-head CAS、predecessor 与 authoritative range exclusion 反例。
 - `postgres/test/013_manifest_activation_concurrency.sh`：双进程同 series/revision 竞争，验证 row lock + expected-head CAS 只有一个 winner。
+- `postgres/test/018_coverage_item_fixtures.sql` / `019_coverage_item_concurrency.sh`：CoverageItem canonical UUIDv5、projection-key 唯一、generation unit、append-only 与双进程并发反例。
 - `postgres/005_m1_gate_report.sql` / `postgres/test/010_m1_gate_report_fixtures.sql`：数据库直接按 catalog/run/result 计算 M1 phase-exit report，缺结果和非 pass 结果 fail closed。
 - `postgres/006_governance_quorum.sql` / `governance-quorum-map.json` / `postgres/test/012_governance_quorum_smoke.sql`：ApprovalDecision signer/key quorum、purpose/state/validity 校验和 append-only child。
 - `../scripts/generate_test_catalog.rb`：从 `docs/04-acceptance-test-plan.md` 确定性编译目标 phase 的 definitions/members/hash；未接入治理签名时显式输出 `unsigned`。
@@ -52,7 +55,7 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 
 真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke、测试治理和 gate evaluation fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003`/`004` 覆盖测试目录与 gate evaluation 的 fail-closed 集合语义。
 
-当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 64 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，CTR-010 的越界 result/append-only 负向夹具、CTR-011 的 M2/M5 inherited catalog 回归、LAN-001 的十种正式语言评测闭合回归和 CTR-007 的修订强度单调性回归已通过；CTR-007 的密钥授权链仍未实现，当前 readiness 为 21/30 fixture_passed、9/30 blocked。
+当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 64 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke；007 的 2 张 CoverageItem 身份表另在干净 PostgreSQL 15.18 集群通过 018/019 fixture/concurrency。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，CTR-010 的越界 result/append-only 负向夹具、CTR-011 的 M2/M5 inherited catalog 回归、LAN-001 的十种正式语言评测闭合回归和 CTR-007 的修订强度单调性回归已通过；CTR-007 的密钥授权链和 CTR-015 的真实 policy/role FK 与 watermark-gap 闭合仍未实现，当前 readiness 为 21/30 fixture_passed、9/30 blocked。
 
 ## 自检记录
 

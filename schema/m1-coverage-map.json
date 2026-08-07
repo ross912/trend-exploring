@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "m1.0",
+  "purpose": "M1 deterministic CoverageItem and candidate-generation identity mappings.",
+  "mappings": [
+    { "table": "coverage_item", "role": "m1_coverage_slice", "timeProfile": "derived_record_time" },
+    { "table": "coverage_generation_unit", "role": "m1_coverage_slice", "timeProfile": "derived_record_time" }
+  ]
+}

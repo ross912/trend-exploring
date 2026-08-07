@@ -15,6 +15,8 @@ IMPORT_SQL_PATH = File.join(ROOT, "schema/postgres/003_manifest_import.sql")
 EVENT_MAP_PATH = File.join(ROOT, "schema/event-infrastructure-map.json")
 SOURCE_SQL_PATH = File.join(ROOT, "schema/postgres/004_m1_source_archive.sql")
 SOURCE_MAP_PATH = File.join(ROOT, "schema/m1-source-map.json")
+COVERAGE_SQL_PATH = File.join(ROOT, "schema/postgres/007_m1_coverage_item.sql")
+COVERAGE_MAP_PATH = File.join(ROOT, "schema/m1-coverage-map.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
 COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
 GOVERNANCE_SQL_PATH = File.join(ROOT, "schema/postgres/006_governance_quorum.sql")
@@ -175,6 +177,21 @@ rescue JSON::ParserError, Errno::ENOENT, KeyError => e
 end
 
 begin
+  coverage_sql = File.read(COVERAGE_SQL_PATH)
+  coverage_map = JSON.parse(File.read(COVERAGE_MAP_PATH)).fetch("mappings")
+  coverage_tables = coverage_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+  mapped_coverage_tables = coverage_map.map { |mapping| mapping.fetch("table") }
+  errors << "M1 coverage tables missing mappings: #{(coverage_tables - mapped_coverage_tables).join(',')}" unless (coverage_tables - mapped_coverage_tables).empty?
+  errors << "M1 coverage map has unknown tables: #{(mapped_coverage_tables - coverage_tables).join(',')}" unless (mapped_coverage_tables - coverage_tables).empty?
+  errors << "M1 coverage migration must be transactional" unless coverage_sql.include?("BEGIN;") && coverage_sql.rstrip.end_with?("COMMIT;")
+  errors << "M1 coverage identity function is missing" unless coverage_sql.include?("validate_coverage_item_identity")
+  errors << "M1 coverage generation identity function is missing" unless coverage_sql.include?("validate_coverage_generation_identity")
+  errors << "M1 coverage tables must be append-only" unless coverage_sql.include?("coverage_item_reject_mutation") && coverage_sql.include?("coverage_generation_reject_mutation")
+rescue JSON::ParserError, Errno::ENOENT, KeyError => e
+  errors << "M1 coverage contract error: #{e.message}"
+end
+
+begin
   event_sql = File.read(EVENT_SQL_PATH)
   import_sql = File.read(IMPORT_SQL_PATH)
   event_tables = event_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
@@ -301,6 +318,7 @@ if errors.empty?
   puts "  SQL table mappings: #{sql_tables.length}"
   puts "  EventBase infrastructure: 8 tables; signed import functions: 2"
   puts "  M1 source/archive slice: 15 tables"
+  puts "  M1 coverage identity slice: 2 tables; UUIDv5/projection-key guards"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
