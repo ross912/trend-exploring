@@ -13,7 +13,7 @@
     { "testCode": "CTR-003", "status": "partial", "evidence": "scripts/generate_test_catalog.rb" },
     { "testCode": "CTR-004", "status": "fixture_passed", "evidence": "schema/postgres/test/005_event_base_fixtures.sql; schema/postgres/test/007_manifest_import_fixtures.sql" },
     { "testCode": "CTR-005", "status": "fixture_passed", "evidence": "schema/postgres/test/007_manifest_import_fixtures.sql" },
-    { "testCode": "CTR-006", "status": "partial", "evidence": "schema/data-domain-boundary.json; lib/data_boundary.rb; scripts/lint_data_boundary.rb; test/data_boundary_test.rb" },
+    { "testCode": "CTR-006", "status": "partial", "evidence": "schema/data-domain-boundary.json; lib/data_boundary.rb; scripts/lint_data_boundary.rb; test/data_boundary_test.rb; schema/postgres/010_m1_data_domain.sql; schema/postgres/test/022_data_domain_fixtures.sql" },
     { "testCode": "CTR-007", "status": "partial", "evidence": "schema/postgres/test/003_test_governance_fixtures.sql; schema/postgres/test/017_test_definition_strength_fixtures.sql" },
     { "testCode": "CTR-008", "status": "fixture_passed", "evidence": "schema/postgres/test/003_test_governance_fixtures.sql" },
     { "testCode": "CTR-009", "status": "fixture_passed", "evidence": "schema/postgres/test/004_gate_evaluation_fixtures.sql; schema/postgres/test/012_governance_quorum_smoke.sql" },

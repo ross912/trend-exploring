@@ -22,6 +22,8 @@ PRESENTATION_SQL_PATH = File.join(ROOT, "schema/postgres/008_m1_presentation.sql
 PRESENTATION_MAP_PATH = File.join(ROOT, "schema/m1-presentation-map.json")
 SNAPSHOT_SQL_PATH = File.join(ROOT, "schema/postgres/009_m1_snapshot_membership.sql")
 SNAPSHOT_MAP_PATH = File.join(ROOT, "schema/m1-snapshot-map.json")
+DATA_DOMAIN_SQL_PATH = File.join(ROOT, "schema/postgres/010_m1_data_domain.sql")
+DATA_DOMAIN_MAP_PATH = File.join(ROOT, "schema/m1-data-domain-map.json")
 DATA_BOUNDARY_PATH = File.join(ROOT, "schema/data-domain-boundary.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
 COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
@@ -228,6 +230,20 @@ rescue JSON::ParserError, Errno::ENOENT, KeyError => e
 end
 
 begin
+  data_domain_sql = File.read(DATA_DOMAIN_SQL_PATH)
+  data_domain_map = JSON.parse(File.read(DATA_DOMAIN_MAP_PATH)).fetch("mappings")
+  data_domain_tables = data_domain_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+  mapped_data_domain_tables = data_domain_map.map { |mapping| mapping.fetch("table") }
+  errors << "M1 data-domain tables missing mappings: #{(data_domain_tables - mapped_data_domain_tables).join(',')}" unless (data_domain_tables - mapped_data_domain_tables).empty?
+  errors << "M1 data-domain map has unknown tables: #{(mapped_data_domain_tables - data_domain_tables).join(',')}" unless (mapped_data_domain_tables - data_domain_tables).empty?
+  errors << "M1 data-domain migration must be transactional" unless data_domain_sql.include?("BEGIN;") && data_domain_sql.rstrip.end_with?("COMMIT;")
+  errors << "M1 data-domain RLS is missing" unless data_domain_sql.include?("ENABLE ROW LEVEL SECURITY")
+  errors << "M1 public-only input gate is missing" unless data_domain_sql.include?("private_lineage_count = 0") && data_domain_sql.include?("source_domain = 'global'")
+rescue JSON::ParserError, Errno::ENOENT, KeyError => e
+  errors << "M1 data-domain contract error: #{e.message}"
+end
+
+begin
   M1::DataBoundary.validate!(M1::DataBoundary.load(DATA_BOUNDARY_PATH))
 rescue M1::DataBoundary::Error, Errno::ENOENT => e
   errors << "M1 data-domain boundary contract error: #{e.message}"
@@ -364,6 +380,7 @@ if errors.empty?
   puts "  M1 data-domain boundary: global/private forbidden-input contract; runtime enforcement pending"
   puts "  M1 presentation identity slice: 8 tables; typed child/XOR/plan guards"
   puts "  M1 snapshot membership slice: 6 tables; profile activation/as-of/closure guards"
+  puts "  M1 data-domain slice: 5 tables; personal RLS and public-only input guards"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"

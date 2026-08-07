@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "m1.0",
+  "purpose": "M1 personal/global data-domain enforcement mappings.",
+  "mappings": [
+    { "table": "personal_scope", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
+    { "table": "private_query_context", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
+    { "table": "global_query_execution", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
+    { "table": "public_only_input_snapshot", "role": "m1_data_domain_slice", "timeProfile": "standalone_snapshot_time" },
+    { "table": "public_only_input_member", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" }
+  ]
+}
