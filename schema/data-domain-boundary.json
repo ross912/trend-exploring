@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "m1.data-domain-boundary.v1",
+  "domains": {
+    "global": {
+      "servicePrincipals": [
+        "global-radar-worker",
+        "global-correction-reviewer",
+        "global-training-runner"
+      ],
+      "forbiddenInputs": [
+        "private_query_context",
+        "conversation_turn",
+        "memory_candidate",
+        "user_memory",
+        "correction_proposal",
+        "user_principal_id",
+        "personal_embedding",
+        "private_attachment"
+      ],
+      "forbiddenSinks": ["global_long_term_log", "global_cache", "global_embedding", "global_training"]
+    },
+    "personal": {
+      "privateDataClasses": [
+        "private_query_context",
+        "conversation_turn",
+        "memory_candidate",
+        "user_memory",
+        "correction_proposal",
+        "user_principal_id",
+        "personal_embedding",
+        "private_attachment"
+      ]
+    }
+  },
+  "paths": [
+    {
+      "name": "personal-neutral-query-ephemeral",
+      "fromDomain": "personal",
+      "toDomain": "global",
+      "dataClasses": ["neutral_query"],
+      "persistence": "ephemeral_neutralized",
+      "allowed": true
+    },
+    {
+      "name": "global-public-only-input",
+      "fromDomain": "global",
+      "toDomain": "global",
+      "dataClasses": ["public_only_input_snapshot"],
+      "persistence": "long_term",
+      "allowed": true
+    }
+  ]
+}

@@ -7,6 +7,7 @@ require_relative "../lib/event_registry"
 require_relative "../lib/m1_gate_evaluator"
 require_relative "../lib/m1_readiness"
 require_relative "../lib/canonical_contract"
+require_relative "../lib/data_boundary"
 
 ROOT = File.expand_path("..", __dir__)
 SQL_PATH = File.join(ROOT, "schema/postgres/001_m1_core.sql")
@@ -17,6 +18,7 @@ SOURCE_SQL_PATH = File.join(ROOT, "schema/postgres/004_m1_source_archive.sql")
 SOURCE_MAP_PATH = File.join(ROOT, "schema/m1-source-map.json")
 COVERAGE_SQL_PATH = File.join(ROOT, "schema/postgres/007_m1_coverage_item.sql")
 COVERAGE_MAP_PATH = File.join(ROOT, "schema/m1-coverage-map.json")
+DATA_BOUNDARY_PATH = File.join(ROOT, "schema/data-domain-boundary.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
 COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
 GOVERNANCE_SQL_PATH = File.join(ROOT, "schema/postgres/006_governance_quorum.sql")
@@ -192,6 +194,12 @@ rescue JSON::ParserError, Errno::ENOENT, KeyError => e
 end
 
 begin
+  M1::DataBoundary.validate!(M1::DataBoundary.load(DATA_BOUNDARY_PATH))
+rescue M1::DataBoundary::Error, Errno::ENOENT => e
+  errors << "M1 data-domain boundary contract error: #{e.message}"
+end
+
+begin
   event_sql = File.read(EVENT_SQL_PATH)
   import_sql = File.read(IMPORT_SQL_PATH)
   event_tables = event_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
@@ -319,6 +327,7 @@ if errors.empty?
   puts "  EventBase infrastructure: 8 tables; signed import functions: 2"
   puts "  M1 source/archive slice: 15 tables"
   puts "  M1 coverage identity slice: 2 tables; UUIDv5/projection-key guards"
+  puts "  M1 data-domain boundary: global/private forbidden-input contract; runtime enforcement pending"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
