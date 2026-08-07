@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "m1.0",
+  "purpose": "Infrastructure tables introduced by 002_event_base.sql; these are not duplicated domain objects.",
+  "mappings": [
+    { "table": "global_identity_registry", "canonicalObject": "GlobalIdentityRegistry", "role": "infrastructure", "timeProfile": "identity_time" },
+    { "table": "event_type_registry_manifest", "canonicalObject": "EventTypeRegistryManifest", "role": "infrastructure", "timeProfile": "manifest_time" },
+    { "table": "event_type_definition", "canonicalObject": "EventTypeDefinition", "role": "infrastructure", "timeProfile": "manifest_child_time" },
+    { "table": "event_base", "canonicalObject": "EventBase", "role": "infrastructure", "timeProfile": "event_time" },
+    { "table": "event_causal_parent", "canonicalObject": "EventCausalParent", "role": "infrastructure", "timeProfile": "inherits_parent" }
+  ]
+}

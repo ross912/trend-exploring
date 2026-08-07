@@ -42,15 +42,17 @@
 - Round 15 的 compiler、协议安全、统计反事实 reviewer 共确认 9 个 P0 与 2 个 P1，连续计数仍为 `0/3`。新增控制覆盖：provider ingress mode totality/authenticity、async invocation FK 方向、token use/consumption、envelope policy/header safety、snapshot current profile、erasure generation fence、online authority lease fencing、conditional p/e validity、source discovery program frame 分母、outcome actor exposure 与明确 audience unit。详见 03 第 18 节。
 - Round 16 是用户指定的最终有界审查，确认并修复 6 个 P0：provider response member closure、TokenUse 恢复防回滚、ServicePrincipalCredential lifecycle、validation evidence 资格分母、validation producer 暴露与 evaluation arm 输出分母。详见 03 第 19 节。
 - 当前静态结果：04 有 233 个唯一测试 ID且无重复；05 有 169 个 immutable records 与 36 个 manifests，time-profile 双向 missing/extra/duplicate 均为 0；02 的 6 个 JSON blocks 全部可解析；全部 Markdown 表宽和 code-fence parity 通过。
-- M1 首批 PostgreSQL 15.18 实现已在临时本地集群完成真实 parser/transaction 执行：迁移、39 表 append-only catalog smoke、pgcrypto/btree_gist、TestCatalog/TestRun/TestResult/GateDecision、gate evaluation closure/selection fixture 均通过。
-- M0 已有条件冻结；旧连续计数停在 `0/3`，不再继续 Round 17。下一步是 M1 可执行 schema 与最小垂直切片。
+- M1 首批 PostgreSQL 15.18 实现已在临时本地集群完成真实 parser/transaction 执行：001 的 39 张领域表、002 的 5 张 EventBase 基础设施表（共 44 张）、append-only catalog smoke、pgcrypto/btree_gist、TestCatalog/TestRun/TestResult/GateDecision、gate evaluation closure/selection、EventBase/EventCausalParent fixture 均通过。
+- 本轮连续三轮实现已完成：EventBase/EventCausalParent typed registry 与 DAG guard；8 用途 deny-by-default permission matrix；event/record/version/derived 的双时态 as-known query templates；identifier linter 已接入验收 ID、对象映射、事件基础设施映射和 EventRegistry 检查。
+- M0 已有条件冻结；旧连续计数停在 `0/3`，不再继续 Round 17。本轮三轮实现已落地，下一步是 M1 治理签名/数据库导入与最小垂直切片集成。
 
 ## 5. 下一步顺序
 
-1. 从 05 生成首批可编译 PostgreSQL DDL 与 JSON Schema，先覆盖 identity/record registry、manifest activation、provider response set、token use、credential lifecycle 与 evaluation arm closure。
-2. 建立 schema validator 和最小反例 fixtures，优先物化 CTR-017–020、ADV-011–013、PRI-010–013、EVA-023–025。
-3. 完成一个 M1 垂直切片：冻结输入→生成 obligation/unit→唯一 terminal decision→gate，并保留所有 immutable lineage。
-4. 实现问题进入 implementation backlog；除非触发数据破坏、越权或正式能力声明错误，不重新启动全面规范审查。
+1. 为 TestCatalog/EventRegistry 接入治理签名、数据库导入和 manifest 激活边界。
+2. 将 permission matrix 与 PurposeAuthorization、RevocationDependencySnapshot 和实际 egress/训练门禁接通。
+3. 为 bitemporal query 模板补充投影表、时间旅行和 EventCausalParent 集成 fixture。
+4. 完成一个 M1 垂直切片：冻结输入→生成 obligation/unit→唯一 terminal decision→gate，并保留所有 immutable lineage。
+5. 实现问题进入 implementation backlog；除非触发数据破坏、越权或正式能力声明错误，不重新启动全面规范审查。
 
 ## 6. 建议复核命令
 
@@ -102,9 +104,8 @@ git status --short
 
 - 使用 `schema/postgres/test/002_m1_transaction_fixtures.sh` 在明确 disposable 的 PostgreSQL 15+ 数据库中重复运行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch、并发序列化和集合闭合测试。
 - TestCatalog 生成器已从 04 号验收表确定性编译 M1 的 72 个 definition/member；下一步是接入治理签名、数据库导入和 TestCatalogManifest 生成流程。
-- EventRegistry 生成器已固化 05 号契约的 29 个 event type 与 exclusive state transitions；下一步是接入治理签名、数据库导入和 EventBase/EventCausalParent SQL。
-- 补充权限矩阵、双时间查询模板和 identifier linter。
-- 生成权限矩阵、EventBase 状态机、双时间查询模板和 identifier linter。
+- EventRegistry 生成器已固化 05 号契约的 29 个 event type 与 exclusive state transitions；下一步是接入治理签名和数据库导入。
+- 权限矩阵、EventBase/EventCausalParent、双时间查询模板和 identifier linter 已完成第一版，后续进入集成 fixture 与真实 PurposeAuthorization 写入路径。
 - 证明 P0 applicability 永远 fail closed。
 - 执行小规模来源、许可、语言、成本和恢复可行性试验。
 
