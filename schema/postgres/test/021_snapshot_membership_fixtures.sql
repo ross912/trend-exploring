@@ -87,6 +87,42 @@ DECLARE
 BEGIN
   BEGIN
     INSERT INTO snapshot_membership_snapshot VALUES
+      ('dd000000-0000-4000-8000-000000000095', 'SourceRegistrySnapshot', 'source-registry',
+       'cc000000-0000-4000-8000-000000000092', 'bb000000-0000-4000-8000-000000000092',
+       '2026-08-07 03:00+00', '2026-08-07 03:01+00', '2026-08-07 03:00+00', '2026-08-07 03:01+00',
+       repeat('a', 64));
+    INSERT INTO snapshot_membership_universe_member VALUES
+      ('12000000-0000-4000-8000-000000000096', 'dd000000-0000-4000-8000-000000000095',
+       'source_endpoint_version', 'entity', 'source_endpoint_version', 'endpoint-v2',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00'),
+      ('12000000-0000-4000-8000-000000000097', 'dd000000-0000-4000-8000-000000000095',
+       'owner_group', 'entity', 'owner_group', 'owner-a',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00');
+    INSERT INTO snapshot_membership_unit VALUES
+      ('ee000000-0000-4000-8000-000000000096', 'dd000000-0000-4000-8000-000000000095',
+       'entity', 'endpoint-v2', 'source_endpoint_version',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00', '2026-08-07 03:00+00', 'prospective', ARRAY[]::uuid[]),
+      ('ee000000-0000-4000-8000-000000000097', 'dd000000-0000-4000-8000-000000000095',
+       'entity', 'owner-a', 'owner_group',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00', '2026-08-07 03:00+00', 'prospective', ARRAY[]::uuid[]);
+    INSERT INTO snapshot_membership_decision VALUES
+      ('ff000000-0000-4000-8000-000000000096', 'ee000000-0000-4000-8000-000000000096', 'absent', NULL, NULL, '2026-08-07 03:00+00', '2026-08-07 03:00+00'),
+      ('ff000000-0000-4000-8000-000000000097', 'ee000000-0000-4000-8000-000000000097', 'absent', NULL, NULL, '2026-08-07 03:00+00', '2026-08-07 03:00+00');
+    SET CONSTRAINTS snapshot_membership_snapshot_closure_guard IMMEDIATE;
+    RAISE EXCEPTION 'profile role subject kind mismatch was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'snapshot membership units, decisions, selected members, and profile roles are not closed' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+DO $$
+DECLARE
+  message_text text;
+BEGIN
+  BEGIN
+    INSERT INTO snapshot_membership_snapshot VALUES
       ('dd000000-0000-4000-8000-000000000093', 'SourceRegistrySnapshot', 'source-registry',
        'cc000000-0000-4000-8000-000000000091', 'bb000000-0000-4000-8000-000000000091',
        '2026-08-07 03:00+00', '2026-08-07 03:01+00', '2026-08-07 03:00+00', '2026-08-07 03:01+00',
