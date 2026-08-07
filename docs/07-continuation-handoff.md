@@ -54,6 +54,7 @@
 - 本轮新增：CTR-015 的 `coverage_policy_registry`/`coverage_projection_role_registry` typed FK 与 `coverage_watermark_gap` exactly-one closure 已接入 `007_m1_coverage_item.sql`；018/019 fixture/concurrency 在 PostgreSQL 15.18 通过。真实 detector/stratum/policy domain FK 与跨 watermark 的完整 gap projection 仍需继续收束。
 - 本轮新增：CTR-018/020 的 `snapshot_membership_universe_member` 已接入 `009_m1_snapshot_membership.sql`，snapshot unit 集合、profile role 集合与 selected typed member 必须与显式 universe 精确闭合；021 fixture 在 PostgreSQL 15.18 通过。真实 SourceRegistry/Endpoint/OwnerGroup domain identity FK 和版本替换投影仍需继续收束。
 - 本轮新增：CTR-014 的 `PresentationClaimCitation`、`PresentationRawSourceListingReference` 与 `SourceTextRef` typed binding 已接入 `008_m1_presentation.sql`；claim content、plan、presentation event、channel/locale 必须复合一致，双 child/空 child 和跨 event citation 均 fail closed，020 fixture 在 PostgreSQL 15.18 通过。跨 event 的真实 Claim/Evidence/Source domain FK 与 complete snapshot closure 仍需继续收束。
+- 本轮新增：CTR-003 的 manifest compiler 已覆盖 05 registry 的全部 36 类 immutable manifest，增加字段类型、时间/hash、枚举和关键跨字段语义校验；全类型正向编译与错误值负向测试通过。真实 domain FK、policy activation 与跨表语义仍需继续收束。
 
 1. 用实际签名服务产出 signed TestCatalog/EventRegistry，导入 003 并激活 manifest。
 2. 将 permission matrix 与 RevocationDependencySnapshot、实际 egress/训练门禁接通。

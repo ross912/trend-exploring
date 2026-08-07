@@ -414,7 +414,7 @@ if errors.empty?
   puts "  M1 snapshot membership slice: 7 tables; profile activation/as-of/universe closure guards"
   puts "  M1 data-domain slice: 6 tables; global service identity, personal RLS, and public-only input guards"
   puts "  canonical schema compiler: 247 registry objects; deterministic metadata DDL"
-  puts "  manifest compiler: deterministic envelope/payload hash; activation signature required"
+  puts "  manifest compiler: 36 typed manifest schemas; deterministic envelope/payload hash; activation signature required"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables, deferred approval trigger, and manifest-key authorization"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"

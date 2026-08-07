@@ -13,7 +13,7 @@
 - `postgres/009_m1_snapshot_membership.sql`：SnapshotMembershipProfile/Role、snapshot header activation/as-of binding、显式 universe member 集合、unit/decision/selected-member 五方闭合；配套 map 与 021 fixture 在同一干净集群回归。
 - `postgres/010_m1_data_domain.sql`：global service-principal allowlist/session gate、PersonalScope/PrivateQueryContext RLS、短期 neutral-query 执行记录与 PublicOnlyInputSnapshot/member 的 global-only、zero-private-lineage 门禁；配套 map 与 022 fixture 在干净集群回归。真实数据库角色/认证系统到 session binding 的外部接入仍需后续完成。
 - `../lib/canonical_schema_compiler.rb` / `../scripts/generate_canonical_schema.rb`：从 05 registry 与 object-map 确定性编译 247 个 canonical objects，输出 schema hash 与 metadata DDL；collision/orphan/profile 负向测试见 `test/canonical_schema_compiler_test.rb`。这仍是 registry/metadata 编译边界，不替代全部领域表 DDL。
-- `../lib/manifest_compiler.rb` / `../scripts/compile_manifest.rb`：统一 manifest envelope、类型白名单、关键字段、canonical payload hash 和 unsigned-before-activation 标记；`test/manifest_compiler_test.rb` 覆盖未知类型、字段缺失和签名缺失。未覆盖的全部领域 manifest 语义仍保留为 partial。
+- `../lib/manifest_compiler.rb` / `../scripts/compile_manifest.rb`：统一 36 类 immutable manifest 的 envelope、类型白名单、字段类型/语义、canonical payload hash 和 unsigned-before-activation 标记；`test/manifest_compiler_test.rb` 覆盖全 registry 类型、错误类型值、未知类型、字段缺失和签名缺失。真实领域 FK/跨表语义仍保留为 partial。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `event-infrastructure-map.json`：002 migration 的九张基础设施表映射；它们不重复登记领域对象。
