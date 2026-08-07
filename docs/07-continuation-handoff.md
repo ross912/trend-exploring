@@ -101,7 +101,9 @@ git status --short
 下一步：
 
 - 使用 `schema/postgres/test/002_m1_transaction_fixtures.sh` 在明确 disposable 的 PostgreSQL 15+ 数据库中重复运行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch、并发序列化和集合闭合测试。
-- 将已通过的测试治理 fixture 接入正式 TestCatalog 生成器，并补充 EventBase 状态机、权限矩阵、双时间查询模板和 identifier linter。
+- TestCatalog 生成器已从 04 号验收表确定性编译 M1 的 72 个 definition/member；下一步是接入治理签名、数据库导入和 TestCatalogManifest 生成流程。
+- EventRegistry 生成器已固化 05 号契约的 29 个 event type 与 exclusive state transitions；下一步是接入治理签名、数据库导入和 EventBase/EventCausalParent SQL。
+- 补充权限矩阵、双时间查询模板和 identifier linter。
 - 生成权限矩阵、EventBase 状态机、双时间查询模板和 identifier linter。
 - 证明 P0 applicability 永远 fail closed。
 - 执行小规模来源、许可、语言、成本和恢复可行性试验。
