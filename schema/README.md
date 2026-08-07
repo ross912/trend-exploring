@@ -4,7 +4,7 @@
 
 ## 当前内容
 
-- `postgres/001_m1_core.sql`：PostgreSQL 15+ 首版 DDL，覆盖 manifest 激活、内部凭据生命周期、provider response set、token use、evaluation arm 与测试治理核心对象。`provider_response_set` 在 invocation 前冻结承诺，`provider_response_set_closure` 是同主键、无第二领域身份的 terminal child；EvaluationArm 的 output→obligation→snapshot decision→result，以及 TestCatalog→TestRun→TestResult→GateDecision 均由延迟闭合 trigger 做集合相等校验。
+- `postgres/001_m1_core.sql`：PostgreSQL 15+ 首版 DDL，覆盖 manifest 激活、内部凭据生命周期、provider response set、token use、evaluation arm、测试治理与 gate evaluation 核心对象。`provider_response_set` 在 invocation 前冻结承诺，`provider_response_set_closure` 是同主键、无第二领域身份的 terminal child；EvaluationArm 的 output→obligation→snapshot decision→result，TestCatalog→TestRun→TestResult→GateDecision，以及 gate evaluation 的 attempts→closure→selection 均由延迟闭合 trigger 做集合相等校验。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。
@@ -13,6 +13,7 @@
 - `../test/provider_response_set_test.rb`：合法、漏成员、错误输出、未闭 continuation、完整投影 hash、畸形结构、UUID/时间和隐藏字段测试。
 - `../scripts/validate_m1.rb`：DDL 必需对象、JSON Schema 和正反 fixture 的统一入口。
 - `postgres/test/003_test_governance_fixtures.sql`：P0 applicability floor、catalog 漏项/排除、result applicability 和 gate pass/blocked 反例。
+- `postgres/test/004_gate_evaluation_fixtures.sql`：P1 waiver approval、完整/阻断 evaluation closure、禁止挑选通过 run 洗白失败 evaluation 的反例。
 
 ## 本地验证
 
@@ -23,9 +24,9 @@ ruby scripts/validate_project.rb
 jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 ```
 
-真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke 和测试治理 fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003_test_governance_fixtures.sql` 覆盖测试目录的 fail-closed 集合语义。
+真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke、测试治理和 gate evaluation fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003`/`004` 覆盖测试目录与 gate evaluation 的 fail-closed 集合语义。
 
-当前本地回归：17 个 Ruby tests、52 个 assertions 全部通过；验证器检查 30 个关键 SQL objects、19 个关键 guards，以及全部 33 张表的 canonical mapping、append-only 和 time-profile 覆盖。真实 PostgreSQL 迁移、catalog smoke、事务/并发 fixture 与测试治理 fixture 均已通过。
+当前本地回归：17 个 Ruby tests、52 个 assertions 全部通过；验证器检查 36 个关键 SQL objects、23 个关键 guards，以及全部 39 张表的 canonical mapping、append-only 和 time-profile 覆盖。真实 PostgreSQL 迁移、catalog smoke、事务/并发、测试治理和 gate evaluation fixture 均已通过。
 
 ## 自检记录
 
@@ -39,5 +40,5 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 
 ## 下一实现切片
 
-1. 继续实现 GateEvaluationUnit/AttemptMembership/ClosureDecision 与可治理 waiver/approval 的闭合约束。
-2. 将已通过的测试治理 fixture 接入正式 TestCatalog 生成器，而不是手写 fixture。
+1. 将已通过的测试治理 fixture 接入正式 TestCatalog 生成器，而不是手写 fixture。
+2. 继续实现 EventBase 状态机、权限矩阵、双时间查询模板和 identifier linter。

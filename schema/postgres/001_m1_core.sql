@@ -1349,6 +1349,276 @@ AFTER INSERT ON gate_decision
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION validate_gate_decision_closure();
 
+CREATE TYPE approval_status AS ENUM ('approved', 'rejected');
+CREATE TYPE gate_evaluation_status AS ENUM ('closed', 'blocked');
+CREATE TYPE gate_selection_status AS ENUM ('selected', 'blocked');
+
+CREATE TABLE approval_decision (
+  approval_decision_id uuid PRIMARY KEY,
+  subject_kind text NOT NULL,
+  subject_id uuid NOT NULL,
+  old_hash text NOT NULL CHECK (old_hash ~ '^[a-f0-9]{64}$'),
+  new_hash text NOT NULL CHECK (new_hash ~ '^[a-f0-9]{64}$'),
+  structured_diff text NOT NULL CHECK (btrim(structured_diff) <> ''),
+  impact_summary text NOT NULL CHECK (btrim(impact_summary) <> ''),
+  decision approval_status NOT NULL,
+  approver_service_principal_id uuid NOT NULL REFERENCES service_principal,
+  quorum_count integer NOT NULL CHECK (quorum_count > 0),
+  effective_from timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  manifest_signature text NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  CHECK (effective_from <= system_available_at)
+);
+
+CREATE TABLE test_waiver (
+  waiver_id uuid PRIMARY KEY,
+  test_definition_version_id uuid NOT NULL REFERENCES test_definition_version,
+  approval_decision_id uuid NOT NULL REFERENCES approval_decision,
+  reason text NOT NULL CHECK (btrim(reason) <> ''),
+  issued_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  manifest_signature text NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (issued_at < expires_at),
+  CHECK (recorded_at <= system_available_at)
+);
+
+CREATE OR REPLACE FUNCTION validate_test_waiver()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  definition_severity test_severity;
+  definition_waiver_allowed boolean;
+  approval_result approval_status;
+BEGIN
+  SELECT v.severity, v.waiver_allowed
+    INTO definition_severity, definition_waiver_allowed
+    FROM test_definition_version v
+   WHERE v.test_definition_version_id = NEW.test_definition_version_id;
+
+  SELECT decision INTO approval_result
+    FROM approval_decision
+   WHERE approval_decision_id = NEW.approval_decision_id;
+
+  IF definition_severity IS NULL
+     OR definition_severity = 'P0'
+     OR NOT definition_waiver_allowed
+     OR approval_result IS DISTINCT FROM 'approved' THEN
+    RAISE EXCEPTION 'test waiver is not permitted for this definition';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER test_waiver_guard
+BEFORE INSERT ON test_waiver
+FOR EACH ROW EXECUTE FUNCTION validate_test_waiver();
+
+CREATE TABLE gate_evaluation_unit (
+  gate_evaluation_unit_id uuid PRIMARY KEY,
+  test_catalog_manifest_id uuid NOT NULL REFERENCES test_catalog_manifest,
+  target_phase test_phase NOT NULL,
+  target_gate test_blocking_mode NOT NULL,
+  input_hash text NOT NULL CHECK (input_hash ~ '^[a-f0-9]{64}$'),
+  expected_run_count integer NOT NULL CHECK (expected_run_count > 0),
+  max_attempts integer NOT NULL CHECK (max_attempts >= expected_run_count),
+  retry_policy text NOT NULL CHECK (btrim(retry_policy) <> ''),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (test_catalog_manifest_id, target_phase, target_gate, input_hash)
+);
+
+CREATE TABLE gate_run_attempt_membership (
+  gate_run_attempt_membership_id uuid PRIMARY KEY,
+  gate_evaluation_unit_id uuid NOT NULL REFERENCES gate_evaluation_unit,
+  test_run_id uuid NOT NULL REFERENCES test_run,
+  attempt_ordinal integer NOT NULL CHECK (attempt_ordinal > 0),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (gate_evaluation_unit_id, attempt_ordinal),
+  UNIQUE (gate_evaluation_unit_id, test_run_id)
+);
+
+CREATE OR REPLACE FUNCTION validate_gate_run_attempt_membership()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  unit_catalog_id uuid;
+  run_catalog_id uuid;
+BEGIN
+  SELECT test_catalog_manifest_id INTO unit_catalog_id
+    FROM gate_evaluation_unit
+   WHERE gate_evaluation_unit_id = NEW.gate_evaluation_unit_id;
+  SELECT test_catalog_manifest_id INTO run_catalog_id
+    FROM test_run
+   WHERE test_run_id = NEW.test_run_id;
+
+  IF unit_catalog_id IS NULL
+     OR run_catalog_id IS NULL
+     OR unit_catalog_id <> run_catalog_id THEN
+    RAISE EXCEPTION 'gate run attempt is outside the evaluation catalog';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER gate_run_attempt_catalog_guard
+BEFORE INSERT ON gate_run_attempt_membership
+FOR EACH ROW EXECUTE FUNCTION validate_gate_run_attempt_membership();
+
+CREATE TABLE gate_evaluation_closure_decision (
+  gate_evaluation_closure_decision_id uuid PRIMARY KEY,
+  gate_evaluation_unit_id uuid NOT NULL UNIQUE REFERENCES gate_evaluation_unit,
+  status gate_evaluation_status NOT NULL,
+  expected_run_count integer NOT NULL CHECK (expected_run_count > 0),
+  observed_run_count integer NOT NULL CHECK (observed_run_count >= 0),
+  result_set_hash text NOT NULL CHECK (result_set_hash ~ '^[a-f0-9]{64}$'),
+  closed_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at)
+);
+
+CREATE OR REPLACE FUNCTION validate_gate_evaluation_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  unit_expected_count integer;
+  member_count integer;
+  terminal_count integer;
+  blocked_count integer;
+  calculated_hash text;
+  unit_catalog_id uuid;
+BEGIN
+  SELECT expected_run_count, test_catalog_manifest_id
+    INTO unit_expected_count, unit_catalog_id
+    FROM gate_evaluation_unit
+   WHERE gate_evaluation_unit_id = NEW.gate_evaluation_unit_id;
+
+  SELECT count(*) INTO member_count
+    FROM gate_run_attempt_membership
+   WHERE gate_evaluation_unit_id = NEW.gate_evaluation_unit_id;
+
+  SELECT count(*) INTO terminal_count
+    FROM gate_run_attempt_membership m
+    JOIN gate_decision g
+      ON g.test_run_id = m.test_run_id
+     AND g.test_catalog_manifest_id = unit_catalog_id
+   WHERE m.gate_evaluation_unit_id = NEW.gate_evaluation_unit_id;
+
+  SELECT count(*) INTO blocked_count
+    FROM gate_run_attempt_membership m
+    JOIN gate_decision g
+      ON g.test_run_id = m.test_run_id
+     AND g.test_catalog_manifest_id = unit_catalog_id
+   WHERE m.gate_evaluation_unit_id = NEW.gate_evaluation_unit_id
+     AND g.decision = 'blocked';
+
+  SELECT encode(
+           digest(
+             string_agg(
+               m.test_run_id::text || '|' || g.decision::text,
+               E'\n' ORDER BY m.attempt_ordinal
+             ),
+             'sha256'
+           ),
+           'hex'
+         )
+    INTO calculated_hash
+    FROM gate_run_attempt_membership m
+    JOIN gate_decision g
+      ON g.test_run_id = m.test_run_id
+     AND g.test_catalog_manifest_id = unit_catalog_id
+   WHERE m.gate_evaluation_unit_id = NEW.gate_evaluation_unit_id;
+
+  IF NEW.expected_run_count <> unit_expected_count
+     OR NEW.observed_run_count <> member_count
+     OR member_count <> unit_expected_count
+     OR terminal_count <> member_count
+     OR calculated_hash IS DISTINCT FROM NEW.result_set_hash
+     OR NEW.status <> (CASE WHEN blocked_count > 0
+                        THEN 'blocked'::gate_evaluation_status
+                        ELSE 'closed'::gate_evaluation_status END) THEN
+    RAISE EXCEPTION 'gate evaluation is not a complete terminal run set';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER gate_evaluation_closure_guard
+AFTER INSERT ON gate_evaluation_closure_decision
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_gate_evaluation_closure();
+
+CREATE TABLE gate_run_selection_decision (
+  gate_run_selection_decision_id uuid PRIMARY KEY,
+  gate_evaluation_closure_decision_id uuid NOT NULL UNIQUE
+    REFERENCES gate_evaluation_closure_decision,
+  selection_status gate_selection_status NOT NULL,
+  selected_test_run_id uuid REFERENCES test_run,
+  reason text NOT NULL CHECK (btrim(reason) <> ''),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  CHECK (
+    (selection_status = 'selected' AND selected_test_run_id IS NOT NULL)
+    OR
+    (selection_status = 'blocked' AND selected_test_run_id IS NULL)
+  )
+);
+
+CREATE OR REPLACE FUNCTION validate_gate_run_selection()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  closure_status gate_evaluation_status;
+  unit_id uuid;
+  selected_membership_count integer;
+  selected_gate_status gate_decision_status;
+BEGIN
+  SELECT c.status, c.gate_evaluation_unit_id
+    INTO closure_status, unit_id
+    FROM gate_evaluation_closure_decision c
+   WHERE c.gate_evaluation_closure_decision_id = NEW.gate_evaluation_closure_decision_id;
+
+  SELECT count(*) INTO selected_membership_count
+    FROM gate_run_attempt_membership m
+   WHERE m.gate_evaluation_unit_id = unit_id
+     AND m.test_run_id = NEW.selected_test_run_id;
+
+  SELECT g.decision INTO selected_gate_status
+    FROM gate_run_attempt_membership m
+    JOIN gate_evaluation_unit u ON u.gate_evaluation_unit_id = m.gate_evaluation_unit_id
+    JOIN gate_decision g
+      ON g.test_run_id = m.test_run_id
+     AND g.test_catalog_manifest_id = u.test_catalog_manifest_id
+   WHERE m.gate_evaluation_unit_id = unit_id
+     AND m.test_run_id = NEW.selected_test_run_id;
+
+  IF closure_status = 'blocked'
+     AND (NEW.selection_status <> 'blocked' OR NEW.selected_test_run_id IS NOT NULL)
+     OR closure_status = 'closed'
+     AND (NEW.selection_status <> 'selected'
+       OR selected_membership_count <> 1
+       OR selected_gate_status <> 'pass') THEN
+    RAISE EXCEPTION 'gate run selection contradicts evaluation closure';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER gate_run_selection_guard
+AFTER INSERT ON gate_run_selection_decision
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_gate_run_selection();
+
 CREATE OR REPLACE FUNCTION reject_row_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -1393,7 +1663,13 @@ BEGIN
     'test_catalog_definition_member',
     'test_run',
     'test_result',
-    'gate_decision'
+    'gate_decision',
+    'approval_decision',
+    'test_waiver',
+    'gate_evaluation_unit',
+    'gate_run_attempt_membership',
+    'gate_evaluation_closure_decision',
+    'gate_run_selection_decision'
   ]
   LOOP
     EXECUTE format(

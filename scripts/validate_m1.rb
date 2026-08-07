@@ -45,6 +45,12 @@ REQUIRED_SQL_OBJECTS = %w[
   test_run
   test_result
   gate_decision
+  approval_decision
+  test_waiver
+  gate_evaluation_unit
+  gate_run_attempt_membership
+  gate_evaluation_closure_decision
+  gate_run_selection_decision
 ].freeze
 
 REQUIRED_SQL_GUARDS = {
@@ -66,7 +72,11 @@ REQUIRED_SQL_GUARDS = {
   "test catalog closure" => /validate_test_catalog_closure/,
   "test result catalog membership" => /validate_test_result_membership/,
   "gate decision closure" => /validate_gate_decision_closure/,
-  "P0 test applicability floor" => /severity <> 'P0' OR \(applicability_predicate = 'always' AND NOT waiver_allowed\)/
+  "P0 test applicability floor" => /severity <> 'P0' OR \(applicability_predicate = 'always' AND NOT waiver_allowed\)/,
+  "waiver approval floor" => /validate_test_waiver/,
+  "gate attempt catalog binding" => /validate_gate_run_attempt_membership/,
+  "gate evaluation closure" => /validate_gate_evaluation_closure/,
+  "gate run selection closure" => /validate_gate_run_selection/
 }.freeze
 
 TIME_PROFILE_FIELDS = {

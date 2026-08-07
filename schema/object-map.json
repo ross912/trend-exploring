@@ -33,6 +33,12 @@
     { "table": "test_catalog_definition_member", "canonicalObject": "TestCatalogManifest", "role": "child", "timeProfile": "inherits_parent" },
     { "table": "test_run", "canonicalObject": "TestRun", "role": "record", "timeProfile": "operational_record_time" },
     { "table": "test_result", "canonicalObject": "TestResult", "role": "record", "timeProfile": "operational_record_time" },
-    { "table": "gate_decision", "canonicalObject": "GateDecision", "role": "record", "timeProfile": "operational_record_time" }
+    { "table": "gate_decision", "canonicalObject": "GateDecision", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "approval_decision", "canonicalObject": "ApprovalDecision", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "test_waiver", "canonicalObject": "TestWaiver", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "gate_evaluation_unit", "canonicalObject": "GateEvaluationUnit", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "gate_run_attempt_membership", "canonicalObject": "GateRunAttemptMembership", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "gate_evaluation_closure_decision", "canonicalObject": "GateEvaluationClosureDecision", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "gate_run_selection_decision", "canonicalObject": "GateRunSelectionDecision", "role": "record", "timeProfile": "operational_record_time" }
   ]
 }
