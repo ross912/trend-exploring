@@ -52,10 +52,26 @@ RETURNS text LANGUAGE sql IMMUTABLE STRICT AS $$
     || p_generation_semantics_version;
 $$;
 
+CREATE TABLE coverage_policy_registry (
+  coverage_policy_version text PRIMARY KEY CHECK (btrim(coverage_policy_version) <> ''),
+  policy_hash text NOT NULL CHECK (policy_hash ~ '^[a-f0-9]{64}$'),
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at)
+);
+
+CREATE TABLE coverage_projection_role_registry (
+  projection_role text PRIMARY KEY CHECK (btrim(projection_role) <> ''),
+  role_kind text NOT NULL CHECK (btrim(role_kind) <> ''),
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at)
+);
+
 CREATE TABLE coverage_item (
   coverage_item_id uuid PRIMARY KEY,
   scope_snapshot_id uuid NOT NULL,
-  coverage_policy_version text NOT NULL CHECK (btrim(coverage_policy_version) <> ''),
+  coverage_policy_version text NOT NULL REFERENCES coverage_policy_registry,
   projection_semantics_version text NOT NULL CHECK (btrim(projection_semantics_version) <> ''),
   item_kind coverage_item_kind NOT NULL,
   typed_input_refs jsonb NOT NULL CHECK (
@@ -66,7 +82,7 @@ CREATE TABLE coverage_item (
     AND typed_input_refs ->> 'typedInputKind' = item_kind::text
   ),
   primary_stratum_version_ids uuid[] NOT NULL CHECK (cardinality(primary_stratum_version_ids) > 0),
-  projection_role text NOT NULL CHECK (btrim(projection_role) <> ''),
+  projection_role text NOT NULL REFERENCES coverage_projection_role_registry,
   coverage_projection_key text GENERATED ALWAYS AS (
     m1_coverage_projection_key(scope_snapshot_id, coverage_policy_version,
       projection_semantics_version, item_kind, typed_input_refs,
@@ -142,12 +158,70 @@ CREATE TRIGGER coverage_generation_identity_guard
 BEFORE INSERT ON coverage_generation_unit
 FOR EACH ROW EXECUTE FUNCTION validate_coverage_generation_identity();
 
+CREATE TABLE coverage_watermark_gap (
+  coverage_watermark_gap_id uuid PRIMARY KEY,
+  coverage_item_id uuid NOT NULL UNIQUE REFERENCES coverage_item,
+  gap_state text NOT NULL CHECK (gap_state IN ('open', 'closed', 'superseded')),
+  reason_code text NOT NULL CHECK (btrim(reason_code) <> ''),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at)
+);
+
+CREATE OR REPLACE FUNCTION validate_coverage_item_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  generation_count integer;
+  gap_count integer;
+  gap_state_value text;
+BEGIN
+  SELECT count(*) INTO generation_count
+    FROM coverage_generation_unit
+   WHERE coverage_item_id = NEW.coverage_item_id;
+  SELECT count(*), max(gap_state) INTO gap_count, gap_state_value
+    FROM coverage_watermark_gap
+   WHERE coverage_item_id = NEW.coverage_item_id;
+  IF generation_count + gap_count <> 1
+     OR (gap_count = 1 AND gap_state_value <> 'open') THEN
+    RAISE EXCEPTION 'coverage item requires exactly one generation unit or open watermark gap';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER coverage_item_closure_guard
+AFTER INSERT ON coverage_item
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_coverage_item_closure();
+
+CREATE CONSTRAINT TRIGGER coverage_generation_closure_guard
+AFTER INSERT ON coverage_generation_unit
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_coverage_item_closure();
+
+CREATE CONSTRAINT TRIGGER coverage_watermark_gap_closure_guard
+AFTER INSERT ON coverage_watermark_gap
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_coverage_item_closure();
+
 CREATE TRIGGER coverage_item_reject_mutation
 BEFORE UPDATE OR DELETE ON coverage_item
 FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
 
 CREATE TRIGGER coverage_generation_unit_reject_mutation
 BEFORE UPDATE OR DELETE ON coverage_generation_unit
+FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
+
+CREATE TRIGGER coverage_policy_registry_reject_mutation
+BEFORE UPDATE OR DELETE ON coverage_policy_registry
+FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
+
+CREATE TRIGGER coverage_projection_role_registry_reject_mutation
+BEFORE UPDATE OR DELETE ON coverage_projection_role_registry
+FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
+
+CREATE TRIGGER coverage_watermark_gap_reject_mutation
+BEFORE UPDATE OR DELETE ON coverage_watermark_gap
 FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
 
 COMMIT;

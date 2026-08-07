@@ -1,5 +1,17 @@
 \set ON_ERROR_STOP on
 
+BEGIN;
+
+INSERT INTO coverage_policy_registry (
+  coverage_policy_version, policy_hash, effective_from, system_available_at
+) VALUES
+  ('coverage-policy-v1', repeat('1', 64), '2026-08-07 04:00+00', '2026-08-07 04:00+00'),
+  ('coverage-policy-v2', repeat('2', 64), '2026-08-07 04:02+00', '2026-08-07 04:02+00');
+INSERT INTO coverage_projection_role_registry (
+  projection_role, role_kind, effective_from, system_available_at
+) VALUES
+  ('primary', 'coverage-primary', '2026-08-07 04:00+00', '2026-08-07 04:00+00');
+
 WITH source AS (
   SELECT
     'aaaaaaaa-0000-4000-8000-000000000001'::uuid AS scope_snapshot_id,
@@ -141,6 +153,15 @@ SELECT m1_uuid5('0f2d5a1e-6a7e-5f43-9f0f-6e0a9bb5c1d5', projection_key),
        'prospective', ARRAY['cccccccc-0000-4000-8000-000000000003']::uuid[]
   FROM keyed;
 
+INSERT INTO coverage_watermark_gap (
+  coverage_watermark_gap_id, coverage_item_id, gap_state, reason_code,
+  recorded_at, system_available_at
+)
+SELECT 'ffff0000-0000-4000-8000-000000000002', coverage_item_id, 'open',
+       'generation_not_emitted', '2026-08-07 04:02+00', '2026-08-07 04:02+00'
+  FROM coverage_item
+ WHERE coverage_policy_version = 'coverage-policy-v2';
+
 DO $$
 BEGIN
   IF (SELECT count(*) FROM coverage_item) <> 2 THEN
@@ -150,3 +171,5 @@ END;
 $$;
 
 SELECT 'COVERAGE ITEM FIXTURES PASSED' AS result;
+
+COMMIT;

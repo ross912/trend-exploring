@@ -21,6 +21,15 @@ detector_key="eeeeeeee-0000-4000-8000-000000000010"
 projection_key="${scope_id}|${policy_version}|${semantics_version}|event_cluster|{\"typedInputKey\": \"event-cluster-concurrency\", \"typedInputKind\": \"event_cluster\"}|bbbbbbbb-0000-4000-8000-000000000010|primary"
 item_id="$(psql_cmd -At -c "SELECT m1_uuid5('0f2d5a1e-6a7e-5f43-9f0f-6e0a9bb5c1d5', '${projection_key}');")"
 
+psql_cmd -c "
+  INSERT INTO coverage_policy_registry (coverage_policy_version, policy_hash, effective_from, system_available_at)
+  VALUES ('${policy_version}', repeat('a', 64), '2026-08-07 04:10+00', '2026-08-07 04:10+00')
+  ON CONFLICT (coverage_policy_version) DO NOTHING;
+  INSERT INTO coverage_projection_role_registry (projection_role, role_kind, effective_from, system_available_at)
+  VALUES ('primary', 'coverage-primary', '2026-08-07 04:10+00', '2026-08-07 04:10+00')
+  ON CONFLICT (projection_role) DO NOTHING;
+"
+
 temp_dir="$(mktemp -d)"
 cleanup() { rm -rf "${temp_dir}"; }
 trap cleanup EXIT
@@ -38,6 +47,13 @@ insert_sql="
     ARRAY['bbbbbbbb-0000-4000-8000-000000000010']::uuid[], 'primary',
     '2026-08-07 04:10+00', '2026-08-07 04:10+00', '2026-08-07 04:10+00',
     'prospective', ARRAY['cccccccc-0000-4000-8000-000000000010']::uuid[]
+  );
+  INSERT INTO coverage_watermark_gap (
+    coverage_watermark_gap_id, coverage_item_id, gap_state, reason_code,
+    recorded_at, system_available_at
+  ) VALUES (
+    'ffff0000-0000-4000-8000-000000000010', '${item_id}', 'open',
+    'generation_not_emitted', '2026-08-07 04:10+00', '2026-08-07 04:10+00'
   );
   SELECT pg_sleep(1);
   COMMIT;

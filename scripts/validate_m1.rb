@@ -408,7 +408,7 @@ if errors.empty?
   puts "  SQL table mappings: #{sql_tables.length}"
   puts "  EventBase infrastructure: 9 tables; signed import functions: 2"
   puts "  M1 source/archive slice: 15 tables"
-  puts "  M1 coverage identity slice: 2 tables; UUIDv5/projection-key guards"
+  puts "  M1 coverage identity slice: 5 tables; policy/role FK, UUIDv5/projection-key, and WatermarkGap closure guards"
   puts "  M1 data-domain boundary: global/private forbidden-input contract; runtime enforcement pending"
   puts "  M1 presentation identity slice: 8 tables; typed child/XOR/plan guards"
   puts "  M1 snapshot membership slice: 6 tables; profile activation/as-of/closure guards"
