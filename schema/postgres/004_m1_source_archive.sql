@@ -405,13 +405,21 @@ CREATE TABLE language_evaluation_manifest (
   contract_document_path text NOT NULL,
   contract_document_version text NOT NULL,
   contract_document_hash text NOT NULL CHECK (contract_document_hash ~ '^[a-f0-9]{64}$'),
-  language_keys text[] NOT NULL CHECK (cardinality(language_keys) > 0),
-  minimum_sample_size integer NOT NULL CHECK (minimum_sample_size > 0),
+  contract_document_section text NOT NULL DEFAULT '15.1'
+    CHECK (contract_document_section = '15.1'),
+  language_keys text[] NOT NULL CHECK (
+    language_keys @> ARRAY['zh-CN', 'en', 'es', 'ar', 'fr', 'ru', 'pt', 'hi', 'ja', 'ko']::text[]
+  ),
+  minimum_sample_size integer NOT NULL CHECK (minimum_sample_size >= 500),
   severe_semantic_reversal_threshold numeric NOT NULL CHECK (severe_semantic_reversal_threshold >= 0),
   double_review_required boolean NOT NULL,
+  entity_attribution_required boolean NOT NULL DEFAULT true,
+  quotation_attribution_required boolean NOT NULL DEFAULT true,
   manifest_signature text NOT NULL,
   effective_from timestamptz NOT NULL,
   system_available_at timestamptz NOT NULL,
+  CHECK (entity_attribution_required AND quotation_attribution_required),
+  CHECK (btrim(manifest_signature) <> ''),
   CHECK (effective_from <= system_available_at)
 );
 

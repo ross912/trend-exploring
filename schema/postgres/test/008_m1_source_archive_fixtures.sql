@@ -128,11 +128,17 @@ INSERT INTO format_migration_event VALUES
    'ba000000-0000-4000-8000-000000000005', repeat('1', 64),
    'fixture-parser-v1', '2026-08-07 02:40+00', '2026-08-07 02:40+00');
 
-INSERT INTO language_evaluation_manifest VALUES
+INSERT INTO language_evaluation_manifest (
+  language_evaluation_manifest_id, contract_document_path, contract_document_version,
+  contract_document_hash, contract_document_section, language_keys, minimum_sample_size,
+  severe_semantic_reversal_threshold, double_review_required, entity_attribution_required,
+  quotation_attribution_required, manifest_signature, effective_from, system_available_at
+) VALUES
   ('bd000000-0000-4000-8000-000000000001',
-   'docs/01-global-information-coverage-matrix.md', 'm0-baseline-v1', repeat('7', 64),
-   ARRAY['zh-CN', 'en', 'ar'], 20, 0.01, true, 'language-eval-signature',
-   '2026-08-07 02:00+00', '2026-08-07 02:00+00');
+   'docs/01-global-information-coverage-matrix.md', 'v0.1-m0-baseline',
+   '92eb37d5a26fd08dd3362028ca0d8d2ab7b1feef5881219cd9d96a4062b2a8c2', '15.1',
+   ARRAY['zh-CN', 'en', 'es', 'ar', 'fr', 'ru', 'pt', 'hi', 'ja', 'ko'], 500, 0.01, true, true, true,
+   'language-eval-signature', '2026-08-07 02:00+00', '2026-08-07 02:00+00');
 
 COMMIT;
 
