@@ -1080,8 +1080,23 @@ CREATE TABLE test_definition_version (
   FOREIGN KEY (supersedes_version_id, test_id, supersedes_revision)
     REFERENCES test_definition_version
       (test_definition_version_id, test_id, definition_revision)
-    DEFERRABLE INITIALLY DEFERRED
+      DEFERRABLE INITIALLY DEFERRED
 );
+
+CREATE OR REPLACE FUNCTION test_contract_strength_rank(p_contract text)
+RETURNS integer LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+DECLARE
+  version_text text;
+BEGIN
+  version_text := substring(lower(p_contract) FROM '(?:fixture|oracle)[-_]v([0-9]+)');
+  IF version_text IS NULL THEN
+    RETURN 1;
+  END IF;
+  RETURN version_text::integer;
+EXCEPTION WHEN invalid_text_representation THEN
+  RAISE EXCEPTION 'test contract strength version is invalid';
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION validate_test_definition_strength()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -1112,6 +1127,15 @@ BEGIN
   END IF;
   IF predecessor.severity = 'P0' AND NEW.applicability_predicate <> 'always' THEN
     RAISE EXCEPTION 'P0 test definition applicability cannot be weakened';
+  END IF;
+  IF lower(regexp_replace(NEW.oracle_spec, '\s+', '', 'g')) IN ('true', 'always_true', 'constant_true') THEN
+    RAISE EXCEPTION 'test oracle cannot be tautological';
+  END IF;
+  IF test_contract_strength_rank(NEW.oracle_spec) < test_contract_strength_rank(predecessor.oracle_spec) THEN
+    RAISE EXCEPTION 'test oracle strength cannot be weakened';
+  END IF;
+  IF test_contract_strength_rank(NEW.fixture_contract) < test_contract_strength_rank(predecessor.fixture_contract) THEN
+    RAISE EXCEPTION 'test fixture strength cannot be weakened';
   END IF;
   RETURN NEW;
 END;

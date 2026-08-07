@@ -87,6 +87,46 @@ BEGIN
 END;
 $$;
 
+DO $$
+DECLARE
+  message_text text;
+BEGIN
+  BEGIN
+    INSERT INTO test_definition_version VALUES
+      ('20000000-0000-4000-8000-000000000206',
+       '10000000-0000-4000-8000-000000000201',
+       'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 2,
+       '20000000-0000-4000-8000-000000000201', 1,
+       'M0', 'M0', 'always', false, 'P0', 'phase-exit',
+       'strength-fixture-v2', 'strength-config-v2', 'always_true', repeat('f', 64),
+       'fixture-definition-signature', '2026-08-07 03:15+00',
+       '2026-08-07 03:15+00', '2026-08-07 03:15+00', '2026-08-07 03:15+00',
+       'prospective', ARRAY['00000000-0000-4000-8000-000000000906']::uuid[]);
+    RAISE EXCEPTION 'tautological oracle was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'test oracle cannot be tautological' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    INSERT INTO test_definition_version VALUES
+      ('20000000-0000-4000-8000-000000000207',
+       '10000000-0000-4000-8000-000000000201',
+       'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 2,
+       '20000000-0000-4000-8000-000000000201', 1,
+       'M0', 'M0', 'always', false, 'P0', 'phase-exit',
+       'strength-fixture-v0', 'strength-config-v2', 'strength-oracle-v2', repeat('0', 64),
+       'fixture-definition-signature', '2026-08-07 03:16+00',
+       '2026-08-07 03:16+00', '2026-08-07 03:16+00', '2026-08-07 03:16+00',
+       'prospective', ARRAY['00000000-0000-4000-8000-000000000907']::uuid[]);
+    RAISE EXCEPTION 'weakened fixture contract was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'test fixture strength cannot be weakened' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
 SELECT count(*) AS preserved_strong_versions
   FROM test_definition_version
  WHERE test_definition_version_id = '20000000-0000-4000-8000-000000000201';
