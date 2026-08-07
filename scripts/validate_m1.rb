@@ -16,6 +16,8 @@ SOURCE_SQL_PATH = File.join(ROOT, "schema/postgres/004_m1_source_archive.sql")
 SOURCE_MAP_PATH = File.join(ROOT, "schema/m1-source-map.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
 COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
+GOVERNANCE_SQL_PATH = File.join(ROOT, "schema/postgres/006_governance_quorum.sql")
+GOVERNANCE_MAP_PATH = File.join(ROOT, "schema/governance-quorum-map.json")
 ACCEPTANCE_PATH = File.join(ROOT, "docs/04-acceptance-test-plan.md")
 SCHEMA_PATH = File.join(ROOT, "schema/json/provider-response-set.schema.json")
 OBJECT_MAP_PATH = File.join(ROOT, "schema/object-map.json")
@@ -113,6 +115,19 @@ begin
   errors << "JSON Schema must declare semantic invariants" unless schema["x-m1-invariants"].is_a?(Array)
 rescue JSON::ParserError => e
   errors << "JSON Schema parse error: #{e.message}"
+end
+
+begin
+  governance_sql = File.read(GOVERNANCE_SQL_PATH)
+  governance_map = JSON.parse(File.read(GOVERNANCE_MAP_PATH)).fetch("mappings")
+  governance_tables = governance_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+  mapped_governance_tables = governance_map.map { |mapping| mapping.fetch("table") }
+  errors << "governance quorum tables missing mappings: #{(governance_tables - mapped_governance_tables).join(',')}" unless (governance_tables - mapped_governance_tables).empty?
+  errors << "governance quorum map has unknown tables: #{(mapped_governance_tables - governance_tables).join(',')}" unless (mapped_governance_tables - governance_tables).empty?
+  errors << "governance quorum migration must be transactional" unless governance_sql.include?("BEGIN;") && governance_sql.rstrip.end_with?("COMMIT;")
+  errors << "approval quorum trigger is missing" unless governance_sql.include?("approval_decision_quorum_guard")
+rescue JSON::ParserError, Errno::ENOENT, KeyError => e
+  errors << "governance quorum contract error: #{e.message}"
 end
 
 begin
@@ -278,6 +293,7 @@ if errors.empty?
   puts "  EventBase infrastructure: 8 tables; signed import functions: 2"
   puts "  M1 source/archive slice: 15 tables"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
+  puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
   puts "  JSON Schema: #{SCHEMA_PATH}"
   puts "  valid fixture: accepted"

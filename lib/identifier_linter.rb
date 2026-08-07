@@ -66,6 +66,18 @@ module M1
         errors << "invalid M1 source time profile" unless mapping.fetch("timeProfile") == "source_slice_time"
       end
 
+      governance_map = JSON.parse(File.read(File.join(root, "schema/governance-quorum-map.json")))
+      governance_mappings = governance_map.fetch("mappings")
+      governance_tables = governance_mappings.map { |mapping| mapping.fetch("table") }
+      governance_sql = File.read(File.join(root, "schema/postgres/006_governance_quorum.sql"))
+      governance_sql_tables = governance_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+      errors << "governance quorum tables are not mapped: #{(governance_sql_tables - governance_tables).join(', ')}" unless (governance_sql_tables - governance_tables).empty?
+      errors << "governance quorum map has unknown tables: #{(governance_tables - governance_sql_tables).join(', ')}" unless (governance_tables - governance_sql_tables).empty?
+      errors.concat(duplicate_errors(governance_tables, "governance quorum table"))
+      governance_mappings.each do |mapping|
+        errors << "invalid governance quorum role" unless mapping.fetch("role") == "governance_infrastructure"
+      end
+
       event_types = M1::EventRegistry.build.fetch("eventTypes").map { |definition| definition.fetch("eventType") }
       errors.concat(duplicate_errors(event_types, "event type"))
       errors << "event registry is not sorted" unless event_types == event_types.sort

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "m1.0",
+  "mappings": [
+    { "table": "governance_signing_key_version", "role": "governance_infrastructure" },
+    { "table": "approval_decision_signer", "role": "governance_infrastructure" }
+  ]
+}

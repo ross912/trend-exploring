@@ -45,7 +45,7 @@
 - M1 首批 PostgreSQL 15.18 实现已在临时本地集群完成真实 parser/transaction 执行：001 的 39 张领域表、002 的 5 张 EventBase 基础设施表（共 44 张）、append-only catalog smoke、pgcrypto/btree_gist、TestCatalog/TestRun/TestResult/GateDecision、gate evaluation closure/selection、EventBase/EventCausalParent fixture 均通过。
 - 本轮连续三轮实现已完成：EventBase/EventCausalParent typed registry 与 DAG guard；8 用途 deny-by-default permission matrix；event/record/version/derived 的双时态 as-known query templates；identifier linter 已接入验收 ID、对象映射、事件基础设施映射和 EventRegistry 检查。
 - 后续 M1 收束切片已补齐：003 signed TestCatalog/EventRegistry import boundary；004 的 15 张来源/权限/档案表及 purpose/raw-version/preservation/format/language fixtures；M1 gate evaluator 对 unsigned catalog、缺项、not_applicable 和失败结果 fail closed。
-- `m1-phase-exit-coverage.json` 与 `report_m1_readiness.rb` 已把 30 个 M0→M1 inherited phase-exit IDs 逐项对账：当前 15 项有完整 fixture evidence，8 项 partial，7 项尚未实现，因此 readiness 明确为 blocked。
+- `m1-phase-exit-coverage.json` 与 `report_m1_readiness.rb` 已把 30 个 M0→M1 inherited phase-exit IDs 逐项对账：当前 16 项有完整 fixture evidence，8 项 partial，6 项尚未实现，因此 readiness 明确为 blocked。
 - M0 已有条件冻结；旧连续计数停在 `0/3`，不再继续 Round 17。M1 已进入 phase-exit 集成验证：治理导入、来源/权限/档案、signed catalog + results + gate report 已落地；剩余是 RevocationDependency/egress/bitemporal 集成和真实数据/生产运维验证。
 
 ## 5. 下一步顺序

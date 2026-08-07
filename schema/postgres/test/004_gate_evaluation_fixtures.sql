@@ -2,6 +2,18 @@
 
 BEGIN;
 
+INSERT INTO service_principal VALUES
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'fixture-quorum-secondary',
+   '2026-08-07 00:00+00', '2026-08-07 00:00+00')
+ON CONFLICT (service_principal_id) DO NOTHING;
+INSERT INTO governance_signing_key_version VALUES
+  ('86000000-0000-4000-8000-000000000001',
+   'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'test-governance', 'key-bbbb-v1',
+   'active', '2026-08-07 00:00+00', '2027-08-07 00:00+00', '2026-08-07 00:00+00'),
+  ('86000000-0000-4000-8000-000000000002',
+   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'test-governance', 'key-aaaa-v1',
+   'active', '2026-08-07 00:00+00', '2027-08-07 00:00+00', '2026-08-07 00:00+00');
+
 INSERT INTO approval_decision VALUES
   ('80000000-0000-4000-8000-000000000001', 'test_definition_version',
    '20000000-0000-4000-8000-000000000002', repeat('2', 64), repeat('3', 64),
@@ -9,6 +21,15 @@ INSERT INTO approval_decision VALUES
    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 2,
    '2026-08-07 00:20+00', '2026-08-07 00:20+00', '2026-08-07 00:20+00',
    'fixture-approval-signature', ARRAY['00000000-0000-4000-8000-000000000801']::uuid[]);
+INSERT INTO approval_decision_signer VALUES
+  ('80000000-0000-4000-8000-000000000001',
+   'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+   '86000000-0000-4000-8000-000000000001', 'signer-bbbb',
+   '2026-08-07 00:20+00', '2026-08-07 00:20+00'),
+  ('80000000-0000-4000-8000-000000000001',
+   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   '86000000-0000-4000-8000-000000000002', 'signer-aaaa',
+   '2026-08-07 00:20+00', '2026-08-07 00:20+00');
 INSERT INTO test_waiver VALUES
   ('81000000-0000-4000-8000-000000000001',
    '20000000-0000-4000-8000-000000000002',
@@ -44,6 +65,27 @@ INSERT INTO gate_evaluation_closure_decision VALUES
    '2026-08-07 00:23+00', '2026-08-07 00:23+00', '2026-08-07 00:23+00',
    ARRAY['00000000-0000-4000-8000-000000000806']::uuid[]);
 COMMIT;
+
+DO $$
+DECLARE
+  message_text text;
+BEGIN
+  BEGIN
+    INSERT INTO approval_decision VALUES
+      ('80000000-0000-4000-8000-000000000003', 'test_definition_version',
+       '20000000-0000-4000-8000-000000000002', repeat('4', 64), repeat('5', 64),
+       'missing quorum fixture', 'must be rejected', 'approved',
+       'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 2,
+       '2026-08-07 00:26+00', '2026-08-07 00:26+00', '2026-08-07 00:26+00',
+       'invalid-approval-signature', ARRAY['00000000-0000-4000-8000-000000000820']::uuid[]);
+    SET CONSTRAINTS approval_decision_quorum_guard IMMEDIATE;
+    RAISE EXCEPTION 'approval without signer quorum was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'approval decision lacks an independent active signing quorum' THEN RAISE; END IF;
+  END;
+END;
+$$;
 
 INSERT INTO gate_run_selection_decision VALUES
   ('85000000-0000-4000-8000-000000000001',
@@ -90,6 +132,15 @@ BEGIN
        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 2,
        '2026-08-07 00:25+00', '2026-08-07 00:25+00', '2026-08-07 00:25+00',
        'fixture-approval-signature', ARRAY['00000000-0000-4000-8000-000000000808']::uuid[]);
+    INSERT INTO approval_decision_signer VALUES
+      ('80000000-0000-4000-8000-000000000002',
+       'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+       '86000000-0000-4000-8000-000000000001', 'signer-bbbb-p0',
+       '2026-08-07 00:25+00', '2026-08-07 00:25+00'),
+      ('80000000-0000-4000-8000-000000000002',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+       '86000000-0000-4000-8000-000000000002', 'signer-aaaa-p0',
+       '2026-08-07 00:25+00', '2026-08-07 00:25+00');
     INSERT INTO test_waiver VALUES
       ('81000000-0000-4000-8000-000000000002',
        '20000000-0000-4000-8000-000000000001',

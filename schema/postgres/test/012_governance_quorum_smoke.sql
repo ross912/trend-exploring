@@ -8,8 +8,8 @@ BEGIN
   SELECT count(*) INTO table_count
     FROM information_schema.tables
    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
-  IF table_count NOT IN (62, 64) THEN
-    RAISE EXCEPTION 'expected 62 tables after M1 source slice (or 64 after governance quorum), found %', table_count;
+  IF table_count NOT IN (41, 64) THEN
+    RAISE EXCEPTION 'expected 41 tables after standalone governance slice or 64 in full M1 stack, found %', table_count;
   END IF;
 
   SELECT count(*) INTO unguarded_count
@@ -27,15 +27,9 @@ BEGIN
           AND trigger_row.tgname = t.table_name || '_reject_mutation'
      );
   IF unguarded_count <> 0 THEN
-    RAISE EXCEPTION '% M1 tables lack append-only triggers', unguarded_count;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_proc WHERE proname = 'assert_purpose_authorized'
-  ) THEN
-    RAISE EXCEPTION 'purpose authorization gate is missing';
+    RAISE EXCEPTION '% tables lack append-only triggers', unguarded_count;
   END IF;
 END;
 $$;
 
-SELECT 'M1 SOURCE SMOKE PASSED' AS result;
+SELECT 'GOVERNANCE QUORUM SMOKE PASSED' AS result;
