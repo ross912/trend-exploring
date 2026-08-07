@@ -2,9 +2,19 @@
 
 require "json"
 require_relative "../lib/provider_response_set"
+require_relative "../lib/test_catalog_generator"
+require_relative "../lib/event_registry"
+require_relative "../lib/m1_gate_evaluator"
 
 ROOT = File.expand_path("..", __dir__)
 SQL_PATH = File.join(ROOT, "schema/postgres/001_m1_core.sql")
+EVENT_SQL_PATH = File.join(ROOT, "schema/postgres/002_event_base.sql")
+IMPORT_SQL_PATH = File.join(ROOT, "schema/postgres/003_manifest_import.sql")
+EVENT_MAP_PATH = File.join(ROOT, "schema/event-infrastructure-map.json")
+SOURCE_SQL_PATH = File.join(ROOT, "schema/postgres/004_m1_source_archive.sql")
+SOURCE_MAP_PATH = File.join(ROOT, "schema/m1-source-map.json")
+GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
+ACCEPTANCE_PATH = File.join(ROOT, "docs/04-acceptance-test-plan.md")
 SCHEMA_PATH = File.join(ROOT, "schema/json/provider-response-set.schema.json")
 OBJECT_MAP_PATH = File.join(ROOT, "schema/object-map.json")
 CANONICAL_CONTRACT_PATH = File.join(ROOT, "docs/05-canonical-data-and-time-contract.md")
@@ -103,6 +113,70 @@ rescue JSON::ParserError => e
   errors << "JSON Schema parse error: #{e.message}"
 end
 
+begin
+  gate_report_sql = File.read(GATE_REPORT_SQL_PATH)
+  errors << "M1 gate report migration must be transactional" unless gate_report_sql.include?("BEGIN;") && gate_report_sql.rstrip.end_with?("COMMIT;")
+  errors << "M1 gate report function is missing" unless gate_report_sql.match?(/CREATE OR REPLACE FUNCTION\s+evaluate_m1_phase_exit_gate\b/i)
+  errors << "M1 gate report must block missing results" unless gate_report_sql.include?("missing_count") && gate_report_sql.include?("blocking_count")
+rescue Errno::ENOENT => e
+  errors << "M1 gate report contract error: #{e.message}"
+end
+
+begin
+  source_sql = File.read(SOURCE_SQL_PATH)
+  source_map = JSON.parse(File.read(SOURCE_MAP_PATH)).fetch("mappings")
+  source_tables = source_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+  mapped_source_tables = source_map.map { |mapping| mapping.fetch("table") }
+  errors << "M1 source tables missing mappings: #{(source_tables - mapped_source_tables).join(',')}" unless (source_tables - mapped_source_tables).empty?
+  errors << "M1 source map has unknown tables: #{(mapped_source_tables - source_tables).join(',')}" unless (mapped_source_tables - source_tables).empty?
+  errors << "M1 source migration must be transactional" unless source_sql.include?("BEGIN;") && source_sql.rstrip.end_with?("COMMIT;")
+  source_guarded = source_sql[/FOREACH immutable_table IN ARRAY ARRAY\[(.*?)\]\s*LOOP/m, 1].to_s.scan(/'([^']+)'/).flatten
+  errors << "M1 source tables without append-only guards: #{(source_tables - source_guarded).join(',')}" unless (source_tables - source_guarded).empty?
+  errors << "M1 source slice must define purpose gate" unless source_sql.include?("assert_purpose_authorized")
+rescue JSON::ParserError, Errno::ENOENT, KeyError => e
+  errors << "M1 source contract error: #{e.message}"
+end
+
+begin
+  event_sql = File.read(EVENT_SQL_PATH)
+  import_sql = File.read(IMPORT_SQL_PATH)
+  event_tables = event_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+  event_map = JSON.parse(File.read(EVENT_MAP_PATH)).fetch("mappings")
+  mapped_event_tables = event_map.map { |mapping| mapping.fetch("table") }
+  errors << "event infrastructure tables missing mappings: #{(event_tables - mapped_event_tables).join(',')}" unless (event_tables - mapped_event_tables).empty?
+  errors << "event infrastructure map has unknown tables: #{(mapped_event_tables - event_tables).join(',')}" unless (mapped_event_tables - event_tables).empty?
+  errors << "EventBase migration must be transactional" unless event_sql.include?("BEGIN;") && event_sql.rstrip.end_with?("COMMIT;")
+  errors << "manifest import migration must be transactional" unless import_sql.include?("BEGIN;") && import_sql.rstrip.end_with?("COMMIT;")
+  %w[global_identity_registry event_type_registry_manifest event_type_definition event_base event_causal_parent].each do |object_name|
+    errors << "missing EventBase SQL object: #{object_name}" unless event_sql.match?(/CREATE\s+TABLE\s+#{Regexp.escape(object_name)}\b/i)
+  end
+  %w[import_event_registry_manifest import_test_catalog_manifest].each do |function_name|
+    errors << "missing manifest import function: #{function_name}" unless import_sql.match?(/CREATE OR REPLACE FUNCTION\s+#{function_name}\b/i)
+  end
+  errors << "manifest import must require signature verification" unless import_sql.include?("p_signature_verified") && import_sql.include?("signature is not verified")
+rescue JSON::ParserError, Errno::ENOENT, KeyError => e
+  errors << "EventBase/import contract error: #{e.message}"
+end
+
+begin
+  rows = M1::TestCatalogGenerator.load_acceptance_plan(ACCEPTANCE_PATH)
+  catalog = M1::TestCatalogGenerator.build(rows, target_phase: "M1", target_gate: "phase-exit")
+  errors << "TestCatalog generator schema hash is invalid" unless catalog.fetch("schemaHash").match?(/\A[a-f0-9]{64}\z/)
+  errors << "TestCatalog generator manifest ID is invalid" unless catalog.fetch("catalogManifestId").match?(/\A[0-9a-f-]{36}\z/)
+  errors << "TestCatalog generator emitted unsigned catalog without governance marker" unless catalog.fetch("signatureStatus") == "unsigned" && catalog.fetch("governance").fetch("signatureRequiredBeforeActivation")
+  errors << "TestCatalog members lack applicability evidence" unless catalog.fetch("members").all? { |member| member.fetch("applicabilityEvidence").to_s != "" }
+
+  registry = M1::EventRegistry.build
+  errors << "EventRegistry schema hash is invalid" unless registry.fetch("schemaHash").match?(/\A[a-f0-9]{64}\z/)
+  errors << "EventRegistry definitions lack aggregate binding" unless registry.fetch("eventTypes").all? do |definition|
+    definition.fetch("aggregateKind") && definition.fetch("aggregateConcreteType") && definition.fetch("payloadSchemaHash").match?(/\A[a-f0-9]{64}\z/)
+  end
+  gate_report = M1::M1GateEvaluator.evaluate(catalog: catalog, results: {})
+  errors << "unsigned TestCatalog must block phase-exit" unless gate_report.fetch("decision") == "blocked" && gate_report.fetch("reasonCodes").include?("CATALOG_SIGNATURE_UNVERIFIED")
+rescue StandardError => e
+  errors << "generator/import contract error: #{e.class}: #{e.message}"
+end
+
 sql = File.read(SQL_PATH)
 sql_tables = sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
 table_blocks = sql.scan(/^CREATE TABLE\s+(\w+)\s+\((.*?)^\);/m).to_h
@@ -188,6 +262,9 @@ if errors.empty?
   puts "  SQL objects: #{REQUIRED_SQL_OBJECTS.length}"
   puts "  SQL guards: #{REQUIRED_SQL_GUARDS.length}"
   puts "  SQL table mappings: #{sql_tables.length}"
+  puts "  EventBase infrastructure: 5 tables; signed import functions: 2"
+  puts "  M1 source/archive slice: 15 tables"
+  puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  JSON Schema: #{SCHEMA_PATH}"
   puts "  valid fixture: accepted"
   puts "  omitted-member fixture: blocked"

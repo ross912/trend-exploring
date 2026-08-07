@@ -6,11 +6,11 @@ require_relative "event_registry"
 module M1
   module IdentifierLinter
     class Error < StandardError; end
-    VALID_ROLES = %w[identity manifest record event child].freeze
+    VALID_ROLES = %w[identity manifest record event child m1_source_slice].freeze
     VALID_PROFILES = %w[
       identity_time operational_record_time derived_record_time
       standalone_snapshot_time bitemporal_version_time manifest_time
-      manifest_child_time event_time inherits_parent
+      manifest_child_time event_time inherits_parent source_slice_time
     ].freeze
 
     module_function
@@ -51,6 +51,19 @@ module M1
       infrastructure_mappings.each do |mapping|
         errors << "event infrastructure role must be infrastructure" unless mapping.fetch("role") == "infrastructure"
         errors << "invalid event infrastructure time profile: #{mapping.fetch('timeProfile')}" unless VALID_PROFILES.include?(mapping.fetch("timeProfile"))
+      end
+
+      source_map = JSON.parse(File.read(File.join(root, "schema/m1-source-map.json")))
+      source_mappings = source_map.fetch("mappings")
+      source_tables = source_mappings.map { |mapping| mapping.fetch("table") }
+      source_sql = File.read(File.join(root, "schema/postgres/004_m1_source_archive.sql"))
+      source_sql_tables = source_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+      errors << "M1 source tables are not mapped: #{(source_sql_tables - source_tables).join(', ')}" unless (source_sql_tables - source_tables).empty?
+      errors << "M1 source map has unknown tables: #{(source_tables - source_sql_tables).join(', ')}" unless (source_tables - source_sql_tables).empty?
+      errors.concat(duplicate_errors(source_tables, "M1 source table"))
+      source_mappings.each do |mapping|
+        errors << "invalid M1 source role" unless mapping.fetch("role") == "m1_source_slice"
+        errors << "invalid M1 source time profile" unless mapping.fetch("timeProfile") == "source_slice_time"
       end
 
       event_types = M1::EventRegistry.build.fetch("eventTypes").map { |definition| definition.fetch("eventType") }

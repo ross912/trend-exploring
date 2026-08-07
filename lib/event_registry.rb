@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "digest"
 
 module M1
   module EventRegistry
@@ -34,6 +35,38 @@ module M1
       "FORMAT_MIGRATION" => ["append_observation", nil],
       "CORRECTION" => ["immutable_fact", nil],
       "DELETION" => ["immutable_fact", nil]
+    }.freeze
+
+    AGGREGATES = {
+      "SUPERSESSION" => ["record", "Supersession"],
+      "AGGREGATE_MERGE_SPLIT" => ["record", "AggregateTopology"],
+      "SIGNAL_STATE" => ["object", "Signal"],
+      "COLLECTION_OPPORTUNITY_STATE" => ["record", "CollectionOpportunity"],
+      "REPORT_SLOT_STATE" => ["record", "ReportSlot"],
+      "PUBLICATION" => ["record", "ReportSlot"],
+      "REPORT_AMENDMENT" => ["record", "ReportEdition"],
+      "RADAR_PUBLICATION" => ["record", "RadarSurface"],
+      "REVOCATION_EPOCH" => ["record", "RevocationDomain"],
+      "PROVIDER_CALLBACK_KEY_STATE" => ["record", "ProviderCallbackSigningKeyVersion"],
+      "SERVICE_PRINCIPAL_CREDENTIAL_STATE" => ["record", "ServicePrincipalCredentialVersion"],
+      "RIGHTS_GRANT_STATE" => ["record", "RightsGrantVersion"],
+      "BINDING_REVOCATION" => ["record", "ArtifactBlobBindingVersion"],
+      "BLOB_DELETION" => ["record", "StorageBlob"],
+      "COVERAGE_DEBT_STATE" => ["record", "CoverageDebt"],
+      "WATERMARK_GAP_STATE" => ["record", "WatermarkGap"],
+      "MEMORY_CANDIDATE_DECISION" => ["object", "MemoryCandidate"],
+      "CORRECTION_PROPOSAL_DECISION" => ["record", "CorrectionProposal"],
+      "SIGNING_KEY_STATE" => ["record", "SigningKeyVersion"],
+      "CANDIDATE_TRIGGER" => ["object", "SignalCandidate"],
+      "EXTERNAL_POINTER_CHECK" => ["record", "ExternalPointer"],
+      "FIXITY_CHECK" => ["record", "StorageBlob"],
+      "REPAIR" => ["record", "StorageBlob"],
+      "CHECKSUM_MIGRATION" => ["record", "RawArtifact"],
+      "KEY_ROTATION" => ["record", "SigningKeyVersion"],
+      "RESTORE_TEST" => ["record", "PreservationManifestVersion"],
+      "FORMAT_MIGRATION" => ["record", "RawArtifact"],
+      "CORRECTION" => ["record", "CorrectionProposal"],
+      "DELETION" => ["record", "RawArtifact"]
     }.freeze
 
     STATE_MACHINES = {
@@ -141,6 +174,9 @@ module M1
           "eventType" => event_type,
           "stateSemantics" => semantics,
           "stateMachineFamily" => family,
+          "aggregateKind" => AGGREGATES.fetch(event_type).fetch(0),
+          "aggregateConcreteType" => AGGREGATES.fetch(event_type).fetch(1),
+          "payloadSchemaHash" => Digest::SHA256.hexdigest("event-payload:#{event_type}"),
           "typedApiAliasSharesEventId" => true,
           "typedPayloadRequired" => true
         }
@@ -165,6 +201,7 @@ module M1
       validate_event_types!(event_types)
       {
         "schemaVersion" => registry_version,
+        "schemaHash" => Digest::SHA256.hexdigest("event-registry-schema:#{registry_version}"),
         "signatureStatus" => "unsigned",
         "manifestSignature" => nil,
         "eventTypes" => event_types,

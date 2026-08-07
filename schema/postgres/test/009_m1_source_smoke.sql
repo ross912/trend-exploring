@@ -8,8 +8,8 @@ BEGIN
   SELECT count(*) INTO table_count
     FROM information_schema.tables
    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
-  IF table_count NOT IN (44, 59) THEN
-    RAISE EXCEPTION 'expected 44 tables after EventBase migration (or 59 after M1 source slice), found %', table_count;
+  IF table_count <> 59 THEN
+    RAISE EXCEPTION 'expected 59 tables after M1 source slice, found %', table_count;
   END IF;
 
   SELECT count(*) INTO unguarded_count
@@ -24,26 +24,18 @@ BEGIN
         WHERE namespace.nspname = t.table_schema
           AND relation.relname = t.table_name
           AND NOT trigger_row.tgisinternal
-          AND trigger_row.tgname IN (
-            t.table_name || '_reject_mutation',
-            t.table_name || '_reject_event_mutation'
-          )
+          AND trigger_row.tgname = t.table_name || '_reject_mutation'
      );
   IF unguarded_count <> 0 THEN
-    RAISE EXCEPTION '% tables lack append-only triggers', unguarded_count;
+    RAISE EXCEPTION '% M1 tables lack append-only triggers', unguarded_count;
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1
-      FROM pg_constraint c
-      JOIN pg_class r ON r.oid = c.conrelid
-     WHERE r.relname = 'event_base'
-       AND c.contype = 'f'
-       AND pg_get_constraintdef(c.oid) LIKE '%aggregate_identity_id%global_identity_registry%'
+    SELECT 1 FROM pg_proc WHERE proname = 'assert_purpose_authorized'
   ) THEN
-    RAISE EXCEPTION 'typed aggregate identity FK is missing';
+    RAISE EXCEPTION 'purpose authorization gate is missing';
   END IF;
 END;
 $$;
 
-SELECT 'EVENT BASE SMOKE PASSED' AS result;
+SELECT 'M1 SOURCE SMOKE PASSED' AS result;

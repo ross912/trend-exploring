@@ -6,9 +6,12 @@
 
 - `postgres/001_m1_core.sql`：PostgreSQL 15+ 首版 DDL，覆盖 manifest 激活、内部凭据生命周期、provider response set、token use、evaluation arm、测试治理与 gate evaluation 核心对象。`provider_response_set` 在 invocation 前冻结承诺，`provider_response_set_closure` 是同主键、无第二领域身份的 terminal child；EvaluationArm 的 output→obligation→snapshot decision→result，TestCatalog→TestRun→TestResult→GateDecision，以及 gate evaluation 的 attempts→closure→selection 均由延迟闭合 trigger 做集合相等校验。
 - `postgres/002_event_base.sql`：EventBase/EventCausalParent 基础设施，包含 typed GlobalIdentityRegistry、不可变 EventType registry header/definition、exclusive revision CAS、同域 sequence、跨域 queue proof、可用时间与 DAG/cycle guard；五张基础设施表均有 append-only guard。
+- `postgres/003_manifest_import.sql`：只接受外部已验证签名的 TestCatalog/EventRegistry import 函数；unsigned、未导入 governance policy 和重复 registry/catalog version 均 fail closed。
+- `postgres/004_m1_source_archive.sql`：M1 来源/权限/档案垂直切片，覆盖 collection opportunity 分母、publisher owner/dependency、RawItemVersion、PurposeAuthorization、四类 RawArtifact、blob binding、restore/format migration 与 language-evaluation manifest。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `event-infrastructure-map.json`：002 migration 的五张基础设施表映射；它们不重复登记领域对象。
+- `m1-source-map.json`：004 migration 的 15 张 M1 来源/档案表映射。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。
 - `fixtures/provider-response-set.omitted-member.invalid.json`：只保存成功 B、遗漏失败 A 的 ADV-013 反例。
 - `../lib/provider_response_set.rb`：response member closure 的可执行语义。
@@ -17,11 +20,15 @@
 - `postgres/test/003_test_governance_fixtures.sql`：P0 applicability floor、catalog 漏项/排除、result applicability 和 gate pass/blocked 反例。
 - `postgres/test/004_gate_evaluation_fixtures.sql`：P1 waiver approval、完整/阻断 evaluation closure、禁止挑选通过 run 洗白失败 evaluation 的反例。
 - `postgres/test/005_event_base_fixtures.sql` / `006_event_base_smoke.sql`：EventBase registry/aggregate/revision 与 EventCausalParent 时间、sequence、queue proof、DAG/cycle 反例。
+- `postgres/test/007_manifest_import_fixtures.sql`：签名验证、治理 policy 依赖、重复 registry/catalog 和 unsigned import 反例。
+- `postgres/test/008_m1_source_archive_fixtures.sql` / `009_m1_source_smoke.sql`：M1 来源/权限/档案 phase-exit 垂直切片正反例与 59 表 append-only smoke。
+- `postgres/005_m1_gate_report.sql` / `postgres/test/010_m1_gate_report_fixtures.sql`：数据库直接按 catalog/run/result 计算 M1 phase-exit report，缺结果和非 pass 结果 fail closed。
 - `../scripts/generate_test_catalog.rb`：从 `docs/04-acceptance-test-plan.md` 确定性编译目标 phase 的 definitions/members/hash；未接入治理签名时显式输出 `unsigned`。
 - `../scripts/generate_event_registry.rb`：确定性编译 05 号契约的 29 个 event type、semantic/family/state transitions；未接入治理签名时显式输出 `unsigned`。
 - `../scripts/generate_permission_matrix.rb`：确定性生成 8 个用途集合的 deny-by-default 权限矩阵；推理、训练、展示和 prevalence 不共享隐式授权。
 - `../scripts/generate_bitemporal_queries.rb`：生成 event、operational、derived、bitemporal version 的 as-known 查询模板。
 - `../scripts/lint_identifiers.rb`：跨文档验收 ID、object map、event infrastructure map 和 EventRegistry 的一致性 lint。
+- `../scripts/evaluate_m1_gate.rb`：按 `introduced_phase`/applicable/blocking=phase-exit 计算 M1 gate；未签名 catalog、缺 result、not_applicable 和失败结果均阻断。
 
 ## 本地验证
 
@@ -34,12 +41,13 @@ ruby scripts/generate_event_registry.rb
 ruby scripts/generate_permission_matrix.rb
 ruby scripts/generate_bitemporal_queries.rb
 ruby scripts/lint_identifiers.rb
+ruby scripts/evaluate_m1_gate.rb --catalog /path/to/signed-m1-catalog.json
 jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 ```
 
 真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke、测试治理和 gate evaluation fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003`/`004` 覆盖测试目录与 gate evaluation 的 fail-closed 集合语义。
 
-当前本地回归：三轮实现后的 Ruby 全量测试、M0+M1 validator、identifier linter 和生成器均需在提交前统一执行；001 migration 包含 39 张领域表，002 增加 5 张 EventBase 基础设施表（总计 44 张），EventBase fixture/smoke 已在 PostgreSQL 15.18 临时集群通过。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types。
+当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器和 M1 gate evaluator 均已接入；001 的 39 张领域表、002 的 5 张 EventBase 基础设施表、004 的 15 张来源/档案表（总计 59 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断。
 
 ## 自检记录
 
@@ -54,5 +62,6 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 ## 下一实现切片
 
 1. 为生成的 catalog/registry 接入治理签名、数据库导入和 manifest 生成流程。
-2. 将权限矩阵与 PurposeAuthorization/RevocationDependencySnapshot 的实际写入路径接通。
+2. 将权限矩阵与 RevocationDependencySnapshot、egress/训练执行器接通。
 3. 为 bitemporal query 模板补充投影表和时间旅行集成 fixture。
+4. 用真实 signed catalog、M1 test results 和 gate decision 完成 phase-exit 评估。

@@ -44,14 +44,15 @@
 - 当前静态结果：04 有 233 个唯一测试 ID且无重复；05 有 169 个 immutable records 与 36 个 manifests，time-profile 双向 missing/extra/duplicate 均为 0；02 的 6 个 JSON blocks 全部可解析；全部 Markdown 表宽和 code-fence parity 通过。
 - M1 首批 PostgreSQL 15.18 实现已在临时本地集群完成真实 parser/transaction 执行：001 的 39 张领域表、002 的 5 张 EventBase 基础设施表（共 44 张）、append-only catalog smoke、pgcrypto/btree_gist、TestCatalog/TestRun/TestResult/GateDecision、gate evaluation closure/selection、EventBase/EventCausalParent fixture 均通过。
 - 本轮连续三轮实现已完成：EventBase/EventCausalParent typed registry 与 DAG guard；8 用途 deny-by-default permission matrix；event/record/version/derived 的双时态 as-known query templates；identifier linter 已接入验收 ID、对象映射、事件基础设施映射和 EventRegistry 检查。
-- M0 已有条件冻结；旧连续计数停在 `0/3`，不再继续 Round 17。本轮三轮实现已落地，下一步是 M1 治理签名/数据库导入与最小垂直切片集成。
+- 后续 M1 收束切片已补齐：003 signed TestCatalog/EventRegistry import boundary；004 的 15 张来源/权限/档案表及 purpose/raw-version/preservation/format/language fixtures；M1 gate evaluator 对 unsigned catalog、缺项、not_applicable 和失败结果 fail closed。
+- M0 已有条件冻结；旧连续计数停在 `0/3`，不再继续 Round 17。M1 已进入 phase-exit 集成验证：治理导入、来源/权限/档案、signed catalog + results + gate report 已落地；剩余是 RevocationDependency/egress/bitemporal 集成和真实数据/生产运维验证。
 
 ## 5. 下一步顺序
 
-1. 为 TestCatalog/EventRegistry 接入治理签名、数据库导入和 manifest 激活边界。
-2. 将 permission matrix 与 PurposeAuthorization、RevocationDependencySnapshot 和实际 egress/训练门禁接通。
+1. 用实际签名服务产出 signed TestCatalog/EventRegistry，导入 003 并激活 manifest。
+2. 将 permission matrix 与 RevocationDependencySnapshot、实际 egress/训练门禁接通。
 3. 为 bitemporal query 模板补充投影表、时间旅行和 EventCausalParent 集成 fixture。
-4. 完成一个 M1 垂直切片：冻结输入→生成 obligation/unit→唯一 terminal decision→gate，并保留所有 immutable lineage。
+4. 将 gate report 接入最终 GateDecision/审批激活流程，完成 phase-exit closure 并保留 immutable lineage。
 5. 实现问题进入 implementation backlog；除非触发数据破坏、越权或正式能力声明错误，不重新启动全面规范审查。
 
 ## 6. 建议复核命令
@@ -103,9 +104,9 @@ git status --short
 下一步：
 
 - 使用 `schema/postgres/test/002_m1_transaction_fixtures.sh` 在明确 disposable 的 PostgreSQL 15+ 数据库中重复运行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch、并发序列化和集合闭合测试。
-- TestCatalog 生成器已从 04 号验收表确定性编译 M1 的 72 个 definition/member；下一步是接入治理签名、数据库导入和 TestCatalogManifest 生成流程。
-- EventRegistry 生成器已固化 05 号契约的 29 个 event type 与 exclusive state transitions；下一步是接入治理签名和数据库导入。
-- 权限矩阵、EventBase/EventCausalParent、双时间查询模板和 identifier linter 已完成第一版，后续进入集成 fixture 与真实 PurposeAuthorization 写入路径。
+- TestCatalog 生成器已从 04 号验收表确定性编译 M1 的 72 个 definition/member；003 已能拒绝 unsigned 并导入 signed catalog。
+- EventRegistry 生成器已固化 05 号契约的 29 个 event type 与 exclusive state transitions；003 已能拒绝 unsigned 并导入 signed registry definition。
+- 权限矩阵、EventBase/EventCausalParent、双时间查询模板、identifier linter、来源/档案 slice 与数据库 phase-exit report 已完成第一版；后续进入 RevocationDependency/egress/bitemporal 集成。
 - 证明 P0 applicability 永远 fail closed。
 - 执行小规模来源、许可、语言、成本和恢复可行性试验。
 

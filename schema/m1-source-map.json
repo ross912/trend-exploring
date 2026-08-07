@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "m1.0",
+  "purpose": "M1 source/rights/archive vertical slice mappings.",
+  "mappings": [
+    { "table": "owner_group", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "publisher_account", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "collection_opportunity", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "collection_opportunity_state_event", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "capture", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "raw_item", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "raw_item_version", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "purpose_authorization", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "preservation_manifest_version", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "storage_blob", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "raw_artifact", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "artifact_blob_binding", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "restore_test_event", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "format_migration_event", "role": "m1_source_slice", "timeProfile": "source_slice_time" },
+    { "table": "language_evaluation_manifest", "role": "m1_source_slice", "timeProfile": "source_slice_time" }
+  ]
+}

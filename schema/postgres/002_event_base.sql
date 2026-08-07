@@ -6,7 +6,14 @@ BEGIN;
 
 CREATE TYPE event_identity_kind AS ENUM ('object', 'record', 'event');
 CREATE TYPE event_valid_time_status AS ENUM ('known', 'unknown', 'not_applicable');
-CREATE TYPE event_state_semantics AS ENUM ('exclusive_transition', 'append_only', 'immutable');
+CREATE TYPE event_state_semantics AS ENUM (
+  'exclusive_transition',
+  'append_observation',
+  'append_only',
+  'immutable_fact',
+  'immutable',
+  'conflict_tolerant_closure'
+);
 
 CREATE TABLE global_identity_registry (
   global_identity_id uuid PRIMARY KEY,

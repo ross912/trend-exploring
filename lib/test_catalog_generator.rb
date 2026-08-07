@@ -59,10 +59,19 @@ module M1
       selected = rows.select { |row| PHASES.index(row.fetch("introducedPhase")) <= PHASES.index(target_phase) }
       definitions = selected.map { |row| compile_definition(row) }
       definition_ids = definitions.map { |definition| definition.fetch("testDefinitionVersionId") }.sort
-      members = definition_ids.map { |id| { "testDefinitionVersionId" => id, "membership" => "applicable" } }
+      members = definition_ids.map do |id|
+        {
+          "testDefinitionVersionId" => id,
+          "membership" => "applicable",
+          "exclusionReason" => nil,
+          "applicabilityEvidence" => "compiled acceptance applicability predicate"
+        }
+      end
 
       {
         "schemaVersion" => CATALOG_SCHEMA_VERSION,
+        "schemaHash" => Digest::SHA256.hexdigest("test-catalog-schema:#{CATALOG_SCHEMA_VERSION}"),
+        "catalogManifestId" => uuid5("catalog:#{target_phase}:#{target_gate}:#{governance_policy_version}"),
         "targetPhase" => target_phase,
         "targetGate" => target_gate,
         "testGovernancePolicyVersion" => governance_policy_version,
