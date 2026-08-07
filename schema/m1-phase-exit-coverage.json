@@ -24,7 +24,7 @@
     { "testCode": "CTR-014", "status": "not_implemented", "evidence": "" },
     { "testCode": "CTR-015", "status": "not_implemented", "evidence": "" },
     { "testCode": "CTR-016", "status": "fixture_passed", "evidence": "schema/postgres/test/005_event_base_fixtures.sql" },
-    { "testCode": "CTR-017", "status": "partial", "evidence": "schema/postgres/test/011_manifest_activation_fixtures.sql" },
+    { "testCode": "CTR-017", "status": "fixture_passed", "evidence": "schema/postgres/test/011_manifest_activation_fixtures.sql; schema/postgres/test/013_manifest_activation_concurrency.sh" },
     { "testCode": "CTR-018", "status": "not_implemented", "evidence": "" },
     { "testCode": "CTR-019", "status": "fixture_passed", "evidence": "schema/postgres/test/002_m1_transaction_fixtures.sh" },
     { "testCode": "CTR-020", "status": "not_implemented", "evidence": "" },
