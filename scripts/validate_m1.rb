@@ -8,6 +8,7 @@ require_relative "../lib/m1_gate_evaluator"
 require_relative "../lib/m1_readiness"
 require_relative "../lib/canonical_contract"
 require_relative "../lib/data_boundary"
+require_relative "../lib/canonical_schema_compiler"
 
 ROOT = File.expand_path("..", __dir__)
 SQL_PATH = File.join(ROOT, "schema/postgres/001_m1_core.sql")
@@ -24,6 +25,7 @@ SNAPSHOT_SQL_PATH = File.join(ROOT, "schema/postgres/009_m1_snapshot_membership.
 SNAPSHOT_MAP_PATH = File.join(ROOT, "schema/m1-snapshot-map.json")
 DATA_DOMAIN_SQL_PATH = File.join(ROOT, "schema/postgres/010_m1_data_domain.sql")
 DATA_DOMAIN_MAP_PATH = File.join(ROOT, "schema/m1-data-domain-map.json")
+CANONICAL_OBJECT_MAP_PATH = File.join(ROOT, "schema/object-map.json")
 DATA_BOUNDARY_PATH = File.join(ROOT, "schema/data-domain-boundary.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
 COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
@@ -250,6 +252,17 @@ rescue M1::DataBoundary::Error, Errno::ENOENT => e
 end
 
 begin
+  canonical_schema = M1::CanonicalSchemaCompiler.compile(
+    contract_path: CANONICAL_CONTRACT_PATH,
+    object_map_path: CANONICAL_OBJECT_MAP_PATH
+  )
+  errors << "canonical schema compiler emitted an invalid hash" unless canonical_schema.fetch("schemaHash").match?(/\A[a-f0-9]{64}\z/)
+  errors << "canonical schema compiler omitted metadata DDL" unless canonical_schema.fetch("ddl").include?("CREATE TABLE canonical_contract_registry")
+rescue M1::CanonicalSchemaCompiler::Error, Errno::ENOENT => e
+  errors << "canonical schema compiler contract error: #{e.message}"
+end
+
+begin
   event_sql = File.read(EVENT_SQL_PATH)
   import_sql = File.read(IMPORT_SQL_PATH)
   event_tables = event_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
@@ -381,6 +394,7 @@ if errors.empty?
   puts "  M1 presentation identity slice: 8 tables; typed child/XOR/plan guards"
   puts "  M1 snapshot membership slice: 6 tables; profile activation/as-of/closure guards"
   puts "  M1 data-domain slice: 5 tables; personal RLS and public-only input guards"
+  puts "  canonical schema compiler: 247 registry objects; deterministic metadata DDL"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"

@@ -12,6 +12,7 @@
 - `postgres/008_m1_presentation.sql`：ClaimGenerationUnit、PresentationRenderPlan/ContentUnit 与 kind-specific child、SourceTextRef XOR 的 typed presentation slice；配套 map 与 020 fixture 在同一干净集群回归。
 - `postgres/009_m1_snapshot_membership.sql`：SnapshotMembershipProfile/Role、snapshot header activation/as-of binding、unit/decision/selected-member 四方闭合；配套 map 与 021 fixture 在同一干净集群回归。
 - `postgres/010_m1_data_domain.sql`：PersonalScope/PrivateQueryContext RLS、短期 neutral-query 执行记录与 PublicOnlyInputSnapshot/member 的 global-only、zero-private-lineage 门禁；配套 map 与 022 fixture 在干净集群回归。
+- `../lib/canonical_schema_compiler.rb` / `../scripts/generate_canonical_schema.rb`：从 05 registry 与 object-map 确定性编译 247 个 canonical objects，输出 schema hash 与 metadata DDL；collision/orphan/profile 负向测试见 `test/canonical_schema_compiler_test.rb`。这仍是 registry/metadata 编译边界，不替代全部领域表 DDL。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `event-infrastructure-map.json`：002 migration 的五张基础设施表映射；它们不重复登记领域对象。
