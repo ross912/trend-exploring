@@ -32,8 +32,13 @@ SELECT import_event_registry_manifest(
         'aggregateKind', 'record',
         'aggregateConcreteType', 'ServicePrincipalCredentialVersion',
         'payloadSchemaHash', repeat('c', 64),
-        'states', jsonb_build_array(jsonb_build_object('stateKey', 'active')),
-        'transitions', jsonb_build_array(jsonb_build_object('fromState', 'active', 'toState', 'active'))
+        'states', jsonb_build_array(jsonb_build_object('stateKey', 'active', 'isInitialState', true)),
+        'transitions', jsonb_build_array(jsonb_build_object(
+          'fromState', 'active', 'toState', 'active',
+          'isInitialTransition', true, 'typedGuardRequired', true)),
+        'apiAliases', jsonb_build_array(jsonb_build_object(
+          'aliasKey', 'canonical', 'aliasPath', 'service_principal_credential_state',
+          'typedApiAliasSharesEventId', true))
       ),
       jsonb_build_object(
         'eventType', 'CANDIDATE_TRIGGER',
@@ -41,7 +46,10 @@ SELECT import_event_registry_manifest(
         'stateMachineFamily', NULL,
         'aggregateKind', 'object',
         'aggregateConcreteType', 'SignalCandidate',
-        'payloadSchemaHash', repeat('d', 64)
+        'payloadSchemaHash', repeat('d', 64),
+        'apiAliases', jsonb_build_array(jsonb_build_object(
+          'aliasKey', 'canonical', 'aliasPath', 'candidate_trigger',
+          'typedApiAliasSharesEventId', true))
       )
     )
   ),
@@ -120,6 +128,42 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
     IF message_text <> 'event registry signature is not verified' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+DO $$
+DECLARE
+  message_text text;
+BEGIN
+  BEGIN
+    PERFORM import_event_registry_manifest(
+      jsonb_build_object(
+        'schemaVersion', 'm1.event-registry.bad-child.v1',
+        'schemaHash', repeat('8', 64), 'signatureStatus', 'signed',
+        'manifestSignature', 'signed-bad-child-fixture',
+        'eventTypes', jsonb_build_array(jsonb_build_object(
+          'eventType', 'SIGNAL_STATE',
+          'stateSemantics', 'exclusive_transition',
+          'stateMachineFamily', 'SIGNAL_LIFECYCLE',
+          'aggregateKind', 'object', 'aggregateConcreteType', 'Signal',
+          'payloadSchemaHash', repeat('9', 64),
+          'states', jsonb_build_array(jsonb_build_object(
+            'stateKey', 'candidate', 'isInitialState', true)),
+          'transitions', jsonb_build_array(jsonb_build_object(
+            'fromState', 'candidate', 'toState', 'unknown',
+            'isInitialTransition', false, 'typedGuardRequired', true)),
+          'apiAliases', jsonb_build_array(jsonb_build_object(
+            'aliasKey', 'canonical', 'aliasPath', 'signal_state',
+            'typedApiAliasSharesEventId', true))
+        ))
+      ),
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '2026-08-07 01:03+00', '2026-08-07 01:03+00', true
+    );
+    RAISE EXCEPTION 'event transition with unknown state was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
   END;
 END;
 $$;

@@ -177,6 +177,13 @@ module M1
           "aggregateKind" => AGGREGATES.fetch(event_type).fetch(0),
           "aggregateConcreteType" => AGGREGATES.fetch(event_type).fetch(1),
           "payloadSchemaHash" => Digest::SHA256.hexdigest("event-payload:#{event_type}"),
+          "apiAliases" => [
+            {
+              "aliasKey" => "canonical",
+              "aliasPath" => event_type.downcase,
+              "typedApiAliasSharesEventId" => true
+            }
+          ],
           "typedApiAliasSharesEventId" => true,
           "typedPayloadRequired" => true
         }

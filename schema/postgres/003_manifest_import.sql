@@ -35,6 +35,11 @@ DECLARE
   aggregate_kind text;
   aggregate_concrete_type text;
   payload_schema_hash text;
+  state jsonb;
+  transition jsonb;
+  alias jsonb;
+  from_state text;
+  to_state text;
 BEGIN
   IF jsonb_typeof(p_registry) <> 'object'
      OR p_registry->>'signatureStatus' <> 'signed'
@@ -86,6 +91,10 @@ BEGIN
          OR jsonb_typeof(definition->'transitions') <> 'array') THEN
       RAISE EXCEPTION 'exclusive event lacks state machine children: %', event_type;
     END IF;
+    IF jsonb_typeof(definition->'apiAliases') <> 'array'
+       OR jsonb_array_length(definition->'apiAliases') = 0 THEN
+      RAISE EXCEPTION 'event type lacks a typed API alias: %', event_type;
+    END IF;
     INSERT INTO event_type_definition VALUES (
       registry_version,
       event_type,
@@ -95,6 +104,36 @@ BEGIN
       aggregate_concrete_type,
       payload_schema_hash
     );
+
+    FOR state IN SELECT value FROM jsonb_array_elements(coalesce(definition->'states', '[]'::jsonb)) LOOP
+      INSERT INTO event_state_definition VALUES (
+        registry_version,
+        event_type,
+        state->>'stateKey',
+        coalesce((state->>'isInitialState')::boolean, false)
+      );
+    END LOOP;
+    FOR transition IN SELECT value FROM jsonb_array_elements(coalesce(definition->'transitions', '[]'::jsonb)) LOOP
+      from_state := transition->>'fromState';
+      to_state := transition->>'toState';
+      INSERT INTO event_state_transition_definition VALUES (
+        registry_version,
+        event_type,
+        from_state,
+        to_state,
+        coalesce((transition->>'isInitialTransition')::boolean, false),
+        coalesce((transition->>'typedGuardRequired')::boolean, false)
+      );
+    END LOOP;
+    FOR alias IN SELECT value FROM jsonb_array_elements(definition->'apiAliases') LOOP
+      INSERT INTO event_api_alias VALUES (
+        registry_version,
+        event_type,
+        alias->>'aliasKey',
+        alias->>'aliasPath',
+        coalesce((alias->>'typedApiAliasSharesEventId')::boolean, false)
+      );
+    END LOOP;
   END LOOP;
   RETURN registry_version;
 END;

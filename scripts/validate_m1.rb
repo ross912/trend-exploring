@@ -275,7 +275,7 @@ if errors.empty?
   puts "  SQL objects: #{REQUIRED_SQL_OBJECTS.length}"
   puts "  SQL guards: #{REQUIRED_SQL_GUARDS.length}"
   puts "  SQL table mappings: #{sql_tables.length}"
-  puts "  EventBase infrastructure: 5 tables; signed import functions: 2"
+  puts "  EventBase infrastructure: 8 tables; signed import functions: 2"
   puts "  M1 source/archive slice: 15 tables"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"

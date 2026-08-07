@@ -17,6 +17,16 @@ INSERT INTO event_type_definition VALUES
    'record', 'ServicePrincipalCredentialVersion', repeat('b', 64)),
   ('event-registry-fixture-v1', 'CANDIDATE_TRIGGER',
    'append_only', NULL, 'object', 'SignalCandidate', repeat('c', 64));
+INSERT INTO event_state_definition VALUES
+  ('event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE', 'active', true),
+  ('event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE', 'revoked', false),
+  ('event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE', 'compromised', false);
+INSERT INTO event_state_transition_definition VALUES
+  ('event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE', 'active', 'revoked', false, true),
+  ('event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE', 'active', 'compromised', false, true);
+INSERT INTO event_api_alias VALUES
+  ('event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE', 'canonical', 'service_principal_credential_state', true),
+  ('event-registry-fixture-v1', 'CANDIDATE_TRIGGER', 'canonical', 'candidate_trigger', true);
 
 INSERT INTO global_identity_registry VALUES
   ('90000000-0000-4000-8000-000000000001', 'event', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE', '2026-08-07 00:01+00', '2026-08-07 00:01+00'),

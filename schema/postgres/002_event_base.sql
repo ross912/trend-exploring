@@ -53,6 +53,92 @@ CREATE TABLE event_type_definition (
   )
 );
 
+CREATE TABLE event_state_definition (
+  event_type_registry_version text NOT NULL,
+  event_type text NOT NULL,
+  state_key text NOT NULL CHECK (btrim(state_key) <> ''),
+  is_initial_state boolean NOT NULL,
+  PRIMARY KEY (event_type_registry_version, event_type, state_key),
+  FOREIGN KEY (event_type_registry_version, event_type)
+    REFERENCES event_type_definition (event_type_registry_version, event_type)
+);
+
+CREATE UNIQUE INDEX event_state_definition_one_initial
+  ON event_state_definition (event_type_registry_version, event_type)
+  WHERE is_initial_state;
+
+CREATE TABLE event_state_transition_definition (
+  event_type_registry_version text NOT NULL,
+  event_type text NOT NULL,
+  from_state text NOT NULL,
+  to_state text NOT NULL,
+  is_initial_transition boolean NOT NULL,
+  typed_guard_required boolean NOT NULL CHECK (typed_guard_required),
+  PRIMARY KEY (event_type_registry_version, event_type, from_state, to_state),
+  FOREIGN KEY (event_type_registry_version, event_type, from_state)
+    REFERENCES event_state_definition (event_type_registry_version, event_type, state_key),
+  FOREIGN KEY (event_type_registry_version, event_type, to_state)
+    REFERENCES event_state_definition (event_type_registry_version, event_type, state_key)
+);
+
+CREATE TABLE event_api_alias (
+  event_type_registry_version text NOT NULL,
+  event_type text NOT NULL,
+  alias_key text NOT NULL CHECK (btrim(alias_key) <> ''),
+  alias_path text NOT NULL CHECK (btrim(alias_path) <> ''),
+  typed_api_alias_shares_event_id boolean NOT NULL CHECK (typed_api_alias_shares_event_id),
+  PRIMARY KEY (event_type_registry_version, event_type, alias_key),
+  FOREIGN KEY (event_type_registry_version, event_type)
+    REFERENCES event_type_definition (event_type_registry_version, event_type),
+  UNIQUE (event_type_registry_version, alias_path)
+);
+
+CREATE OR REPLACE FUNCTION validate_event_type_definition_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  semantics event_state_semantics;
+  state_count integer;
+  initial_count integer;
+  transition_count integer;
+  alias_count integer;
+BEGIN
+  SELECT state_semantics INTO semantics
+    FROM event_type_definition
+   WHERE event_type_registry_version = NEW.event_type_registry_version
+     AND event_type = NEW.event_type;
+  SELECT count(*), count(*) FILTER (WHERE is_initial_state)
+    INTO state_count, initial_count
+    FROM event_state_definition
+   WHERE event_type_registry_version = NEW.event_type_registry_version
+     AND event_type = NEW.event_type;
+  SELECT count(*) INTO transition_count
+    FROM event_state_transition_definition
+   WHERE event_type_registry_version = NEW.event_type_registry_version
+     AND event_type = NEW.event_type;
+  SELECT count(*) INTO alias_count
+    FROM event_api_alias
+   WHERE event_type_registry_version = NEW.event_type_registry_version
+     AND event_type = NEW.event_type;
+
+  IF semantics = 'exclusive_transition'
+     AND (state_count = 0 OR initial_count <> 1 OR transition_count = 0) THEN
+    RAISE EXCEPTION 'exclusive event type lacks a closed state/transition registry';
+  END IF;
+  IF semantics <> 'exclusive_transition' AND (state_count <> 0 OR transition_count <> 0) THEN
+    RAISE EXCEPTION 'non-exclusive event type cannot carry state-machine children';
+  END IF;
+  IF alias_count = 0 THEN
+    RAISE EXCEPTION 'event type lacks a typed API alias';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER event_type_definition_closure_guard
+AFTER INSERT ON event_type_definition
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_event_type_definition_closure();
+
 CREATE TABLE event_base (
   event_id uuid PRIMARY KEY,
   event_type_registry_version text NOT NULL,
@@ -260,6 +346,9 @@ BEGIN
     'global_identity_registry',
     'event_type_registry_manifest',
     'event_type_definition',
+    'event_state_definition',
+    'event_state_transition_definition',
+    'event_api_alias',
     'event_base',
     'event_causal_parent'
   ] LOOP
