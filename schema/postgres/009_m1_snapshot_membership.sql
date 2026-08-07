@@ -191,6 +191,8 @@ DECLARE
   universe_missing integer;
   universe_extra integer;
   selected_unknown integer;
+  invalid_subject_kind integer;
+  invalid_selected_member_kind integer;
   profile_role_count integer;
   snapshot_role_count integer;
   universe_role_count integer;
@@ -255,8 +257,25 @@ BEGIN
   SELECT count(DISTINCT member_role) INTO universe_role_count
     FROM snapshot_membership_universe_member
    WHERE snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id;
+  SELECT count(*) INTO invalid_subject_kind
+    FROM snapshot_membership_unit u
+    JOIN snapshot_membership_profile_role r
+      ON r.snapshot_membership_profile_id = NEW.snapshot_membership_profile_id
+     AND r.member_role = u.member_role
+   WHERE u.snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+     AND u.subject_kind <> r.subject_kind;
+  SELECT count(*) INTO invalid_selected_member_kind
+    FROM snapshot_membership_decision d
+    JOIN snapshot_membership_unit u USING (snapshot_membership_unit_id)
+    JOIN snapshot_membership_profile_role r
+      ON r.snapshot_membership_profile_id = NEW.snapshot_membership_profile_id
+     AND r.member_role = u.member_role
+   WHERE u.snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+     AND d.decision = 'selected'
+     AND d.selected_member_kind <> r.selected_member_kind;
   IF missing_decisions <> 0 OR selected_without_child <> 0 OR child_without_selected <> 0
      OR universe_missing <> 0 OR universe_extra <> 0 OR selected_unknown <> 0
+     OR invalid_subject_kind <> 0 OR invalid_selected_member_kind <> 0
      OR profile_role_count = 0 OR snapshot_role_count <> profile_role_count
      OR universe_role_count <> profile_role_count THEN
     RAISE EXCEPTION 'snapshot membership units, decisions, selected members, and profile roles are not closed';
