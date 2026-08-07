@@ -1083,6 +1083,44 @@ CREATE TABLE test_definition_version (
     DEFERRABLE INITIALLY DEFERRED
 );
 
+CREATE OR REPLACE FUNCTION validate_test_definition_strength()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  predecessor test_definition_version%ROWTYPE;
+BEGIN
+  IF NEW.definition_revision = 1 THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT * INTO predecessor
+    FROM test_definition_version
+   WHERE test_definition_version_id = NEW.supersedes_version_id
+     AND test_id = NEW.test_id
+     AND definition_revision = NEW.supersedes_revision;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.introduced_phase > predecessor.introduced_phase THEN
+    RAISE EXCEPTION 'test definition introduced phase cannot move later';
+  END IF;
+  IF predecessor.severity = 'P0' AND NEW.severity <> 'P0' THEN
+    RAISE EXCEPTION 'P0 test definition strength cannot be downgraded';
+  END IF;
+  IF predecessor.blocking <> 'none' AND NEW.blocking = 'none' THEN
+    RAISE EXCEPTION 'blocking test definition cannot be downgraded to none';
+  END IF;
+  IF predecessor.severity = 'P0' AND NEW.applicability_predicate <> 'always' THEN
+    RAISE EXCEPTION 'P0 test definition applicability cannot be weakened';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER test_definition_strength_guard
+BEFORE INSERT OR UPDATE ON test_definition_version
+FOR EACH ROW EXECUTE FUNCTION validate_test_definition_strength();
+
 CREATE TABLE test_catalog_manifest (
   test_catalog_manifest_id uuid PRIMARY KEY,
   target_phase test_phase NOT NULL,

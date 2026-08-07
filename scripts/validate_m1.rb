@@ -87,6 +87,7 @@ REQUIRED_SQL_GUARDS = {
   "test catalog closure" => /validate_test_catalog_closure/,
   "test result catalog membership" => /validate_test_result_membership/,
   "gate decision closure" => /validate_gate_decision_closure/,
+  "test definition strength monotonicity" => /validate_test_definition_strength/,
   "P0 test applicability floor" => /severity <> 'P0' OR \(applicability_predicate = 'always' AND NOT waiver_allowed\)/,
   "waiver approval floor" => /validate_test_waiver/,
   "gate attempt catalog binding" => /validate_gate_run_attempt_membership/,

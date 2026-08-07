@@ -14,7 +14,7 @@
     { "testCode": "CTR-004", "status": "fixture_passed", "evidence": "schema/postgres/test/005_event_base_fixtures.sql; schema/postgres/test/007_manifest_import_fixtures.sql" },
     { "testCode": "CTR-005", "status": "fixture_passed", "evidence": "schema/postgres/test/007_manifest_import_fixtures.sql" },
     { "testCode": "CTR-006", "status": "not_implemented", "evidence": "" },
-    { "testCode": "CTR-007", "status": "partial", "evidence": "schema/postgres/test/003_test_governance_fixtures.sql" },
+    { "testCode": "CTR-007", "status": "partial", "evidence": "schema/postgres/test/003_test_governance_fixtures.sql; schema/postgres/test/017_test_definition_strength_fixtures.sql" },
     { "testCode": "CTR-008", "status": "fixture_passed", "evidence": "schema/postgres/test/003_test_governance_fixtures.sql" },
     { "testCode": "CTR-009", "status": "fixture_passed", "evidence": "schema/postgres/test/004_gate_evaluation_fixtures.sql; schema/postgres/test/012_governance_quorum_smoke.sql" },
     { "testCode": "CTR-010", "status": "fixture_passed", "evidence": "schema/postgres/test/004_gate_evaluation_fixtures.sql; schema/postgres/test/014_test_catalog_result_negative_fixtures.sql" },
