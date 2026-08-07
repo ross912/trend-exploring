@@ -6,6 +6,7 @@ require_relative "../lib/test_catalog_generator"
 require_relative "../lib/event_registry"
 require_relative "../lib/m1_gate_evaluator"
 require_relative "../lib/m1_readiness"
+require_relative "../lib/canonical_contract"
 
 ROOT = File.expand_path("..", __dir__)
 SQL_PATH = File.join(ROOT, "schema/postgres/001_m1_core.sql")
@@ -115,6 +116,13 @@ begin
   errors << "JSON Schema must declare semantic invariants" unless schema["x-m1-invariants"].is_a?(Array)
 rescue JSON::ParserError => e
   errors << "JSON Schema parse error: #{e.message}"
+end
+
+begin
+  canonical_report = M1::CanonicalContract.repository_report(CANONICAL_CONTRACT_PATH)
+  errors.concat(canonical_report.fetch("errors"))
+rescue StandardError => e
+  errors << "canonical contract validator error: #{e.class}: #{e.message}"
 end
 
 begin

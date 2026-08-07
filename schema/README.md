@@ -33,7 +33,7 @@
 - `../scripts/generate_bitemporal_queries.rb`：生成 event、operational、derived、bitemporal version 的 as-known 查询模板。
 - `../scripts/lint_identifiers.rb`：跨文档验收 ID、object map、event infrastructure map 和 EventRegistry 的一致性 lint。
 - `../scripts/evaluate_m1_gate.rb`：按 `introduced_phase`/applicable/blocking=phase-exit 计算 M1 gate；未签名 catalog、缺 result、not_applicable 和失败结果均阻断。
-- `../scripts/report_m1_readiness.rb`：对 M0→M1 inherited phase-exit 项逐项对账证据，避免把局部 fixture 误报成 M1 ready。
+- `../scripts/report_m1_readiness.rb`：对 M0→M1 inherited phase-exit 项逐项对账证据，避免把局部 fixture 误报成 M1 ready；canonical_contract mutation tests 覆盖 archetype/time-profile 缺项和重项。
 
 ## 本地验证
 
@@ -52,7 +52,7 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 
 真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke、测试治理和 gate evaluation fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003`/`004` 覆盖测试目录与 gate evaluation 的 fail-closed 集合语义。
 
-当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 64 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，当前 readiness 为 17/30 fixture_passed、13/30 blocked。
+当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 64 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，当前 readiness 为 18/30 fixture_passed、12/30 blocked。
 
 ## 自检记录
 
