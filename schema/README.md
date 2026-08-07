@@ -10,12 +10,14 @@
 - `postgres/004_m1_source_archive.sql`：M1 来源/权限/档案垂直切片，覆盖 collection opportunity 分母、publisher owner/dependency、RawItemVersion、PurposeAuthorization、四类 RawArtifact、blob binding、restore/format migration 与 language-evaluation manifest。
 - `postgres/007_m1_coverage_item.sql`：CoverageItem 与 candidate-generation unit 的 canonical projection key、UUIDv5 身份重算、typed input、并发唯一性和 append-only guard；配套 map 与 018/019 夹具单独在干净 PostgreSQL 集群回归。
 - `postgres/008_m1_presentation.sql`：ClaimGenerationUnit、PresentationRenderPlan/ContentUnit 与 kind-specific child、SourceTextRef XOR 的 typed presentation slice；配套 map 与 020 fixture 在同一干净集群回归。
+- `postgres/009_m1_snapshot_membership.sql`：SnapshotMembershipProfile/Role、snapshot header activation/as-of binding、unit/decision/selected-member 四方闭合；配套 map 与 021 fixture 在同一干净集群回归。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `event-infrastructure-map.json`：002 migration 的五张基础设施表映射；它们不重复登记领域对象。
 - `m1-source-map.json`：004 migration 的 15 张 M1 来源/档案表映射。
 - `m1-coverage-map.json`：007 migration 的 2 张 CoverageItem 身份切片表映射。
 - `m1-presentation-map.json`：008 migration 的 8 张 typed presentation 切片表映射。
+- `m1-snapshot-map.json`：009 migration 的 6 张 snapshot membership 切片表映射。
 - `m1-phase-exit-coverage.json`：M1 phase-exit 30 个 required IDs 的证据覆盖矩阵；partial/not_implemented 自动保持 gate blocked。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。
 - `fixtures/provider-response-set.omitted-member.invalid.json`：只保存成功 B、遗漏失败 A 的 ADV-013 反例。
@@ -57,7 +59,7 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 
 真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke、测试治理和 gate evaluation fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003`/`004` 覆盖测试目录与 gate evaluation 的 fail-closed 集合语义。
 
-当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 64 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke；007 的 2 张 CoverageItem 身份表和 008 的 8 张 typed presentation 表另在干净 PostgreSQL 15.18 集群通过 018/019/020 fixture/concurrency。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，CTR-010 的越界 result/append-only 负向夹具、CTR-011 的 M2/M5 inherited catalog 回归、LAN-001 的十种正式语言评测闭合回归、CTR-007 的修订强度单调性回归和 CTR-006 的全局/个人域静态边界回归已通过；CTR-006 的运行时 RLS/服务身份执行、CTR-007 的密钥授权链、CTR-014 的跨 event typed claim/citation 闭合和 CTR-015 的真实 policy/role FK 与 watermark-gap 闭合仍未实现，当前 readiness 为 21/30 fixture_passed、11/30 blocked。
+当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 64 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke；007 的 2 张 CoverageItem、008 的 8 张 typed presentation、009 的 6 张 snapshot membership 表另在干净 PostgreSQL 15.18 集群通过 018–021 fixture/concurrency。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，CTR-010 的越界 result/append-only 负向夹具、CTR-011 的 M2/M5 inherited catalog 回归、LAN-001 的十种正式语言评测闭合回归、CTR-007 的修订强度单调性回归和 CTR-006 的全局/个人域静态边界回归已通过；CTR-006 的运行时 RLS/服务身份执行、CTR-007 的密钥授权链、CTR-014 的跨 event typed claim/citation/complete snapshot closure、CTR-015 的真实 policy/role FK 与 watermark-gap 闭合、CTR-018/020 的真实 SourceRegistry universe/selected typed-member 投影仍未实现，当前 readiness 为 21/30 fixture_passed、9/30 blocked。
 
 ## 自检记录
 

@@ -20,6 +20,8 @@ COVERAGE_SQL_PATH = File.join(ROOT, "schema/postgres/007_m1_coverage_item.sql")
 COVERAGE_MAP_PATH = File.join(ROOT, "schema/m1-coverage-map.json")
 PRESENTATION_SQL_PATH = File.join(ROOT, "schema/postgres/008_m1_presentation.sql")
 PRESENTATION_MAP_PATH = File.join(ROOT, "schema/m1-presentation-map.json")
+SNAPSHOT_SQL_PATH = File.join(ROOT, "schema/postgres/009_m1_snapshot_membership.sql")
+SNAPSHOT_MAP_PATH = File.join(ROOT, "schema/m1-snapshot-map.json")
 DATA_BOUNDARY_PATH = File.join(ROOT, "schema/data-domain-boundary.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
 COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
@@ -211,6 +213,21 @@ rescue JSON::ParserError, Errno::ENOENT, KeyError => e
 end
 
 begin
+  snapshot_sql = File.read(SNAPSHOT_SQL_PATH)
+  snapshot_map = JSON.parse(File.read(SNAPSHOT_MAP_PATH)).fetch("mappings")
+  snapshot_tables = snapshot_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
+  mapped_snapshot_tables = snapshot_map.map { |mapping| mapping.fetch("table") }
+  errors << "M1 snapshot tables missing mappings: #{(snapshot_tables - mapped_snapshot_tables).join(',')}" unless (snapshot_tables - mapped_snapshot_tables).empty?
+  errors << "M1 snapshot map has unknown tables: #{(mapped_snapshot_tables - snapshot_tables).join(',')}" unless (mapped_snapshot_tables - snapshot_tables).empty?
+  errors << "M1 snapshot migration must be transactional" unless snapshot_sql.include?("BEGIN;") && snapshot_sql.rstrip.end_with?("COMMIT;")
+  errors << "M1 snapshot binding guard is missing" unless snapshot_sql.include?("validate_snapshot_membership_snapshot_binding")
+  errors << "M1 snapshot closure guard is missing" unless snapshot_sql.include?("snapshot_membership_snapshot_closure_guard")
+  errors << "M1 snapshot activation guard is missing" unless snapshot_sql.include?("snapshot_membership_profile_activation_guard")
+rescue JSON::ParserError, Errno::ENOENT, KeyError => e
+  errors << "M1 snapshot contract error: #{e.message}"
+end
+
+begin
   M1::DataBoundary.validate!(M1::DataBoundary.load(DATA_BOUNDARY_PATH))
 rescue M1::DataBoundary::Error, Errno::ENOENT => e
   errors << "M1 data-domain boundary contract error: #{e.message}"
@@ -346,6 +363,7 @@ if errors.empty?
   puts "  M1 coverage identity slice: 2 tables; UUIDv5/projection-key guards"
   puts "  M1 data-domain boundary: global/private forbidden-input contract; runtime enforcement pending"
   puts "  M1 presentation identity slice: 8 tables; typed child/XOR/plan guards"
+  puts "  M1 snapshot membership slice: 6 tables; profile activation/as-of/closure guards"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
