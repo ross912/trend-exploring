@@ -23,6 +23,7 @@
 - `postgres/test/005_event_base_fixtures.sql` / `006_event_base_smoke.sql`：EventBase registry/aggregate/revision 与 EventCausalParent 时间、sequence、queue proof、DAG/cycle 反例。
 - `postgres/test/007_manifest_import_fixtures.sql`：签名验证、治理 policy 依赖、重复 registry/catalog 和 unsigned import 反例。
 - `postgres/test/008_m1_source_archive_fixtures.sql` / `009_m1_source_smoke.sql`：M1 来源/权限/档案 phase-exit 垂直切片正反例与 59 表 append-only smoke。
+- `postgres/test/011_manifest_activation_fixtures.sql`：ManifestActivationDecision expected-head CAS、predecessor 与 authoritative range exclusion 反例。
 - `postgres/005_m1_gate_report.sql` / `postgres/test/010_m1_gate_report_fixtures.sql`：数据库直接按 catalog/run/result 计算 M1 phase-exit report，缺结果和非 pass 结果 fail closed。
 - `../scripts/generate_test_catalog.rb`：从 `docs/04-acceptance-test-plan.md` 确定性编译目标 phase 的 definitions/members/hash；未接入治理签名时显式输出 `unsigned`。
 - `../scripts/generate_event_registry.rb`：确定性编译 05 号契约的 29 个 event type、semantic/family/state transitions；未接入治理签名时显式输出 `unsigned`。

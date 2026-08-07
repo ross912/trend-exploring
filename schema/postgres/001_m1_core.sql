@@ -86,6 +86,33 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION lock_manifest_series_for_activation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  current_revision bigint;
+BEGIN
+  PERFORM 1
+    FROM manifest_series
+   WHERE manifest_series_id = NEW.manifest_series_id
+   FOR UPDATE;
+  SELECT max(aggregate_revision) INTO current_revision
+    FROM manifest_activation_decision
+   WHERE manifest_series_id = NEW.manifest_series_id;
+  IF NEW.aggregate_revision = 1 AND current_revision IS NOT NULL THEN
+    RAISE EXCEPTION 'manifest activation series already has an initial decision';
+  END IF;
+  IF NEW.aggregate_revision > 1
+     AND current_revision IS DISTINCT FROM NEW.aggregate_revision - 1 THEN
+    RAISE EXCEPTION 'manifest activation revision is not the expected head';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER manifest_activation_head_guard
+BEFORE INSERT ON manifest_activation_decision
+FOR EACH ROW EXECUTE FUNCTION lock_manifest_series_for_activation();
+
 CREATE CONSTRAINT TRIGGER manifest_predecessor_guard
 AFTER INSERT ON manifest_activation_decision
 DEFERRABLE INITIALLY DEFERRED
