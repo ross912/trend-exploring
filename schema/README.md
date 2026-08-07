@@ -30,7 +30,7 @@
 - `../scripts/validate_m1.rb`：DDL 必需对象、JSON Schema 和正反 fixture 的统一入口。
 - `postgres/test/003_test_governance_fixtures.sql`：P0 applicability floor、catalog 漏项/排除、result applicability 和 gate pass/blocked 反例。
 - `postgres/test/004_gate_evaluation_fixtures.sql`：P1 waiver approval、完整/阻断 evaluation closure、禁止挑选通过 run 洗白失败 evaluation 的反例。
-- `postgres/test/005_event_base_fixtures.sql` / `006_event_base_smoke.sql`：EventBase registry/aggregate/revision 与 EventCausalParent 时间、sequence、queue proof、DAG/cycle 反例；`023_event_family_expected_head_fixtures.sql` 进一步覆盖 RADAR_PUBLICATION/REVOCATION_EPOCH 的签名 registry、revision-1 predecessor 与 expected-head 反例。
+- `postgres/test/005_event_base_fixtures.sql` / `006_event_base_smoke.sql`：EventBase registry/aggregate/revision 与 EventCausalParent 时间、sequence、queue proof、DAG/cycle 反例；`023_event_family_expected_head_fixtures.sql` 进一步覆盖 RADAR_PUBLICATION/REVOCATION_EPOCH 的签名 registry、revision-1 predecessor 与 expected-head 反例；`025_event_family_transition_fixtures.sql` 补充 WATERMARK_GAP_STATE、SIGNING_KEY_STATE、MEMORY_CANDIDATE_DECISION、CORRECTION_PROPOSAL_DECISION 的合法转移和非法状态转移反例。
 - `postgres/test/007_manifest_import_fixtures.sql`：签名验证、治理 policy 依赖、重复 registry/catalog 和 unsigned import 反例。
 - `postgres/test/008_m1_source_archive_fixtures.sql` / `009_m1_source_smoke.sql`：M1 来源/权限/档案 phase-exit 垂直切片正反例与 59 表 append-only smoke。
 - `postgres/test/011_manifest_activation_fixtures.sql`：ManifestActivationDecision expected-head CAS、predecessor 与 authoritative range exclusion 反例。
