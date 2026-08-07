@@ -5,6 +5,7 @@ require_relative "../lib/provider_response_set"
 require_relative "../lib/test_catalog_generator"
 require_relative "../lib/event_registry"
 require_relative "../lib/m1_gate_evaluator"
+require_relative "../lib/m1_readiness"
 
 ROOT = File.expand_path("..", __dir__)
 SQL_PATH = File.join(ROOT, "schema/postgres/001_m1_core.sql")
@@ -14,6 +15,7 @@ EVENT_MAP_PATH = File.join(ROOT, "schema/event-infrastructure-map.json")
 SOURCE_SQL_PATH = File.join(ROOT, "schema/postgres/004_m1_source_archive.sql")
 SOURCE_MAP_PATH = File.join(ROOT, "schema/m1-source-map.json")
 GATE_REPORT_SQL_PATH = File.join(ROOT, "schema/postgres/005_m1_gate_report.sql")
+COVERAGE_PATH = File.join(ROOT, "schema/m1-phase-exit-coverage.json")
 ACCEPTANCE_PATH = File.join(ROOT, "docs/04-acceptance-test-plan.md")
 SCHEMA_PATH = File.join(ROOT, "schema/json/provider-response-set.schema.json")
 OBJECT_MAP_PATH = File.join(ROOT, "schema/object-map.json")
@@ -111,6 +113,17 @@ begin
   errors << "JSON Schema must declare semantic invariants" unless schema["x-m1-invariants"].is_a?(Array)
 rescue JSON::ParserError => e
   errors << "JSON Schema parse error: #{e.message}"
+end
+
+begin
+  readiness = M1::M1Readiness.evaluate(
+    acceptance_plan: File.read(ACCEPTANCE_PATH),
+    coverage: JSON.parse(File.read(COVERAGE_PATH))
+  )
+  errors << "M1 coverage matrix has missing/extra IDs" unless readiness.fetch("missingTestCodes").empty? && readiness.fetch("extraTestCodes").empty?
+  errors << "M1 coverage matrix must remain blocked while partial/not-implemented evidence exists" unless readiness.fetch("decision") == "blocked" && readiness.fetch("blockedTestCodes").length > 0
+rescue JSON::ParserError, Errno::ENOENT, KeyError, M1::M1Readiness::Error => e
+  errors << "M1 readiness contract error: #{e.message}"
 end
 
 begin
@@ -265,6 +278,7 @@ if errors.empty?
   puts "  EventBase infrastructure: 5 tables; signed import functions: 2"
   puts "  M1 source/archive slice: 15 tables"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
+  puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
   puts "  JSON Schema: #{SCHEMA_PATH}"
   puts "  valid fixture: accepted"
   puts "  omitted-member fixture: blocked"
