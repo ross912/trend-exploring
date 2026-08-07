@@ -22,6 +22,9 @@
     { "table": "evaluation_arm_manifest", "canonicalObject": "EvaluationArmManifest", "role": "manifest", "timeProfile": "manifest_time" },
     { "table": "evaluation_arm_generation_unit", "canonicalObject": "EvaluationArmGenerationUnit", "role": "record", "timeProfile": "derived_record_time" },
     { "table": "evaluation_arm_generation_decision", "canonicalObject": "EvaluationArmGenerationDecision", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "evaluation_obligation", "canonicalObject": "EvaluationObligation", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "evaluation_snapshot_decision", "canonicalObject": "EvaluationSnapshotDecision", "role": "record", "timeProfile": "derived_record_time" },
+    { "table": "evaluation_result", "canonicalObject": "EvaluationResult", "role": "record", "timeProfile": "derived_record_time" },
     { "table": "evaluation_arm_output_snapshot", "canonicalObject": "EvaluationArmOutputSnapshot", "role": "record", "timeProfile": "standalone_snapshot_time" }
   ]
 }

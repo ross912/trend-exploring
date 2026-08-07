@@ -4,7 +4,7 @@
 
 ## 当前内容
 
-- `postgres/001_m1_core.sql`：PostgreSQL 15+ 首版 DDL，覆盖 manifest 激活、内部凭据生命周期、provider response set、token use 与 evaluation arm 核心对象。`provider_response_set` 在 invocation 前冻结承诺，`provider_response_set_closure` 是同主键、无第二领域身份的 terminal child。
+- `postgres/001_m1_core.sql`：PostgreSQL 15+ 首版 DDL，覆盖 manifest 激活、内部凭据生命周期、provider response set、token use 与 evaluation arm 核心对象。`provider_response_set` 在 invocation 前冻结承诺，`provider_response_set_closure` 是同主键、无第二领域身份的 terminal child；EvaluationArm 的 output→obligation→snapshot decision→result 由延迟闭合 trigger 做集合相等校验。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。
@@ -22,9 +22,9 @@ ruby scripts/validate_project.rb
 jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 ```
 
-当前环境没有 PostgreSQL 服务端或 `psql`，因此 migration 尚未经过真实 PostgreSQL parser/transaction 执行；`validate_m1.rb` 只做结构存在性与语义 fixture 检查。接入 PostgreSQL 后，必须在临时数据库实际执行 migration，并把 ADV-013、PRI-012–013、EVA-025 转成数据库并发/回滚测试。
+真实 PostgreSQL 15.18 临时集群已执行 migration 和 catalog smoke；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试。
 
-当前本地回归：17 个 Ruby tests、52 个 assertions 全部通过；验证器检查 19 个关键 SQL objects、11 个关键 guards，以及全部 22 张表的 canonical mapping、append-only 和 time-profile 覆盖。最终回归以 25 个不同测试顺序重复执行。该数字只是当前切片状态，不替代真实 PostgreSQL migration execution。
+当前本地回归：17 个 Ruby tests、52 个 assertions 全部通过；验证器检查 22 个关键 SQL objects、13 个关键 guards，以及全部 25 张表的 canonical mapping、append-only 和 time-profile 覆盖。真实 PostgreSQL 迁移与 catalog smoke 已通过；事务/并发 fixture 由 `002_m1_transaction_fixtures.sh` 单独报告。
 
 ## 自检记录
 
@@ -38,7 +38,5 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 
 ## 下一实现切片
 
-1. 在临时 PostgreSQL 中执行 `001_m1_core.sql` 并修复方言/约束错误。
-2. 为 TokenUse 恢复防回滚和 ServicePrincipalCredential 撤销增加 transaction fixtures。
-3. 实现 EvaluationArm 的 output→obligation→result 集合闭合 trigger。
-4. 将 04 号测试目录中的对应测试物化为 TestDefinition/TestRun/TestResult。
+1. 将 PostgreSQL fixture 接入可重复的 TestDefinition/TestRun/TestResult 运行器。
+2. 继续实现 04 号测试目录中的其他 M1/M4 数据库闭合约束。

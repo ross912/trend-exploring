@@ -33,6 +33,9 @@ REQUIRED_SQL_OBJECTS = %w[
   evaluation_arm_manifest
   evaluation_arm_generation_unit
   evaluation_arm_generation_decision
+  evaluation_obligation
+  evaluation_snapshot_decision
+  evaluation_result
   evaluation_arm_output_snapshot
 ].freeze
 
@@ -47,7 +50,11 @@ REQUIRED_SQL_GUARDS = {
   "credential predecessor binding" => /predecessor_revision = aggregate_revision - 1/,
   "token policy composite binding" => /FOREIGN KEY \(token_use_policy_manifest_id, token_type, action\)/,
   "token scope generated binding" => /scope_binding_hash text GENERATED ALWAYS AS/,
-  "token epoch enforcement" => /token use epoch is stale or unavailable/
+  "token epoch enforcement" => /token use epoch is stale or unavailable/,
+  "evaluation output closure" => /validate_evaluation_arm_closure/,
+  "evaluation closure trigger" => /evaluation_arm_output_closure_guard/,
+  "credential parent-row serialization" => /lock_credential_version_for_state_event\(\).*?FOR UPDATE;/m,
+  "credential usability gate" => /assert_service_principal_credential_usable/
 }.freeze
 
 TIME_PROFILE_FIELDS = {

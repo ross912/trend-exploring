@@ -114,6 +114,21 @@ CREATE TABLE service_principal_credential_version (
   UNIQUE (service_principal_id, credential_fingerprint)
 );
 
+CREATE OR REPLACE FUNCTION lock_credential_version_for_state_event()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1
+    FROM service_principal_credential_version
+   WHERE service_principal_credential_version_id = NEW.service_principal_credential_version_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'credential version does not exist';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
 CREATE TABLE service_principal_credential_state_event (
   service_principal_credential_state_event_id uuid PRIMARY KEY,
   service_principal_credential_version_id uuid NOT NULL
@@ -159,6 +174,10 @@ CREATE TABLE service_principal_credential_state_event (
   ) DEFERRABLE INITIALLY DEFERRED
 );
 
+CREATE TRIGGER credential_state_event_parent_lock_guard
+BEFORE INSERT ON service_principal_credential_state_event
+FOR EACH ROW EXECUTE FUNCTION lock_credential_version_for_state_event();
+
 CREATE VIEW current_service_principal_credential_state AS
 SELECT DISTINCT ON (service_principal_credential_version_id)
   service_principal_credential_version_id,
@@ -169,6 +188,42 @@ SELECT DISTINCT ON (service_principal_credential_version_id)
   event_system_available_at
 FROM service_principal_credential_state_event
 ORDER BY service_principal_credential_version_id, aggregate_revision DESC;
+
+CREATE OR REPLACE FUNCTION assert_service_principal_credential_usable(
+  p_credential_version_id uuid,
+  p_audience text,
+  p_scope text,
+  p_at timestamptz
+)
+RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE
+  credential_record service_principal_credential_version%ROWTYPE;
+  current_state_record current_service_principal_credential_state%ROWTYPE;
+BEGIN
+  SELECT * INTO credential_record
+    FROM service_principal_credential_version
+   WHERE service_principal_credential_version_id = p_credential_version_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'credential version does not exist';
+  END IF;
+
+  SELECT * INTO current_state_record
+    FROM current_service_principal_credential_state
+   WHERE service_principal_credential_version_id = p_credential_version_id;
+
+  IF NOT FOUND
+     OR current_state_record.current_state <> 'active'
+     OR credential_record.audience <> p_audience
+     OR NOT (p_scope = ANY (credential_record.allowed_scopes))
+     OR p_at < credential_record.effective_from
+     OR p_at >= credential_record.expires_at THEN
+    RAISE EXCEPTION 'credential is not currently usable';
+  END IF;
+  RETURN true;
+END;
+$$;
 
 CREATE TABLE model_invocation (
   model_invocation_id uuid PRIMARY KEY,
@@ -749,17 +804,178 @@ CREATE TABLE evaluation_arm_generation_decision (
   CHECK ((outcome = 'selected') = (reason_code IS NULL))
 );
 
+CREATE TABLE evaluation_obligation (
+  evaluation_obligation_id uuid PRIMARY KEY,
+  evaluation_arm_manifest_id uuid NOT NULL REFERENCES evaluation_arm_manifest,
+  evaluation_arm_generation_unit_id uuid NOT NULL,
+  candidate_ref uuid NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (evaluation_arm_manifest_id, candidate_ref),
+  UNIQUE (
+    evaluation_obligation_id,
+    evaluation_arm_manifest_id,
+    evaluation_arm_generation_unit_id,
+    candidate_ref
+  ),
+  FOREIGN KEY (
+    evaluation_arm_generation_unit_id,
+    evaluation_arm_manifest_id
+  ) REFERENCES evaluation_arm_generation_unit (
+    evaluation_arm_generation_unit_id,
+    evaluation_arm_manifest_id
+  )
+);
+
+CREATE TABLE evaluation_snapshot_decision (
+  evaluation_snapshot_decision_id uuid PRIMARY KEY,
+  evaluation_obligation_id uuid NOT NULL UNIQUE REFERENCES evaluation_obligation,
+  decision text NOT NULL CHECK (decision IN ('captured', 'missed')),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at)
+);
+
+CREATE TABLE evaluation_result (
+  evaluation_result_id uuid PRIMARY KEY,
+  evaluation_obligation_id uuid NOT NULL UNIQUE REFERENCES evaluation_obligation,
+  result_code text NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at)
+);
+
 CREATE TABLE evaluation_arm_output_snapshot (
   evaluation_arm_output_snapshot_id uuid PRIMARY KEY,
   evaluation_arm_manifest_id uuid NOT NULL UNIQUE REFERENCES evaluation_arm_manifest,
   ordered_candidate_refs uuid[] NOT NULL,
-  member_set_hash text NOT NULL,
+  member_set_hash text NOT NULL CHECK (member_set_hash ~ '^[a-f0-9]{64}$'),
   snapshot_frozen_at timestamptz NOT NULL,
   system_available_at timestamptz NOT NULL,
   as_of timestamptz NOT NULL,
   input_record_ids uuid[] NOT NULL,
   CHECK (cardinality(ordered_candidate_refs) > 0)
 );
+
+CREATE OR REPLACE FUNCTION validate_evaluation_arm_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  manifest_k integer;
+  generation_count integer;
+  terminal_count integer;
+  selected_count integer;
+  output_count integer;
+  output_distinct_count integer;
+  obligation_count integer;
+  captured_snapshot_count integer;
+  result_count integer;
+  selected_mismatch_count integer;
+  obligation_mismatch_count integer;
+BEGIN
+  SELECT k INTO manifest_k
+    FROM evaluation_arm_manifest
+   WHERE evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id;
+
+  IF manifest_k IS NULL THEN
+    RAISE EXCEPTION 'evaluation arm manifest does not exist';
+  END IF;
+
+  SELECT count(*),
+         count(d.evaluation_arm_generation_decision_id),
+         count(*) FILTER (WHERE d.outcome = 'selected')
+    INTO generation_count, terminal_count, selected_count
+    FROM evaluation_arm_generation_unit u
+    LEFT JOIN evaluation_arm_generation_decision d
+      ON d.evaluation_arm_generation_unit_id = u.evaluation_arm_generation_unit_id
+   WHERE u.evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id;
+
+  output_count := cardinality(NEW.ordered_candidate_refs);
+  SELECT count(DISTINCT candidate_ref)
+    INTO output_distinct_count
+    FROM unnest(NEW.ordered_candidate_refs) AS candidate_ref;
+
+  SELECT count(*) INTO obligation_count
+    FROM evaluation_obligation
+   WHERE evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id;
+
+  SELECT count(*) INTO captured_snapshot_count
+    FROM evaluation_snapshot_decision d
+    JOIN evaluation_obligation o
+      ON o.evaluation_obligation_id = d.evaluation_obligation_id
+   WHERE o.evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id
+     AND d.decision = 'captured';
+
+  SELECT count(*) INTO result_count
+    FROM evaluation_result r
+    JOIN evaluation_obligation o
+      ON o.evaluation_obligation_id = r.evaluation_obligation_id
+   WHERE o.evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id;
+
+  SELECT count(*) INTO selected_mismatch_count
+    FROM (
+      SELECT u.candidate_ref
+        FROM evaluation_arm_generation_unit u
+        JOIN evaluation_arm_generation_decision d
+          ON d.evaluation_arm_generation_unit_id = u.evaluation_arm_generation_unit_id
+       WHERE u.evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id
+         AND d.outcome = 'selected'
+      EXCEPT
+      SELECT candidate_ref FROM unnest(NEW.ordered_candidate_refs) AS candidate_ref
+      UNION ALL
+      SELECT candidate_ref FROM unnest(NEW.ordered_candidate_refs) AS candidate_ref
+      EXCEPT
+      SELECT u.candidate_ref
+        FROM evaluation_arm_generation_unit u
+        JOIN evaluation_arm_generation_decision d
+          ON d.evaluation_arm_generation_unit_id = u.evaluation_arm_generation_unit_id
+       WHERE u.evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id
+         AND d.outcome = 'selected'
+    ) AS mismatch;
+
+  SELECT count(*) INTO obligation_mismatch_count
+    FROM (
+      SELECT candidate_ref
+        FROM evaluation_obligation
+       WHERE evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id
+      EXCEPT
+      SELECT candidate_ref FROM unnest(NEW.ordered_candidate_refs) AS candidate_ref
+      UNION ALL
+      SELECT candidate_ref FROM unnest(NEW.ordered_candidate_refs) AS candidate_ref
+      EXCEPT
+      SELECT candidate_ref
+        FROM evaluation_obligation
+       WHERE evaluation_arm_manifest_id = NEW.evaluation_arm_manifest_id
+    ) AS mismatch;
+
+  IF generation_count <> terminal_count
+     OR selected_count <> manifest_k
+     OR output_count <> manifest_k
+     OR output_distinct_count <> output_count
+     OR obligation_count <> output_count
+     OR captured_snapshot_count <> obligation_count
+     OR result_count <> obligation_count
+     OR selected_mismatch_count <> 0
+     OR obligation_mismatch_count <> 0 THEN
+    RAISE EXCEPTION 'evaluation arm output/obligation/result sets are not closed';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER evaluation_arm_output_closure_guard
+AFTER INSERT ON evaluation_arm_output_snapshot
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_evaluation_arm_closure();
 
 CREATE OR REPLACE FUNCTION reject_row_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -794,6 +1010,9 @@ BEGIN
     'evaluation_arm_manifest',
     'evaluation_arm_generation_unit',
     'evaluation_arm_generation_decision',
+    'evaluation_obligation',
+    'evaluation_snapshot_decision',
+    'evaluation_result',
     'evaluation_arm_output_snapshot'
   ]
   LOOP
