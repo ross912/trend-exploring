@@ -8,8 +8,8 @@ BEGIN
   SELECT count(*) INTO table_count
     FROM information_schema.tables
    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
-  IF table_count NOT IN (47, 62, 64, 85, 86, 87, 90) THEN
-    RAISE EXCEPTION 'expected 47 tables after EventBase migration (or 62/64/85/86/87/90 after M1 extensions), found %', table_count;
+  IF table_count NOT IN (47, 62, 64, 85, 86, 87, 90, 91, 92) THEN
+    RAISE EXCEPTION 'expected 47 tables after EventBase migration (or 62/64/85/86/87/90/91/92 after M1 extensions), found %', table_count;
   END IF;
 
   SELECT count(*) INTO unguarded_count

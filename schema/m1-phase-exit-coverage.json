@@ -25,9 +25,9 @@
     { "testCode": "CTR-015", "status": "partial", "evidence": "schema/postgres/007_m1_coverage_item.sql; schema/m1-coverage-map.json; schema/postgres/test/018_coverage_item_fixtures.sql; schema/postgres/test/019_coverage_item_concurrency.sh" },
     { "testCode": "CTR-016", "status": "fixture_passed", "evidence": "schema/postgres/test/005_event_base_fixtures.sql" },
     { "testCode": "CTR-017", "status": "fixture_passed", "evidence": "schema/postgres/test/011_manifest_activation_fixtures.sql; schema/postgres/test/013_manifest_activation_concurrency.sh" },
-    { "testCode": "CTR-018", "status": "partial", "evidence": "schema/postgres/009_m1_snapshot_membership.sql; schema/postgres/test/021_snapshot_membership_fixtures.sql" },
+    { "testCode": "CTR-018", "status": "partial", "evidence": "schema/postgres/009_m1_snapshot_membership.sql; schema/m1-snapshot-map.json; schema/postgres/test/021_snapshot_membership_fixtures.sql" },
     { "testCode": "CTR-019", "status": "fixture_passed", "evidence": "schema/postgres/test/002_m1_transaction_fixtures.sh" },
-    { "testCode": "CTR-020", "status": "partial", "evidence": "schema/postgres/009_m1_snapshot_membership.sql; schema/postgres/test/021_snapshot_membership_fixtures.sql" },
+    { "testCode": "CTR-020", "status": "partial", "evidence": "schema/postgres/009_m1_snapshot_membership.sql; schema/m1-snapshot-map.json; schema/postgres/test/021_snapshot_membership_fixtures.sql" },
     { "testCode": "GOV-016", "status": "fixture_passed", "evidence": "schema/postgres/test/004_gate_evaluation_fixtures.sql" },
     { "testCode": "LAN-001", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql; schema/postgres/test/016_language_evaluation_fixtures.sql" },
     { "testCode": "TIM-004", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" }

@@ -10,7 +10,7 @@
 - `postgres/004_m1_source_archive.sql`：M1 来源/权限/档案垂直切片，覆盖 collection opportunity 分母、publisher owner/dependency、RawItemVersion、PurposeAuthorization、四类 RawArtifact、blob binding、restore/format migration 与 language-evaluation manifest。
 - `postgres/007_m1_coverage_item.sql`：Coverage policy/role registry、CoverageItem 与 candidate-generation unit 的 canonical projection key、UUIDv5 身份重算、typed input、并发唯一性、WatermarkGap exactly-one closure 和 append-only guard；配套 map 与 018/019 夹具单独在干净 PostgreSQL 集群回归。
 - `postgres/008_m1_presentation.sql`：ClaimGenerationUnit、PresentationRenderPlan/ContentUnit 与 kind-specific child、SourceTextRef XOR 的 typed presentation slice；配套 map 与 020 fixture 在同一干净集群回归。
-- `postgres/009_m1_snapshot_membership.sql`：SnapshotMembershipProfile/Role、snapshot header activation/as-of binding、unit/decision/selected-member 四方闭合；配套 map 与 021 fixture 在同一干净集群回归。
+- `postgres/009_m1_snapshot_membership.sql`：SnapshotMembershipProfile/Role、snapshot header activation/as-of binding、显式 universe member 集合、unit/decision/selected-member 五方闭合；配套 map 与 021 fixture 在同一干净集群回归。
 - `postgres/010_m1_data_domain.sql`：global service-principal allowlist/session gate、PersonalScope/PrivateQueryContext RLS、短期 neutral-query 执行记录与 PublicOnlyInputSnapshot/member 的 global-only、zero-private-lineage 门禁；配套 map 与 022 fixture 在干净集群回归。真实数据库角色/认证系统到 session binding 的外部接入仍需后续完成。
 - `../lib/canonical_schema_compiler.rb` / `../scripts/generate_canonical_schema.rb`：从 05 registry 与 object-map 确定性编译 247 个 canonical objects，输出 schema hash 与 metadata DDL；collision/orphan/profile 负向测试见 `test/canonical_schema_compiler_test.rb`。这仍是 registry/metadata 编译边界，不替代全部领域表 DDL。
 - `../lib/manifest_compiler.rb` / `../scripts/compile_manifest.rb`：统一 manifest envelope、类型白名单、关键字段、canonical payload hash 和 unsigned-before-activation 标记；`test/manifest_compiler_test.rb` 覆盖未知类型、字段缺失和签名缺失。未覆盖的全部领域 manifest 语义仍保留为 partial。
@@ -20,7 +20,7 @@
 - `m1-source-map.json`：004 migration 的 15 张 M1 来源/档案表映射。
 - `m1-coverage-map.json`：007 migration 的 2 张 CoverageItem 身份切片表映射。
 - `m1-presentation-map.json`：008 migration 的 8 张 typed presentation 切片表映射。
-- `m1-snapshot-map.json`：009 migration 的 6 张 snapshot membership 切片表映射。
+- `m1-snapshot-map.json`：009 migration 的 7 张 snapshot membership 切片表映射。
 - `m1-data-domain-map.json`：010 migration 的 5 张个人/全局数据域表映射。
 - `m1-phase-exit-coverage.json`：M1 phase-exit 30 个 required IDs 的证据覆盖矩阵；partial/not_implemented 自动保持 gate blocked。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。

@@ -52,6 +52,7 @@
 
 - 本轮新增：CTR-006 的 global service-principal allowlist/session gate 已接入 `010_m1_data_domain.sql`，global query、public-only snapshot/member 的写入没有登记且有效的 global identity 会 fail closed；`personal-ui` 负向夹具已在 PostgreSQL 15.18 通过。当前仍需把应用数据库角色/认证系统不可伪造地绑定到 `m1.service_principal` session setting。
 - 本轮新增：CTR-015 的 `coverage_policy_registry`/`coverage_projection_role_registry` typed FK 与 `coverage_watermark_gap` exactly-one closure 已接入 `007_m1_coverage_item.sql`；018/019 fixture/concurrency 在 PostgreSQL 15.18 通过。真实 detector/stratum/policy domain FK 与跨 watermark 的完整 gap projection 仍需继续收束。
+- 本轮新增：CTR-018/020 的 `snapshot_membership_universe_member` 已接入 `009_m1_snapshot_membership.sql`，snapshot unit 集合、profile role 集合与 selected typed member 必须与显式 universe 精确闭合；021 fixture 在 PostgreSQL 15.18 通过。真实 SourceRegistry/Endpoint/OwnerGroup domain identity FK 和版本替换投影仍需继续收束。
 
 1. 用实际签名服务产出 signed TestCatalog/EventRegistry，导入 003 并激活 manifest。
 2. 将 permission matrix 与 RevocationDependencySnapshot、实际 egress/训练门禁接通。

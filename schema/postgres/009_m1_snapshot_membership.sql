@@ -69,6 +69,19 @@ CREATE TABLE snapshot_membership_snapshot (
   UNIQUE (snapshot_type, canonical_scope_key, snapshot_membership_snapshot_id)
 );
 
+CREATE TABLE snapshot_membership_universe_member (
+  snapshot_membership_universe_member_id uuid PRIMARY KEY,
+  snapshot_membership_snapshot_id uuid NOT NULL REFERENCES snapshot_membership_snapshot,
+  member_role text NOT NULL CHECK (btrim(member_role) <> ''),
+  subject_kind text NOT NULL CHECK (btrim(subject_kind) <> ''),
+  member_kind text NOT NULL CHECK (btrim(member_kind) <> ''),
+  member_key text NOT NULL CHECK (btrim(member_key) <> ''),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (snapshot_membership_snapshot_id, member_role, subject_kind, member_kind, member_key)
+);
+
 CREATE OR REPLACE FUNCTION validate_snapshot_membership_snapshot_binding()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -175,8 +188,12 @@ DECLARE
   missing_decisions integer;
   selected_without_child integer;
   child_without_selected integer;
+  universe_missing integer;
+  universe_extra integer;
+  selected_unknown integer;
   profile_role_count integer;
   snapshot_role_count integer;
+  universe_role_count integer;
 BEGIN
   SELECT count(*) INTO missing_decisions
     FROM snapshot_membership_unit u
@@ -197,14 +214,51 @@ BEGIN
         WHERE d.snapshot_membership_unit_id = c.snapshot_membership_unit_id
           AND d.decision = 'selected'
      );
+  SELECT count(*) INTO universe_missing
+    FROM (
+      SELECT member_role, subject_kind, member_key
+        FROM snapshot_membership_universe_member
+       WHERE snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+      EXCEPT
+      SELECT member_role, subject_kind, subject_key
+        FROM snapshot_membership_unit
+       WHERE snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+    ) missing;
+  SELECT count(*) INTO universe_extra
+    FROM (
+      SELECT member_role, subject_kind, subject_key
+        FROM snapshot_membership_unit
+       WHERE snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+      EXCEPT
+      SELECT member_role, subject_kind, member_key
+        FROM snapshot_membership_universe_member
+       WHERE snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+    ) extra;
+  SELECT count(*) INTO selected_unknown
+    FROM snapshot_membership_selected_member c
+    JOIN snapshot_membership_unit u USING (snapshot_membership_unit_id)
+   WHERE u.snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+     AND NOT EXISTS (
+       SELECT 1
+         FROM snapshot_membership_universe_member v
+        WHERE v.snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id
+          AND v.member_role = u.member_role
+          AND v.member_kind = c.selected_member_kind
+          AND v.member_key = c.selected_member_key
+     );
   SELECT count(*) INTO profile_role_count
     FROM snapshot_membership_profile_role r
    WHERE r.snapshot_membership_profile_id = NEW.snapshot_membership_profile_id;
   SELECT count(DISTINCT member_role) INTO snapshot_role_count
     FROM snapshot_membership_unit
    WHERE snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id;
+  SELECT count(DISTINCT member_role) INTO universe_role_count
+    FROM snapshot_membership_universe_member
+   WHERE snapshot_membership_snapshot_id = NEW.snapshot_membership_snapshot_id;
   IF missing_decisions <> 0 OR selected_without_child <> 0 OR child_without_selected <> 0
-     OR profile_role_count = 0 OR snapshot_role_count <> profile_role_count THEN
+     OR universe_missing <> 0 OR universe_extra <> 0 OR selected_unknown <> 0
+     OR profile_role_count = 0 OR snapshot_role_count <> profile_role_count
+     OR universe_role_count <> profile_role_count THEN
     RAISE EXCEPTION 'snapshot membership units, decisions, selected members, and profile roles are not closed';
   END IF;
   RETURN NEW;
@@ -222,7 +276,8 @@ DECLARE
 BEGIN
   FOREACH immutable_table IN ARRAY ARRAY[
     'snapshot_membership_profile', 'snapshot_membership_profile_role',
-    'snapshot_membership_snapshot', 'snapshot_membership_unit',
+    'snapshot_membership_snapshot', 'snapshot_membership_universe_member',
+    'snapshot_membership_unit',
     'snapshot_membership_decision', 'snapshot_membership_selected_member'
   ] LOOP
     EXECUTE format(

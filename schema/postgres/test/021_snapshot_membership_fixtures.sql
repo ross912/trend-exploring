@@ -36,6 +36,10 @@ INSERT INTO snapshot_membership_snapshot VALUES
    'cc000000-0000-4000-8000-000000000091', 'bb000000-0000-4000-8000-000000000091',
    '2026-08-07 01:00+00', '2026-08-07 01:01+00', '2026-08-07 01:00+00', '2026-08-07 01:01+00',
    repeat('6', 64));
+INSERT INTO snapshot_membership_universe_member VALUES
+  ('12000000-0000-4000-8000-000000000091',
+   'dd000000-0000-4000-8000-000000000091', 'source_endpoint_version',
+   'record', 'source_endpoint_version', 'endpoint-v2', '2026-08-07 01:00+00', '2026-08-07 01:00+00');
 INSERT INTO snapshot_membership_unit VALUES
   ('ee000000-0000-4000-8000-000000000091', 'dd000000-0000-4000-8000-000000000091',
    'record', 'endpoint-v2', 'source_endpoint_version',
@@ -52,6 +56,13 @@ INSERT INTO snapshot_membership_snapshot VALUES
    'cc000000-0000-4000-8000-000000000092', 'bb000000-0000-4000-8000-000000000092',
    '2026-08-07 03:00+00', '2026-08-07 03:01+00', '2026-08-07 03:00+00', '2026-08-07 03:01+00',
    repeat('7', 64));
+INSERT INTO snapshot_membership_universe_member VALUES
+  ('12000000-0000-4000-8000-000000000092',
+   'dd000000-0000-4000-8000-000000000092', 'source_endpoint_version',
+   'record', 'source_endpoint_version', 'endpoint-v2', '2026-08-07 03:00+00', '2026-08-07 03:00+00'),
+  ('12000000-0000-4000-8000-000000000093',
+   'dd000000-0000-4000-8000-000000000092', 'owner_group',
+   'record', 'owner_group', 'owner-a', '2026-08-07 03:00+00', '2026-08-07 03:00+00');
 INSERT INTO snapshot_membership_unit VALUES
   ('ee000000-0000-4000-8000-000000000092', 'dd000000-0000-4000-8000-000000000092',
    'record', 'endpoint-v2', 'source_endpoint_version',
@@ -92,6 +103,13 @@ BEGIN
        'cc000000-0000-4000-8000-000000000092', 'bb000000-0000-4000-8000-000000000092',
        '2026-08-07 03:00+00', '2026-08-07 03:01+00', '2026-08-07 03:00+00', '2026-08-07 03:01+00',
        repeat('9', 64));
+    INSERT INTO snapshot_membership_universe_member VALUES
+      ('12000000-0000-4000-8000-000000000094',
+       'dd000000-0000-4000-8000-000000000094', 'source_endpoint_version',
+       'record', 'source_endpoint_version', 'endpoint-v2', '2026-08-07 03:00+00', '2026-08-07 03:00+00'),
+      ('12000000-0000-4000-8000-000000000095',
+       'dd000000-0000-4000-8000-000000000094', 'owner_group',
+       'record', 'owner_group', 'owner-a', '2026-08-07 03:00+00', '2026-08-07 03:00+00');
     INSERT INTO snapshot_membership_unit VALUES
       ('ee000000-0000-4000-8000-000000000094', 'dd000000-0000-4000-8000-000000000094',
        'record', 'endpoint-v2', 'source_endpoint_version',

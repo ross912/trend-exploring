@@ -8,8 +8,8 @@ BEGIN
   SELECT count(*) INTO table_count
     FROM information_schema.tables
    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
-  IF table_count NOT IN (62, 64, 85, 86, 87, 90) THEN
-    RAISE EXCEPTION 'expected 62 tables after M1 source slice (or 64/85/86/87/90 after governance and vertical slices), found %', table_count;
+  IF table_count NOT IN (62, 64, 85, 86, 87, 90, 91, 92) THEN
+    RAISE EXCEPTION 'expected 62 tables after M1 source slice (or 64/85/86/87/90/91/92 after governance and vertical slices), found %', table_count;
   END IF;
 
   SELECT count(*) INTO unguarded_count
