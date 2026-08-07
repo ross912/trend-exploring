@@ -9,6 +9,7 @@ require_relative "../lib/m1_readiness"
 require_relative "../lib/canonical_contract"
 require_relative "../lib/data_boundary"
 require_relative "../lib/canonical_schema_compiler"
+require_relative "../lib/manifest_compiler"
 
 ROOT = File.expand_path("..", __dir__)
 SQL_PATH = File.join(ROOT, "schema/postgres/001_m1_core.sql")
@@ -263,6 +264,23 @@ rescue M1::CanonicalSchemaCompiler::Error, Errno::ENOENT => e
 end
 
 begin
+  catalog_rows = M1::TestCatalogGenerator.load_acceptance_plan(ACCEPTANCE_PATH)
+  catalog_payload = M1::TestCatalogGenerator.build(catalog_rows, target_phase: "M1", target_gate: "phase-exit")
+  compiled_manifest = M1::ManifestCompiler.compile(
+    manifest_type: "TestCatalogManifest",
+    schema_version: catalog_payload.fetch("schemaVersion"),
+    owner: "m1-validator",
+    effective_from: "2026-08-07T00:00:00Z",
+    payload: catalog_payload,
+    contract_path: CANONICAL_CONTRACT_PATH
+  )
+  errors << "manifest compiler emitted an invalid payload hash" unless compiled_manifest.fetch("payloadHash").match?(/\A[a-f0-9]{64}\z/)
+  errors << "manifest compiler lost unsigned governance marker" unless compiled_manifest.fetch("signatureStatus") == "unsigned" && compiled_manifest.fetch("governance").fetch("signatureRequiredBeforeActivation")
+rescue M1::ManifestCompiler::Error => e
+  errors << "manifest compiler contract error: #{e.message}"
+end
+
+begin
   event_sql = File.read(EVENT_SQL_PATH)
   import_sql = File.read(IMPORT_SQL_PATH)
   event_tables = event_sql.scan(/^CREATE TABLE\s+(\w+)/).flatten
@@ -395,6 +413,7 @@ if errors.empty?
   puts "  M1 snapshot membership slice: 6 tables; profile activation/as-of/closure guards"
   puts "  M1 data-domain slice: 5 tables; personal RLS and public-only input guards"
   puts "  canonical schema compiler: 247 registry objects; deterministic metadata DDL"
+  puts "  manifest compiler: deterministic envelope/payload hash; activation signature required"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables and deferred approval trigger"
   puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
