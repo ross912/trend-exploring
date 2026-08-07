@@ -3,6 +3,8 @@
 require "minitest/autorun"
 require "openssl"
 require_relative "../lib/detached_manifest_signer"
+require_relative "../lib/m1_gate_evaluator"
+require_relative "../lib/test_catalog_generator"
 
 class DetachedManifestSignerTest < Minitest::Test
   def setup
@@ -52,5 +54,25 @@ class DetachedManifestSignerTest < Minitest::Test
       )
     end
     assert_match(/already signed/, error.message)
+  end
+
+  def test_signed_catalog_is_accepted_by_phase_exit_gate
+    rows = M1::TestCatalogGenerator.load_acceptance_plan(
+      File.expand_path("../docs/04-acceptance-test-plan.md", __dir__)
+    )
+    catalog = M1::TestCatalogGenerator.build(rows, target_phase: "M1", target_gate: "phase-exit")
+    signed = M1::DetachedManifestSigner.sign(
+      catalog, private_key_pem: @key.to_pem, signing_key_version_id: "key-v1"
+    )
+    phase_exit_ids = signed.fetch("definitions").select { |definition| definition.fetch("blocking") == "phase-exit" }
+      .map { |definition| definition.fetch("testDefinitionVersionId") }
+    required_ids = signed.fetch("members").select { |member| member.fetch("membership") == "applicable" }
+      .map { |member| member.fetch("testDefinitionVersionId") } & phase_exit_ids
+    results = required_ids.to_h { |definition_id| [definition_id, "pass"] }
+    report = M1::M1GateEvaluator.evaluate(catalog: signed, results: results)
+    assert_equal "pass", report.fetch("decision")
+
+    signed.fetch("definitions").first["oracleSpec"] = "tampered"
+    refute M1::DetachedManifestSigner.verify(signed, public_key_pem: @key.public_key.to_pem)
   end
 end
