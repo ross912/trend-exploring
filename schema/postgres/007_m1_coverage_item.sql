@@ -146,7 +146,7 @@ CREATE TRIGGER coverage_item_reject_mutation
 BEFORE UPDATE OR DELETE ON coverage_item
 FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
 
-CREATE TRIGGER coverage_generation_reject_mutation
+CREATE TRIGGER coverage_generation_unit_reject_mutation
 BEFORE UPDATE OR DELETE ON coverage_generation_unit
 FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
 

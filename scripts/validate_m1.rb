@@ -194,7 +194,7 @@ begin
   errors << "M1 coverage migration must be transactional" unless coverage_sql.include?("BEGIN;") && coverage_sql.rstrip.end_with?("COMMIT;")
   errors << "M1 coverage identity function is missing" unless coverage_sql.include?("validate_coverage_item_identity")
   errors << "M1 coverage generation identity function is missing" unless coverage_sql.include?("validate_coverage_generation_identity")
-  errors << "M1 coverage tables must be append-only" unless coverage_sql.include?("coverage_item_reject_mutation") && coverage_sql.include?("coverage_generation_reject_mutation")
+  errors << "M1 coverage tables must be append-only" unless coverage_sql.include?("coverage_item_reject_mutation") && coverage_sql.include?("coverage_generation_unit_reject_mutation")
 rescue JSON::ParserError, Errno::ENOENT, KeyError => e
   errors << "M1 coverage contract error: #{e.message}"
 end
