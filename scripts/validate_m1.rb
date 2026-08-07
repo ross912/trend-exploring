@@ -37,6 +37,14 @@ REQUIRED_SQL_OBJECTS = %w[
   evaluation_snapshot_decision
   evaluation_result
   evaluation_arm_output_snapshot
+  test_definition
+  test_governance_policy
+  test_definition_version
+  test_catalog_manifest
+  test_catalog_definition_member
+  test_run
+  test_result
+  gate_decision
 ].freeze
 
 REQUIRED_SQL_GUARDS = {
@@ -54,7 +62,11 @@ REQUIRED_SQL_GUARDS = {
   "evaluation output closure" => /validate_evaluation_arm_closure/,
   "evaluation closure trigger" => /evaluation_arm_output_closure_guard/,
   "credential parent-row serialization" => /lock_credential_version_for_state_event\(\).*?FOR UPDATE;/m,
-  "credential usability gate" => /assert_service_principal_credential_usable/
+  "credential usability gate" => /assert_service_principal_credential_usable/,
+  "test catalog closure" => /validate_test_catalog_closure/,
+  "test result catalog membership" => /validate_test_result_membership/,
+  "gate decision closure" => /validate_gate_decision_closure/,
+  "P0 test applicability floor" => /severity <> 'P0' OR \(applicability_predicate = 'always' AND NOT waiver_allowed\)/
 }.freeze
 
 TIME_PROFILE_FIELDS = {
@@ -62,6 +74,7 @@ TIME_PROFILE_FIELDS = {
   "operational_record_time" => %w[recorded_at system_available_at],
   "derived_record_time" => %w[recorded_at system_available_at as_of run_mode input_record_ids],
   "standalone_snapshot_time" => %w[snapshot_frozen_at system_available_at as_of input_record_ids],
+  "bitemporal_version_time" => %w[valid_from system_from system_available_at as_of run_mode input_record_ids],
   "manifest_time" => %w[
     system_available_at effective_from schema_version schema_hash
     manifest_signature owner_service_principal_id input_record_ids

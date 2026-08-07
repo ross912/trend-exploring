@@ -42,7 +42,7 @@
 - Round 15 的 compiler、协议安全、统计反事实 reviewer 共确认 9 个 P0 与 2 个 P1，连续计数仍为 `0/3`。新增控制覆盖：provider ingress mode totality/authenticity、async invocation FK 方向、token use/consumption、envelope policy/header safety、snapshot current profile、erasure generation fence、online authority lease fencing、conditional p/e validity、source discovery program frame 分母、outcome actor exposure 与明确 audience unit。详见 03 第 18 节。
 - Round 16 是用户指定的最终有界审查，确认并修复 6 个 P0：provider response member closure、TokenUse 恢复防回滚、ServicePrincipalCredential lifecycle、validation evidence 资格分母、validation producer 暴露与 evaluation arm 输出分母。详见 03 第 19 节。
 - 当前静态结果：04 有 233 个唯一测试 ID且无重复；05 有 169 个 immutable records 与 36 个 manifests，time-profile 双向 missing/extra/duplicate 均为 0；02 的 6 个 JSON blocks 全部可解析；全部 Markdown 表宽和 code-fence parity 通过。
-- M1 首批 PostgreSQL 15.18 实现已在临时本地集群完成真实 parser/transaction 执行：迁移、25 表 append-only catalog smoke、pgcrypto/btree_gist 均通过。
+- M1 首批 PostgreSQL 15.18 实现已在临时本地集群完成真实 parser/transaction 执行：迁移、33 表 append-only catalog smoke、pgcrypto/btree_gist、TestCatalog/TestRun/TestResult/GateDecision fixture 均通过。
 - M0 已有条件冻结；旧连续计数停在 `0/3`，不再继续 Round 17。下一步是 M1 可执行 schema 与最小垂直切片。
 
 ## 5. 下一步顺序
@@ -101,7 +101,7 @@ git status --short
 下一步：
 
 - 使用 `schema/postgres/test/002_m1_transaction_fixtures.sh` 在明确 disposable 的 PostgreSQL 15+ 数据库中重复运行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch、并发序列化和集合闭合测试。
-- 将已通过的 PostgreSQL fixtures 接入 TestDefinition/TestRun/TestResult 物化层，并补充其他 M1/M4 数据库闭合约束。
+- 将已通过的测试治理 fixture 接入正式 TestCatalog 生成器，并补充 GateEvaluationUnit/AttemptMembership/ClosureDecision 与可治理 waiver/approval 闭合约束。
 - 生成权限矩阵、EventBase 状态机、双时间查询模板和 identifier linter。
 - 证明 P0 applicability 永远 fail closed。
 - 执行小规模来源、许可、语言、成本和恢复可行性试验。

@@ -11,8 +11,8 @@ BEGIN
    WHERE table_schema = 'public'
      AND table_type = 'BASE TABLE';
 
-  IF table_count <> 25 THEN
-    RAISE EXCEPTION 'expected 25 M1 tables, found %', table_count;
+  IF table_count <> 33 THEN
+    RAISE EXCEPTION 'expected 33 M1 tables, found %', table_count;
   END IF;
 
   SELECT count(*)

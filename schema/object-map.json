@@ -25,6 +25,14 @@
     { "table": "evaluation_obligation", "canonicalObject": "EvaluationObligation", "role": "record", "timeProfile": "derived_record_time" },
     { "table": "evaluation_snapshot_decision", "canonicalObject": "EvaluationSnapshotDecision", "role": "record", "timeProfile": "derived_record_time" },
     { "table": "evaluation_result", "canonicalObject": "EvaluationResult", "role": "record", "timeProfile": "derived_record_time" },
-    { "table": "evaluation_arm_output_snapshot", "canonicalObject": "EvaluationArmOutputSnapshot", "role": "record", "timeProfile": "standalone_snapshot_time" }
+    { "table": "evaluation_arm_output_snapshot", "canonicalObject": "EvaluationArmOutputSnapshot", "role": "record", "timeProfile": "standalone_snapshot_time" },
+    { "table": "test_definition", "canonicalObject": "TestDefinition", "role": "identity", "timeProfile": "identity_time" },
+    { "table": "test_governance_policy", "canonicalObject": "TestGovernancePolicy", "role": "manifest", "timeProfile": "manifest_time" },
+    { "table": "test_definition_version", "canonicalObject": "TestDefinitionVersion", "role": "record", "timeProfile": "bitemporal_version_time" },
+    { "table": "test_catalog_manifest", "canonicalObject": "TestCatalogManifest", "role": "manifest", "timeProfile": "manifest_time" },
+    { "table": "test_catalog_definition_member", "canonicalObject": "TestCatalogManifest", "role": "child", "timeProfile": "inherits_parent" },
+    { "table": "test_run", "canonicalObject": "TestRun", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "test_result", "canonicalObject": "TestResult", "role": "record", "timeProfile": "operational_record_time" },
+    { "table": "gate_decision", "canonicalObject": "GateDecision", "role": "record", "timeProfile": "operational_record_time" }
   ]
 }

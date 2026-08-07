@@ -977,6 +977,378 @@ AFTER INSERT ON evaluation_arm_output_snapshot
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION validate_evaluation_arm_closure();
 
+CREATE TYPE test_phase AS ENUM ('M0', 'M1', 'M2', 'M3', 'M4', 'M5');
+CREATE TYPE test_severity AS ENUM ('P0', 'P1');
+CREATE TYPE test_blocking_mode AS ENUM (
+  'phase-exit',
+  'normal-edition',
+  'service-claim',
+  'release',
+  'capability-claim',
+  'version-promotion',
+  'none'
+);
+CREATE TYPE test_catalog_membership AS ENUM ('applicable', 'excluded');
+CREATE TYPE test_result_status AS ENUM ('pass', 'fail', 'blocked', 'not_applicable');
+CREATE TYPE gate_decision_status AS ENUM ('pass', 'blocked');
+
+CREATE TABLE test_definition (
+  test_id uuid PRIMARY KEY,
+  test_code text NOT NULL UNIQUE CHECK (test_code ~ '^[A-Z][A-Z0-9]*-[0-9]{3}[A-Z]?$'),
+  identity_created_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (identity_created_at <= system_available_at)
+);
+
+CREATE TABLE test_governance_policy (
+  test_governance_policy_version uuid PRIMARY KEY,
+  policy_revision bigint NOT NULL UNIQUE CHECK (policy_revision > 0),
+  schema_version text NOT NULL,
+  schema_hash text NOT NULL CHECK (schema_hash ~ '^[a-f0-9]{64}$'),
+  manifest_signature text NOT NULL,
+  owner_service_principal_id uuid NOT NULL REFERENCES service_principal,
+  input_record_ids uuid[] NOT NULL,
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at)
+);
+
+CREATE TABLE test_definition_version (
+  test_definition_version_id uuid PRIMARY KEY,
+  test_id uuid NOT NULL REFERENCES test_definition,
+  test_governance_policy_version uuid NOT NULL REFERENCES test_governance_policy,
+  definition_revision bigint NOT NULL CHECK (definition_revision > 0),
+  supersedes_version_id uuid,
+  supersedes_revision bigint,
+  introduced_phase test_phase NOT NULL,
+  run_on_or_after test_phase NOT NULL,
+  applicability_predicate text NOT NULL CHECK (btrim(applicability_predicate) <> ''),
+  waiver_allowed boolean NOT NULL,
+  severity test_severity NOT NULL,
+  blocking test_blocking_mode NOT NULL,
+  fixture_contract text NOT NULL CHECK (btrim(fixture_contract) <> ''),
+  config_contract text NOT NULL CHECK (btrim(config_contract) <> ''),
+  oracle_spec text NOT NULL CHECK (btrim(oracle_spec) <> ''),
+  definition_hash text NOT NULL CHECK (definition_hash ~ '^[a-f0-9]{64}$'),
+  manifest_signature text NOT NULL,
+  valid_from timestamptz NOT NULL,
+  system_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  as_of timestamptz NOT NULL,
+  run_mode run_mode NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (system_from <= system_available_at),
+  CHECK (valid_from <= as_of),
+  CHECK (run_on_or_after >= introduced_phase),
+  CHECK (severity <> 'P0' OR (applicability_predicate = 'always' AND NOT waiver_allowed)),
+  CHECK (severity <> 'P0' OR blocking <> 'none'),
+  CHECK (
+    (definition_revision = 1 AND supersedes_version_id IS NULL AND supersedes_revision IS NULL)
+    OR
+    (definition_revision > 1 AND supersedes_version_id IS NOT NULL
+      AND supersedes_revision = definition_revision - 1)
+  ),
+  UNIQUE (test_id, definition_revision),
+  UNIQUE (test_definition_version_id, test_id, definition_revision),
+  FOREIGN KEY (supersedes_version_id, test_id, supersedes_revision)
+    REFERENCES test_definition_version
+      (test_definition_version_id, test_id, definition_revision)
+    DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE test_catalog_manifest (
+  test_catalog_manifest_id uuid PRIMARY KEY,
+  target_phase test_phase NOT NULL,
+  target_gate test_blocking_mode NOT NULL,
+  test_governance_policy_version uuid NOT NULL REFERENCES test_governance_policy,
+  definitions_universe_hash text NOT NULL CHECK (definitions_universe_hash ~ '^[a-f0-9]{64}$'),
+  schema_version text NOT NULL,
+  schema_hash text NOT NULL CHECK (schema_hash ~ '^[a-f0-9]{64}$'),
+  manifest_signature text NOT NULL,
+  owner_service_principal_id uuid NOT NULL REFERENCES service_principal,
+  input_record_ids uuid[] NOT NULL,
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at)
+);
+
+CREATE TABLE test_catalog_definition_member (
+  test_catalog_definition_member_id uuid PRIMARY KEY,
+  test_catalog_manifest_id uuid NOT NULL REFERENCES test_catalog_manifest,
+  test_definition_version_id uuid NOT NULL REFERENCES test_definition_version,
+  membership test_catalog_membership NOT NULL,
+  exclusion_reason text,
+  applicability_evidence text NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  CHECK (
+    (membership = 'applicable' AND exclusion_reason IS NULL)
+    OR
+    (membership = 'excluded' AND btrim(coalesce(exclusion_reason, '')) <> '')
+  ),
+  UNIQUE (test_catalog_manifest_id, test_definition_version_id)
+);
+
+CREATE OR REPLACE FUNCTION validate_test_catalog_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  expected_count integer;
+  member_count integer;
+  p0_excluded_count integer;
+  policy_mismatch_count integer;
+  set_mismatch_count integer;
+  calculated_hash text;
+BEGIN
+  WITH latest AS (
+    SELECT DISTINCT ON (test_id)
+           test_definition_version_id, test_id, introduced_phase,
+           severity, test_governance_policy_version
+      FROM test_definition_version
+     ORDER BY test_id, definition_revision DESC
+  )
+  SELECT count(*) INTO expected_count
+    FROM latest
+   WHERE introduced_phase <= NEW.target_phase;
+
+  SELECT count(*) INTO member_count
+    FROM test_catalog_definition_member
+   WHERE test_catalog_manifest_id = NEW.test_catalog_manifest_id;
+
+  SELECT count(*) INTO p0_excluded_count
+    FROM test_catalog_definition_member m
+    JOIN test_definition_version v
+      ON v.test_definition_version_id = m.test_definition_version_id
+   WHERE m.test_catalog_manifest_id = NEW.test_catalog_manifest_id
+     AND m.membership = 'excluded'
+     AND v.severity = 'P0';
+
+  SELECT count(*) INTO policy_mismatch_count
+    FROM test_catalog_definition_member m
+    JOIN test_definition_version v
+      ON v.test_definition_version_id = m.test_definition_version_id
+   WHERE m.test_catalog_manifest_id = NEW.test_catalog_manifest_id
+     AND v.test_governance_policy_version <> NEW.test_governance_policy_version;
+
+  WITH expected AS (
+    SELECT DISTINCT ON (test_id) test_definition_version_id
+      FROM test_definition_version
+     ORDER BY test_id, definition_revision DESC
+  ),
+  expected_for_phase AS (
+    SELECT e.test_definition_version_id
+      FROM expected e
+      JOIN test_definition_version v USING (test_definition_version_id)
+     WHERE v.introduced_phase <= NEW.target_phase
+  ),
+  mismatch AS (
+    SELECT test_definition_version_id FROM expected_for_phase
+    EXCEPT
+    SELECT test_definition_version_id
+      FROM test_catalog_definition_member
+     WHERE test_catalog_manifest_id = NEW.test_catalog_manifest_id
+    UNION ALL
+    SELECT test_definition_version_id
+      FROM test_catalog_definition_member
+     WHERE test_catalog_manifest_id = NEW.test_catalog_manifest_id
+    EXCEPT
+    SELECT test_definition_version_id FROM expected_for_phase
+  )
+  SELECT count(*) INTO set_mismatch_count FROM mismatch;
+
+  SELECT encode(
+           digest(
+             string_agg(
+               test_definition_version_id::text || '|' || membership::text,
+               E'\n' ORDER BY test_definition_version_id
+             ),
+             'sha256'
+           ),
+           'hex'
+         )
+    INTO calculated_hash
+    FROM test_catalog_definition_member
+   WHERE test_catalog_manifest_id = NEW.test_catalog_manifest_id;
+
+  IF expected_count = 0
+     OR member_count <> expected_count
+     OR p0_excluded_count <> 0
+     OR policy_mismatch_count <> 0
+     OR set_mismatch_count <> 0
+     OR calculated_hash IS DISTINCT FROM NEW.definitions_universe_hash THEN
+    RAISE EXCEPTION 'test catalog is not a complete fail-closed definition universe';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER test_catalog_closure_guard
+AFTER INSERT ON test_catalog_manifest
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_test_catalog_closure();
+
+CREATE TABLE test_run (
+  test_run_id uuid PRIMARY KEY,
+  test_catalog_manifest_id uuid NOT NULL REFERENCES test_catalog_manifest,
+  code_revision text NOT NULL,
+  environment_fingerprint text NOT NULL,
+  fixture_version text NOT NULL,
+  config_version text NOT NULL,
+  executor_service_principal_id uuid NOT NULL REFERENCES service_principal,
+  started_at timestamptz NOT NULL,
+  completed_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (started_at <= completed_at),
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (test_run_id, test_catalog_manifest_id)
+);
+
+CREATE TABLE test_result (
+  test_result_id uuid PRIMARY KEY,
+  test_run_id uuid NOT NULL REFERENCES test_run,
+  test_definition_version_id uuid NOT NULL REFERENCES test_definition_version,
+  actual text NOT NULL CHECK (btrim(actual) <> ''),
+  result test_result_status NOT NULL,
+  reason_codes text[] NOT NULL,
+  log_artifact_ids uuid[] NOT NULL,
+  details jsonb NOT NULL DEFAULT '{}'::jsonb,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  CHECK (
+    (result = 'pass' AND cardinality(reason_codes) = 0)
+    OR
+    (result <> 'pass' AND cardinality(reason_codes) > 0)
+  ),
+  UNIQUE (test_run_id, test_definition_version_id)
+);
+
+CREATE OR REPLACE FUNCTION validate_test_result_membership()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  catalog_membership test_catalog_membership;
+BEGIN
+  SELECT m.membership INTO catalog_membership
+    FROM test_run r
+    JOIN test_catalog_definition_member m
+      ON m.test_catalog_manifest_id = r.test_catalog_manifest_id
+   WHERE r.test_run_id = NEW.test_run_id
+     AND m.test_definition_version_id = NEW.test_definition_version_id;
+
+  IF catalog_membership IS NULL THEN
+    RAISE EXCEPTION 'test result definition is not in the run catalog';
+  END IF;
+
+  IF (catalog_membership = 'excluded' AND NEW.result <> 'not_applicable')
+     OR (catalog_membership = 'applicable' AND NEW.result = 'not_applicable') THEN
+    RAISE EXCEPTION 'test result status contradicts catalog applicability';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER test_result_membership_guard
+BEFORE INSERT ON test_result
+FOR EACH ROW EXECUTE FUNCTION validate_test_result_membership();
+
+CREATE TABLE gate_decision (
+  gate_decision_id uuid PRIMARY KEY,
+  test_catalog_manifest_id uuid NOT NULL,
+  test_run_id uuid NOT NULL,
+  target_phase test_phase NOT NULL,
+  target_gate test_blocking_mode NOT NULL,
+  decision gate_decision_status NOT NULL,
+  required_result_count integer NOT NULL CHECK (required_result_count >= 0),
+  blocking_result_count integer NOT NULL CHECK (blocking_result_count >= 0),
+  unpassed_definition_version_ids uuid[] NOT NULL,
+  test_waiver_ids uuid[] NOT NULL CHECK (cardinality(test_waiver_ids) = 0),
+  approval_decision_ids uuid[] NOT NULL CHECK (cardinality(approval_decision_ids) = 0),
+  decided_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  input_record_ids uuid[] NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  FOREIGN KEY (test_run_id, test_catalog_manifest_id)
+    REFERENCES test_run (test_run_id, test_catalog_manifest_id),
+  UNIQUE (test_catalog_manifest_id, test_run_id)
+);
+
+CREATE OR REPLACE FUNCTION validate_gate_decision_closure()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  catalog_phase test_phase;
+  catalog_gate test_blocking_mode;
+  applicable_count integer;
+  member_count integer;
+  result_count integer;
+  blocking_count integer;
+  unpassed_ids uuid[];
+BEGIN
+  SELECT target_phase, target_gate
+    INTO catalog_phase, catalog_gate
+    FROM test_catalog_manifest
+   WHERE test_catalog_manifest_id = NEW.test_catalog_manifest_id;
+
+  IF catalog_phase IS NULL
+     OR catalog_phase <> NEW.target_phase
+     OR catalog_gate <> NEW.target_gate THEN
+    RAISE EXCEPTION 'gate decision target does not match catalog';
+  END IF;
+
+  SELECT count(*) INTO member_count
+    FROM test_catalog_definition_member
+   WHERE test_catalog_manifest_id = NEW.test_catalog_manifest_id;
+
+  SELECT count(*) INTO applicable_count
+    FROM test_catalog_definition_member
+   WHERE test_catalog_manifest_id = NEW.test_catalog_manifest_id
+     AND membership = 'applicable';
+
+  SELECT count(*) INTO result_count
+    FROM test_result
+   WHERE test_run_id = NEW.test_run_id;
+
+  SELECT count(*) INTO blocking_count
+    FROM test_catalog_definition_member m
+    JOIN test_definition_version v
+      ON v.test_definition_version_id = m.test_definition_version_id
+    JOIN test_result r
+      ON r.test_run_id = NEW.test_run_id
+     AND r.test_definition_version_id = m.test_definition_version_id
+   WHERE m.test_catalog_manifest_id = NEW.test_catalog_manifest_id
+     AND m.membership = 'applicable'
+     AND r.result IN ('fail', 'blocked')
+     AND (v.blocking = NEW.target_gate
+       OR (v.blocking = 'phase-exit' AND NEW.target_gate = 'phase-exit'));
+
+  SELECT coalesce(array_agg(m.test_definition_version_id ORDER BY m.test_definition_version_id), ARRAY[]::uuid[])
+    INTO unpassed_ids
+    FROM test_catalog_definition_member m
+    JOIN test_result r
+      ON r.test_run_id = NEW.test_run_id
+     AND r.test_definition_version_id = m.test_definition_version_id
+   WHERE m.test_catalog_manifest_id = NEW.test_catalog_manifest_id
+     AND m.membership = 'applicable'
+     AND r.result IN ('fail', 'blocked');
+
+  IF member_count <> result_count
+     OR NEW.required_result_count <> applicable_count
+     OR NEW.blocking_result_count <> blocking_count
+     OR NEW.unpassed_definition_version_ids <> unpassed_ids
+     OR ((blocking_count = 0) <> (NEW.decision = 'pass')) THEN
+    RAISE EXCEPTION 'gate decision is not closed over catalog results';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER gate_decision_closure_guard
+AFTER INSERT ON gate_decision
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_gate_decision_closure();
+
 CREATE OR REPLACE FUNCTION reject_row_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -1013,7 +1385,15 @@ BEGIN
     'evaluation_obligation',
     'evaluation_snapshot_decision',
     'evaluation_result',
-    'evaluation_arm_output_snapshot'
+    'evaluation_arm_output_snapshot',
+    'test_definition',
+    'test_governance_policy',
+    'test_definition_version',
+    'test_catalog_manifest',
+    'test_catalog_definition_member',
+    'test_run',
+    'test_result',
+    'gate_decision'
   ]
   LOOP
     EXECUTE format(
