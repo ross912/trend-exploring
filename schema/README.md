@@ -50,7 +50,7 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 
 真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke、测试治理和 gate evaluation fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003`/`004` 覆盖测试目录与 gate evaluation 的 fail-closed 集合语义。
 
-当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表（总计 62 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，当前 readiness 为 14/30 fixture_passed、16/30 blocked。
+当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 8 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表（总计 62 张）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，当前 readiness 为 15/30 fixture_passed、15/30 blocked。
 
 ## 自检记录
 
