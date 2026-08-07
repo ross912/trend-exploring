@@ -258,6 +258,7 @@ BEGIN
   SELECT * INTO content FROM presentation_content_unit
    WHERE presentation_content_unit_id = NEW.presentation_content_unit_id;
   IF NOT FOUND OR plan.presentation_render_plan_id IS NULL
+     OR plan.presentation_event_id <> NEW.presentation_event_id
      OR content.presentation_render_plan_id <> plan.presentation_render_plan_id
      OR NEW.channel <> plan.channel OR NEW.locale <> plan.locale
      OR NEW.channel <> content.channel OR NEW.locale <> content.locale THEN
@@ -272,6 +273,7 @@ BEGIN
     IF citation.claim_citation_id IS NULL OR claim_child.presentation_content_unit_id IS NULL
        OR content.content_kind <> 'claim'
        OR citation.presentation_event_id <> NEW.presentation_event_id
+       OR citation.presentation_event_id <> plan.presentation_event_id
        OR citation.presentation_render_plan_id <> NEW.presentation_render_plan_id
        OR citation.presentation_content_unit_id <> NEW.presentation_content_unit_id
        OR citation.channel <> NEW.channel OR citation.locale <> NEW.locale
@@ -283,6 +285,7 @@ BEGIN
      WHERE raw_source_listing_reference_id = NEW.raw_source_listing_reference_id;
     IF listing.raw_source_listing_reference_id IS NULL
        OR listing.presentation_event_id <> NEW.presentation_event_id
+       OR listing.presentation_event_id <> plan.presentation_event_id
        OR listing.presentation_render_plan_id <> NEW.presentation_render_plan_id
        OR listing.presentation_content_unit_id <> NEW.presentation_content_unit_id
        OR listing.channel <> NEW.channel OR listing.locale <> NEW.locale THEN
