@@ -50,6 +50,8 @@
 
 ## 5. 下一步顺序
 
+- 本轮新增：CTR-006 的 global service-principal allowlist/session gate 已接入 `010_m1_data_domain.sql`，global query、public-only snapshot/member 的写入没有登记且有效的 global identity 会 fail closed；`personal-ui` 负向夹具已在 PostgreSQL 15.18 通过。当前仍需把应用数据库角色/认证系统不可伪造地绑定到 `m1.service_principal` session setting。
+
 1. 用实际签名服务产出 signed TestCatalog/EventRegistry，导入 003 并激活 manifest。
 2. 将 permission matrix 与 RevocationDependencySnapshot、实际 egress/训练门禁接通。
 3. 为 bitemporal query 模板补充投影表、时间旅行和 EventCausalParent 集成 fixture。

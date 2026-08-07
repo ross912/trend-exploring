@@ -8,8 +8,8 @@ BEGIN
   SELECT count(*) INTO table_count
     FROM information_schema.tables
    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
-  IF table_count NOT IN (41, 64, 85, 86) THEN
-    RAISE EXCEPTION 'expected 41 tables after standalone governance slice or 64/85/86 in full M1 stack, found %', table_count;
+  IF table_count NOT IN (41, 64, 85, 86, 87) THEN
+    RAISE EXCEPTION 'expected 41 tables after standalone governance slice or 64/85/86/87 in full M1 stack, found %', table_count;
   END IF;
 
   SELECT count(*) INTO unguarded_count

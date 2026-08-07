@@ -5,6 +5,17 @@ BEGIN;
 CREATE TYPE data_domain AS ENUM ('personal', 'global');
 CREATE TYPE global_query_payload_class AS ENUM ('neutral_query', 'public_only_input_snapshot');
 
+CREATE TABLE global_service_principal (
+  global_service_principal_id uuid PRIMARY KEY REFERENCES service_principal,
+  principal_name text NOT NULL UNIQUE REFERENCES service_principal(principal_name),
+  role_key text NOT NULL CHECK (btrim(role_key) <> ''),
+  effective_from timestamptz NOT NULL,
+  expires_at timestamptz,
+  system_available_at timestamptz NOT NULL,
+  CHECK (expires_at IS NULL OR effective_from < expires_at),
+  CHECK (effective_from <= system_available_at)
+);
+
 CREATE TABLE personal_scope (
   personal_scope_id uuid PRIMARY KEY,
   owner_principal_key text NOT NULL CHECK (btrim(owner_principal_key) <> ''),
@@ -70,6 +81,44 @@ CREATE TABLE public_only_input_member (
   UNIQUE (public_only_input_snapshot_id, source_record_id, source_record_kind)
 );
 
+CREATE OR REPLACE FUNCTION assert_global_service_principal(p_at timestamptz)
+RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE
+  session_principal text := current_setting('m1.service_principal', true);
+  principal_id uuid;
+BEGIN
+  SELECT global_service_principal_id INTO principal_id
+    FROM global_service_principal
+   WHERE principal_name = session_principal
+     AND effective_from <= p_at
+     AND (expires_at IS NULL OR p_at < expires_at);
+  IF principal_id IS NULL THEN
+    RAISE EXCEPTION 'global data access requires an authorized global service principal';
+  END IF;
+  RETURN principal_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION enforce_global_service_principal()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM assert_global_service_principal(NEW.system_available_at);
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER global_query_execution_identity_guard
+BEFORE INSERT ON global_query_execution
+FOR EACH ROW EXECUTE FUNCTION enforce_global_service_principal();
+
+CREATE TRIGGER public_only_input_snapshot_identity_guard
+BEFORE INSERT ON public_only_input_snapshot
+FOR EACH ROW EXECUTE FUNCTION enforce_global_service_principal();
+
+CREATE TRIGGER public_only_input_member_identity_guard
+BEFORE INSERT ON public_only_input_member
+FOR EACH ROW EXECUTE FUNCTION enforce_global_service_principal();
+
 CREATE OR REPLACE FUNCTION reject_data_domain_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -82,7 +131,7 @@ DECLARE
   immutable_table text;
 BEGIN
   FOREACH immutable_table IN ARRAY ARRAY[
-    'personal_scope', 'private_query_context', 'global_query_execution',
+    'global_service_principal', 'personal_scope', 'private_query_context', 'global_query_execution',
     'public_only_input_snapshot', 'public_only_input_member'
   ] LOOP
     EXECUTE format(
