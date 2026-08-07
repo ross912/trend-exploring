@@ -9,6 +9,7 @@
     { "table": "event_state_transition_definition", "canonicalObject": "EventStateTransitionDefinition", "role": "infrastructure", "timeProfile": "manifest_child_time" },
     { "table": "event_api_alias", "canonicalObject": "EventApiAlias", "role": "infrastructure", "timeProfile": "manifest_child_time" },
     { "table": "event_base", "canonicalObject": "EventBase", "role": "infrastructure", "timeProfile": "event_time" },
+    { "table": "event_transition_state", "canonicalObject": "EventBase", "role": "infrastructure", "timeProfile": "inherits_parent" },
     { "table": "event_causal_parent", "canonicalObject": "EventCausalParent", "role": "infrastructure", "timeProfile": "inherits_parent" }
   ]
 }

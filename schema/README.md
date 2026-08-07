@@ -5,7 +5,7 @@
 ## 当前内容
 
 - `postgres/001_m1_core.sql`：PostgreSQL 15+ 首版 DDL，覆盖 manifest 激活、内部凭据生命周期、provider response set、token use、evaluation arm、测试治理与 gate evaluation 核心对象。`provider_response_set` 在 invocation 前冻结承诺，`provider_response_set_closure` 是同主键、无第二领域身份的 terminal child；EvaluationArm 的 output→obligation→snapshot decision→result，TestCatalog→TestRun→TestResult→GateDecision，以及 gate evaluation 的 attempts→closure→selection 均由延迟闭合 trigger 做集合相等校验。
-- `postgres/002_event_base.sql`：EventBase/EventCausalParent 基础设施，包含 typed GlobalIdentityRegistry、不可变 EventType registry header/definition/state/transition/API-alias children、exclusive revision CAS、同域 sequence、跨域 queue proof、可用时间与 DAG/cycle guard；八张基础设施表均有 append-only guard。
+- `postgres/002_event_base.sql`：EventBase/EventTransitionState/EventCausalParent 基础设施，包含 typed GlobalIdentityRegistry、不可变 EventType registry header/definition/state/transition/API-alias children、exclusive revision CAS、注册 transition child、同域 sequence、跨域 queue proof、可用时间与 DAG/cycle guard；九张基础设施表均有 append-only guard。
 - `postgres/003_manifest_import.sql`：只接受外部已验证签名的 TestCatalog/EventRegistry import 函数；unsigned、未导入 governance policy 和重复 registry/catalog version 均 fail closed。
 - `postgres/004_m1_source_archive.sql`：M1 来源/权限/档案垂直切片，覆盖 collection opportunity 分母、publisher owner/dependency、RawItemVersion、PurposeAuthorization、四类 RawArtifact、blob binding、restore/format migration 与 language-evaluation manifest。
 - `postgres/007_m1_coverage_item.sql`：CoverageItem 与 candidate-generation unit 的 canonical projection key、UUIDv5 身份重算、typed input、并发唯一性和 append-only guard；配套 map 与 018/019 夹具单独在干净 PostgreSQL 集群回归。
@@ -16,7 +16,7 @@
 - `../lib/manifest_compiler.rb` / `../scripts/compile_manifest.rb`：统一 manifest envelope、类型白名单、关键字段、canonical payload hash 和 unsigned-before-activation 标记；`test/manifest_compiler_test.rb` 覆盖未知类型、字段缺失和签名缺失。未覆盖的全部领域 manifest 语义仍保留为 partial。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
-- `event-infrastructure-map.json`：002 migration 的五张基础设施表映射；它们不重复登记领域对象。
+- `event-infrastructure-map.json`：002 migration 的九张基础设施表映射；它们不重复登记领域对象。
 - `m1-source-map.json`：004 migration 的 15 张 M1 来源/档案表映射。
 - `m1-coverage-map.json`：007 migration 的 2 张 CoverageItem 身份切片表映射。
 - `m1-presentation-map.json`：008 migration 的 8 张 typed presentation 切片表映射。

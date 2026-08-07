@@ -406,7 +406,7 @@ if errors.empty?
   puts "  SQL objects: #{REQUIRED_SQL_OBJECTS.length}"
   puts "  SQL guards: #{REQUIRED_SQL_GUARDS.length}"
   puts "  SQL table mappings: #{sql_tables.length}"
-  puts "  EventBase infrastructure: 8 tables; signed import functions: 2"
+  puts "  EventBase infrastructure: 9 tables; signed import functions: 2"
   puts "  M1 source/archive slice: 15 tables"
   puts "  M1 coverage identity slice: 2 tables; UUIDv5/projection-key guards"
   puts "  M1 data-domain boundary: global/private forbidden-input contract; runtime enforcement pending"

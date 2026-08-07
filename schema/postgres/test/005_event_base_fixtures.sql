@@ -72,6 +72,16 @@ INSERT INTO event_base VALUES
    NULL, NULL, NULL,
    'candidate detector emission', 'candidate-fixture', 'candidate-2', NULL, NULL, NULL);
 
+INSERT INTO event_transition_state VALUES
+  ('90000000-0000-4000-8000-000000000001',
+   'event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE',
+   'SERVICE_PRINCIPAL_CREDENTIAL_LIFECYCLE',
+   '91000000-0000-4000-8000-000000000001', 1, NULL, 'active'),
+  ('90000000-0000-4000-8000-000000000002',
+   'event-registry-fixture-v1', 'SERVICE_PRINCIPAL_CREDENTIAL_STATE',
+   'SERVICE_PRINCIPAL_CREDENTIAL_LIFECYCLE',
+   '91000000-0000-4000-8000-000000000001', 2, 'active', 'revoked');
+
 INSERT INTO event_causal_parent VALUES
   ('90000000-0000-4000-8000-000000000002', '90000000-0000-4000-8000-000000000001',
    '2026-08-07 00:02+00', NULL),
@@ -95,6 +105,25 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
     IF message_text <> 'event type is not present in the signed registry' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+DO $$
+DECLARE
+  message_text text;
+BEGIN
+  BEGIN
+    INSERT INTO event_transition_state VALUES
+      ('90000000-0000-4000-8000-000000000003',
+       'event-registry-fixture-v1', 'CANDIDATE_TRIGGER',
+       'not-a-family', '93000000-0000-4000-8000-000000000001', 1,
+       NULL, 'candidate');
+    SET CONSTRAINTS event_transition_state_guard IMMEDIATE;
+    RAISE EXCEPTION 'non-exclusive event transition child was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'event transition state requires an exclusive event type' THEN RAISE; END IF;
   END;
 END;
 $$;

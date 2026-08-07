@@ -270,6 +270,127 @@ CREATE TRIGGER event_base_registry_guard
 BEFORE INSERT ON event_base
 FOR EACH ROW EXECUTE FUNCTION validate_event_base();
 
+CREATE TABLE event_transition_state (
+  event_id uuid PRIMARY KEY REFERENCES event_base DEFERRABLE INITIALLY DEFERRED,
+  event_type_registry_version text NOT NULL,
+  event_type text NOT NULL,
+  state_machine_family text NOT NULL,
+  aggregate_identity_id uuid NOT NULL,
+  aggregate_revision bigint NOT NULL CHECK (aggregate_revision > 0),
+  from_state text,
+  to_state text NOT NULL CHECK (btrim(to_state) <> ''),
+  UNIQUE (event_id, state_machine_family, aggregate_identity_id, aggregate_revision)
+);
+
+CREATE OR REPLACE FUNCTION validate_event_transition_state()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  event_record event_base%ROWTYPE;
+  definition event_type_definition%ROWTYPE;
+  predecessor_state text;
+BEGIN
+  SELECT * INTO event_record
+    FROM event_base
+   WHERE event_id = NEW.event_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'event transition state requires an event base row';
+  END IF;
+
+  SELECT * INTO definition
+    FROM event_type_definition
+   WHERE event_type_registry_version = event_record.event_type_registry_version
+     AND event_type = event_record.event_type;
+  IF NOT FOUND OR definition.state_semantics <> 'exclusive_transition' THEN
+    RAISE EXCEPTION 'event transition state requires an exclusive event type';
+  END IF;
+  IF NEW.event_type_registry_version <> event_record.event_type_registry_version
+     OR NEW.event_type <> event_record.event_type
+     OR NEW.state_machine_family <> event_record.state_machine_family
+     OR NEW.aggregate_identity_id <> event_record.aggregate_identity_id
+     OR NEW.aggregate_revision <> event_record.aggregate_revision THEN
+    RAISE EXCEPTION 'event transition state is not typed to its event base';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM event_state_definition s
+     WHERE s.event_type_registry_version = NEW.event_type_registry_version
+       AND s.event_type = NEW.event_type
+       AND s.state_key = NEW.to_state
+  ) THEN
+    RAISE EXCEPTION 'event transition state target is not registered';
+  END IF;
+
+  IF NEW.aggregate_revision = 1 THEN
+    IF NEW.from_state IS NOT NULL
+       OR NOT EXISTS (
+         SELECT 1
+           FROM event_state_definition s
+          WHERE s.event_type_registry_version = NEW.event_type_registry_version
+            AND s.event_type = NEW.event_type
+            AND s.state_key = NEW.to_state
+            AND s.is_initial_state
+       ) THEN
+      RAISE EXCEPTION 'initial event transition state is not the registered initial state';
+    END IF;
+  ELSE
+    IF NEW.from_state IS NULL
+       OR NOT EXISTS (
+         SELECT 1
+           FROM event_state_transition_definition t
+          WHERE t.event_type_registry_version = NEW.event_type_registry_version
+            AND t.event_type = NEW.event_type
+            AND t.from_state = NEW.from_state
+            AND t.to_state = NEW.to_state
+       ) THEN
+      RAISE EXCEPTION 'event transition is not registered';
+    END IF;
+
+    SELECT ts.to_state INTO predecessor_state
+      FROM event_transition_state ts
+      JOIN event_base predecessor ON predecessor.event_id = ts.event_id
+     WHERE predecessor.event_id = event_record.predecessor_event_id;
+    IF predecessor_state IS DISTINCT FROM NEW.from_state THEN
+      RAISE EXCEPTION 'event transition predecessor state does not match from_state';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER event_transition_state_guard
+AFTER INSERT ON event_transition_state
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION validate_event_transition_state();
+
+CREATE OR REPLACE FUNCTION require_event_transition_state()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  semantics event_state_semantics;
+  child_count integer;
+BEGIN
+  SELECT d.state_semantics INTO semantics
+    FROM event_type_definition d
+   WHERE d.event_type_registry_version = NEW.event_type_registry_version
+     AND d.event_type = NEW.event_type;
+  SELECT count(*) INTO child_count
+    FROM event_transition_state
+   WHERE event_id = NEW.event_id;
+  IF semantics = 'exclusive_transition' AND child_count <> 1 THEN
+    RAISE EXCEPTION 'exclusive event requires exactly one transition state child';
+  END IF;
+  IF semantics <> 'exclusive_transition' AND child_count <> 0 THEN
+    RAISE EXCEPTION 'non-exclusive event cannot carry transition state child';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER event_transition_state_required_guard
+AFTER INSERT ON event_base
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION require_event_transition_state();
+
 CREATE TABLE event_causal_parent (
   event_id uuid NOT NULL REFERENCES event_base,
   parent_event_id uuid NOT NULL REFERENCES event_base,
@@ -350,6 +471,7 @@ BEGIN
     'event_state_transition_definition',
     'event_api_alias',
     'event_base',
+    'event_transition_state',
     'event_causal_parent'
   ] LOOP
     EXECUTE format(
