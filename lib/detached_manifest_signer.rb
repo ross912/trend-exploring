@@ -19,6 +19,10 @@ module M1
     end
 
     def sign(manifest, private_key_pem:, signing_key_version_id:)
+      raise Error, "signing key version id is required" if signing_key_version_id.to_s.empty?
+      if manifest["signatureStatus"] == "signed" || !manifest["manifestSignature"].to_s.empty?
+        raise Error, "manifest is already signed"
+      end
       key = OpenSSL::PKey.read(private_key_pem)
       raise Error, "private signing key is required" unless key.private?
 

@@ -41,4 +41,16 @@ class DetachedManifestSignerTest < Minitest::Test
     end
     assert_match(/private signing key is required/, error.message)
   end
+
+  def test_already_signed_manifest_is_not_resigned
+    signed = M1::DetachedManifestSigner.sign(
+      @manifest, private_key_pem: @key.to_pem, signing_key_version_id: "key-v1"
+    )
+    error = assert_raises(M1::DetachedManifestSigner::Error) do
+      M1::DetachedManifestSigner.sign(
+        signed, private_key_pem: @key.to_pem, signing_key_version_id: "key-v2"
+      )
+    end
+    assert_match(/already signed/, error.message)
+  end
 end
