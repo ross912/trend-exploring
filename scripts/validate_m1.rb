@@ -410,7 +410,7 @@ if errors.empty?
   puts "  M1 source/archive slice: 15 tables"
   puts "  M1 coverage identity slice: 5 tables; policy/role FK, UUIDv5/projection-key, and WatermarkGap closure guards"
   puts "  M1 data-domain boundary: global/private forbidden-input contract; runtime enforcement pending"
-  puts "  M1 presentation identity slice: 8 tables; typed child/XOR/plan guards"
+  puts "  M1 presentation identity slice: 10 tables; typed child/XOR/citation/event binding guards"
   puts "  M1 snapshot membership slice: 7 tables; profile activation/as-of/universe closure guards"
   puts "  M1 data-domain slice: 6 tables; global service identity, personal RLS, and public-only input guards"
   puts "  canonical schema compiler: 247 registry objects; deterministic metadata DDL"

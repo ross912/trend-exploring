@@ -82,11 +82,12 @@ BEGIN
 
   INSERT INTO presentation_content_unit VALUES
     ('22222222-0000-4000-8000-000000000020', plan_id,
-     'cccccccc-0000-4000-8000-000000000020', 'web', 'zh-CN', 1, 'title',
+     'cccccccc-0000-4000-8000-000000000020', 'web', 'zh-CN', 1, 'claim',
      '2026-08-07 05:04+00', '2026-08-07 05:04+00', '2026-08-07 05:04+00',
      'prospective', ARRAY['dddddddd-0000-4000-8000-000000000024']::uuid[])
-  RETURNING presentation_content_unit_id INTO content_id;
-  INSERT INTO presentation_title_content VALUES (content_id, 'A typed title');
+    RETURNING presentation_content_unit_id INTO content_id;
+  INSERT INTO presentation_claim_content VALUES
+    (content_id, '66666666-0000-4000-8000-000000000020');
 
   BEGIN
     INSERT INTO presentation_body_content VALUES (content_id, 'wrong child kind');
@@ -107,23 +108,79 @@ BEGIN
     NULL;
   END;
 
+  INSERT INTO presentation_claim_citation (
+    claim_citation_id, presentation_event_id, presentation_render_plan_id,
+    presentation_content_unit_id, claim_id, source_record_identity_id,
+    citation_role, channel, locale, displayed_text_hash,
+    recorded_at, system_available_at
+  ) VALUES (
+    '44444444-0000-4000-8000-000000000020',
+    'aaaaaaaa-0000-4000-8000-000000000020', plan_id, content_id,
+    '66666666-0000-4000-8000-000000000020',
+    '77777777-0000-4000-8000-000000000020', 'entails', 'web', 'zh-CN', repeat('a', 64),
+    '2026-08-07 05:05+00', '2026-08-07 05:05+00');
+
+  INSERT INTO presentation_claim_citation (
+    claim_citation_id, presentation_event_id, presentation_render_plan_id,
+    presentation_content_unit_id, claim_id, source_record_identity_id,
+    citation_role, channel, locale, displayed_text_hash,
+    recorded_at, system_available_at
+  ) VALUES (
+    '44444444-0000-4000-8000-000000000021',
+    'aaaaaaaa-0000-4000-8000-000000000020', plan_id, content_id,
+    '66666666-0000-4000-8000-000000000020',
+    '77777777-0000-4000-8000-000000000021', 'context', 'web', 'zh-CN', repeat('b', 64),
+    '2026-08-07 05:06+00', '2026-08-07 05:06+00');
+  INSERT INTO presentation_raw_source_listing_reference (
+    raw_source_listing_reference_id, presentation_event_id, presentation_render_plan_id,
+    presentation_content_unit_id, source_record_identity_id, source_metadata_field,
+    channel, locale, displayed_text_hash, recorded_at, system_available_at
+  ) VALUES (
+    '55555555-0000-4000-8000-000000000021',
+    'aaaaaaaa-0000-4000-8000-000000000020', plan_id, content_id,
+    '77777777-0000-4000-8000-000000000022', 'headline', 'web', 'zh-CN', repeat('c', 64),
+    '2026-08-07 05:06+00', '2026-08-07 05:06+00');
+
   INSERT INTO source_text_ref VALUES
-    ('33333333-0000-4000-8000-000000000020', plan_id, content_id, 'web', 'zh-CN',
+    ('33333333-0000-4000-8000-000000000020', 'aaaaaaaa-0000-4000-8000-000000000020', plan_id, content_id, 'web', 'zh-CN',
      '44444444-0000-4000-8000-000000000020', NULL,
      '2026-08-07 05:06+00', '2026-08-07 05:06+00');
 
   BEGIN
     INSERT INTO source_text_ref VALUES
-      ('33333333-0000-4000-8000-000000000021', plan_id, content_id, 'web', 'zh-CN',
+      ('33333333-0000-4000-8000-000000000021', 'aaaaaaaa-0000-4000-8000-000000000020', plan_id, content_id, 'web', 'zh-CN',
        NULL, NULL, '2026-08-07 05:07+00', '2026-08-07 05:07+00');
     RAISE EXCEPTION 'source ref without exactly one typed source was accepted';
   EXCEPTION WHEN check_violation THEN
     NULL;
   END;
 
+  INSERT INTO presentation_claim_citation (
+    claim_citation_id, presentation_event_id, presentation_render_plan_id,
+    presentation_content_unit_id, claim_id, source_record_identity_id,
+    citation_role, channel, locale, displayed_text_hash,
+    recorded_at, system_available_at
+  ) VALUES (
+    '44444444-0000-4000-8000-000000000023',
+    '99999999-0000-4000-8000-000000000020', plan_id, content_id,
+    '66666666-0000-4000-8000-000000000020',
+    '77777777-0000-4000-8000-000000000023', 'entails', 'web', 'zh-CN', repeat('d', 64),
+    '2026-08-07 05:08+00', '2026-08-07 05:08+00');
+
   BEGIN
     INSERT INTO source_text_ref VALUES
-      ('33333333-0000-4000-8000-000000000022', plan_id, content_id, 'web', 'zh-CN',
+      ('33333333-0000-4000-8000-000000000023', 'aaaaaaaa-0000-4000-8000-000000000020', plan_id, content_id, 'web', 'zh-CN',
+       '44444444-0000-4000-8000-000000000023', NULL,
+       '2026-08-07 05:08+00', '2026-08-07 05:08+00');
+    RAISE EXCEPTION 'cross-event claim citation was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'claim citation is not typed to the same presentation event/content claim' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    INSERT INTO source_text_ref VALUES
+      ('33333333-0000-4000-8000-000000000022', 'aaaaaaaa-0000-4000-8000-000000000020', plan_id, content_id, 'web', 'zh-CN',
        '44444444-0000-4000-8000-000000000021',
        '55555555-0000-4000-8000-000000000021',
        '2026-08-07 05:08+00', '2026-08-07 05:08+00');

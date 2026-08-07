@@ -129,6 +129,39 @@ CREATE TABLE presentation_claim_content (
   claim_id uuid NOT NULL
 );
 
+CREATE TABLE presentation_claim_citation (
+  claim_citation_id uuid PRIMARY KEY,
+  presentation_event_id uuid NOT NULL,
+  presentation_render_plan_id uuid NOT NULL REFERENCES presentation_render_plan,
+  presentation_content_unit_id uuid NOT NULL REFERENCES presentation_content_unit,
+  claim_id uuid NOT NULL,
+  source_record_identity_id uuid NOT NULL,
+  citation_role text NOT NULL CHECK (citation_role IN ('entails', 'source_asserts', 'context', 'contradicts')),
+  channel text NOT NULL CHECK (btrim(channel) <> ''),
+  locale text NOT NULL CHECK (btrim(locale) <> ''),
+  displayed_text_hash text NOT NULL CHECK (displayed_text_hash ~ '^[a-f0-9]{64}$'),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (presentation_event_id, presentation_content_unit_id, source_record_identity_id, locale)
+);
+
+CREATE TABLE presentation_raw_source_listing_reference (
+  raw_source_listing_reference_id uuid PRIMARY KEY,
+  presentation_event_id uuid NOT NULL,
+  presentation_render_plan_id uuid NOT NULL REFERENCES presentation_render_plan,
+  presentation_content_unit_id uuid NOT NULL REFERENCES presentation_content_unit,
+  source_record_identity_id uuid NOT NULL,
+  source_metadata_field text NOT NULL CHECK (btrim(source_metadata_field) <> ''),
+  channel text NOT NULL CHECK (btrim(channel) <> ''),
+  locale text NOT NULL CHECK (btrim(locale) <> ''),
+  displayed_text_hash text NOT NULL CHECK (displayed_text_hash ~ '^[a-f0-9]{64}$'),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at),
+  UNIQUE (presentation_event_id, presentation_content_unit_id, source_record_identity_id, locale)
+);
+
 CREATE OR REPLACE FUNCTION validate_presentation_content_child()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -194,6 +227,7 @@ FOR EACH ROW EXECUTE FUNCTION validate_presentation_content_closure();
 
 CREATE TABLE source_text_ref (
   source_text_ref_id uuid PRIMARY KEY,
+  presentation_event_id uuid NOT NULL,
   presentation_render_plan_id uuid NOT NULL REFERENCES presentation_render_plan,
   presentation_content_unit_id uuid NOT NULL REFERENCES presentation_content_unit,
   channel text NOT NULL CHECK (btrim(channel) <> ''),
@@ -206,6 +240,63 @@ CREATE TABLE source_text_ref (
   CHECK ((claim_citation_id IS NULL) <> (raw_source_listing_reference_id IS NULL))
 );
 
+CREATE OR REPLACE FUNCTION validate_presentation_source_text_ref()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  plan presentation_render_plan%ROWTYPE;
+  content presentation_content_unit%ROWTYPE;
+  claim_child presentation_claim_content%ROWTYPE;
+  citation presentation_claim_citation%ROWTYPE;
+  listing presentation_raw_source_listing_reference%ROWTYPE;
+BEGIN
+  IF (NEW.claim_citation_id IS NULL) = (NEW.raw_source_listing_reference_id IS NULL) THEN
+    RAISE EXCEPTION 'source text ref requires exactly one typed child' USING ERRCODE = '23514';
+  END IF;
+
+  SELECT * INTO plan FROM presentation_render_plan
+   WHERE presentation_render_plan_id = NEW.presentation_render_plan_id;
+  SELECT * INTO content FROM presentation_content_unit
+   WHERE presentation_content_unit_id = NEW.presentation_content_unit_id;
+  IF NOT FOUND OR plan.presentation_render_plan_id IS NULL
+     OR content.presentation_render_plan_id <> plan.presentation_render_plan_id
+     OR NEW.channel <> plan.channel OR NEW.locale <> plan.locale
+     OR NEW.channel <> content.channel OR NEW.locale <> content.locale THEN
+    RAISE EXCEPTION 'source text ref plan/content/channel/locale binding is inconsistent';
+  END IF;
+
+  IF NEW.claim_citation_id IS NOT NULL THEN
+    SELECT * INTO citation FROM presentation_claim_citation
+     WHERE claim_citation_id = NEW.claim_citation_id;
+    SELECT * INTO claim_child FROM presentation_claim_content
+     WHERE presentation_content_unit_id = NEW.presentation_content_unit_id;
+    IF citation.claim_citation_id IS NULL OR claim_child.presentation_content_unit_id IS NULL
+       OR content.content_kind <> 'claim'
+       OR citation.presentation_event_id <> NEW.presentation_event_id
+       OR citation.presentation_render_plan_id <> NEW.presentation_render_plan_id
+       OR citation.presentation_content_unit_id <> NEW.presentation_content_unit_id
+       OR citation.channel <> NEW.channel OR citation.locale <> NEW.locale
+       OR claim_child.claim_id <> citation.claim_id THEN
+      RAISE EXCEPTION 'claim citation is not typed to the same presentation event/content claim';
+    END IF;
+  ELSE
+    SELECT * INTO listing FROM presentation_raw_source_listing_reference
+     WHERE raw_source_listing_reference_id = NEW.raw_source_listing_reference_id;
+    IF listing.raw_source_listing_reference_id IS NULL
+       OR listing.presentation_event_id <> NEW.presentation_event_id
+       OR listing.presentation_render_plan_id <> NEW.presentation_render_plan_id
+       OR listing.presentation_content_unit_id <> NEW.presentation_content_unit_id
+       OR listing.channel <> NEW.channel OR listing.locale <> NEW.locale THEN
+      RAISE EXCEPTION 'raw source listing reference is not typed to the same presentation event/content';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER source_text_ref_binding_guard
+BEFORE INSERT ON source_text_ref
+FOR EACH ROW EXECUTE FUNCTION validate_presentation_source_text_ref();
+
 DO $$
 DECLARE
   immutable_table text;
@@ -213,7 +304,8 @@ BEGIN
   FOREACH immutable_table IN ARRAY ARRAY[
     'claim_generation_unit', 'claim_generation_decision', 'presentation_render_plan',
     'presentation_content_unit', 'presentation_title_content', 'presentation_body_content',
-    'presentation_claim_content', 'source_text_ref'
+    'presentation_claim_content', 'presentation_claim_citation',
+    'presentation_raw_source_listing_reference', 'source_text_ref'
   ] LOOP
     EXECUTE format(
       'CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON %I '
