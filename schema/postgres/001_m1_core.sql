@@ -1103,6 +1103,12 @@ RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   predecessor test_definition_version%ROWTYPE;
 BEGIN
+  IF lower(regexp_replace(NEW.oracle_spec, '\s+', '', 'g')) IN ('true', 'always_true', 'constant_true') THEN
+    RAISE EXCEPTION 'test oracle cannot be tautological';
+  END IF;
+  IF lower(regexp_replace(NEW.fixture_contract, '\s+', '', 'g')) IN ('true', 'always_pass', 'constant_pass', 'always_true', 'constant_true') THEN
+    RAISE EXCEPTION 'test fixture contract cannot be tautological';
+  END IF;
   IF NEW.definition_revision = 1 THEN
     RETURN NEW;
   END IF;
@@ -1127,9 +1133,6 @@ BEGIN
   END IF;
   IF predecessor.severity = 'P0' AND NEW.applicability_predicate <> 'always' THEN
     RAISE EXCEPTION 'P0 test definition applicability cannot be weakened';
-  END IF;
-  IF lower(regexp_replace(NEW.oracle_spec, '\s+', '', 'g')) IN ('true', 'always_true', 'constant_true') THEN
-    RAISE EXCEPTION 'test oracle cannot be tautological';
   END IF;
   IF test_contract_strength_rank(NEW.oracle_spec) < test_contract_strength_rank(predecessor.oracle_spec) THEN
     RAISE EXCEPTION 'test oracle strength cannot be weakened';

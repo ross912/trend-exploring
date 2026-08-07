@@ -84,6 +84,23 @@ BEGIN
     GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
     IF message_text <> 'P0 test definition applicability cannot be weakened' THEN RAISE; END IF;
   END;
+
+  BEGIN
+    INSERT INTO test_definition_version VALUES
+      ('20000000-0000-4000-8000-000000000208',
+       '10000000-0000-4000-8000-000000000201',
+       'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 2,
+       '20000000-0000-4000-8000-000000000201', 1,
+       'M0', 'M0', 'always', false, 'P0', 'phase-exit',
+       'always_pass', 'strength-config-v2', 'strength-oracle-v2', repeat('g', 64),
+       'fixture-definition-signature', '2026-08-07 03:17+00',
+       '2026-08-07 03:17+00', '2026-08-07 03:17+00', '2026-08-07 03:17+00',
+       'prospective', ARRAY['00000000-0000-4000-8000-000000000908']::uuid[]);
+    RAISE EXCEPTION 'tautological fixture contract was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'test fixture contract cannot be tautological' THEN RAISE; END IF;
+  END;
 END;
 $$;
 
