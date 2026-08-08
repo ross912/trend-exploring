@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "trend-exploring.sources.v1",
+  "sources": [
+    {
+      "id": "chinanews-scroll",
+      "name": "中新网即时新闻",
+      "url": "https://www.chinanews.com.cn/rss/scroll-news.xml",
+      "language": "zh-CN",
+      "rights_scope": "metadata_short_summary_link",
+      "max_summary_chars": 320,
+      "max_items": 12
+    },
+    {
+      "id": "chinanews-china",
+      "name": "中新网时政",
+      "url": "https://www.chinanews.com.cn/rss/china.xml",
+      "language": "zh-CN",
+      "rights_scope": "metadata_short_summary_link",
+      "max_summary_chars": 320,
+      "max_items": 12
+    },
+    {
+      "id": "sina-china",
+      "name": "新浪国内要闻",
+      "url": "https://rss.sina.com.cn/news/china/focus15.xml",
+      "language": "zh-CN",
+      "rights_scope": "metadata_short_summary_link",
+      "max_summary_chars": 320,
+      "max_items": 12
+    },
+    {
+      "id": "sina-world",
+      "name": "新浪国际要闻",
+      "url": "https://rss.sina.com.cn/news/world/focus15.xml",
+      "language": "zh-CN",
+      "rights_scope": "metadata_short_summary_link",
+      "max_summary_chars": 320,
+      "max_items": 12
+    }
+  ]
+}

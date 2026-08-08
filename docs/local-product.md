@@ -6,6 +6,8 @@
 
 `run_product.sh` 会在 `/private/tmp/trend-exploring-pg15` 创建并启动一个仅供本地 staging 使用的 PostgreSQL 15 disposable instance（socket `/private/tmp/trend-exploring-pg-socket`、端口 `55433`），然后启动 API。也可以手动运行 `scripts/local/start_postgres.sh`，或用 `LOCAL_PSQL`、`LOCAL_PGHOST`、`LOCAL_PGPORT`、`LOCAL_PGDATABASE`、`LOCAL_PGUSER` 覆盖连接参数。
 
+默认启动会从 `config/sources.json` 采集可公开访问的中文 RSS/Atom，并发布一个新的 live snapshot。若当前网络不可用，可使用 `LOCAL_INGEST_LIVE=0 bash scripts/local/run_product.sh` 只启动已有本地数据。
+
 ```bash
 ruby scripts/local/bootstrap_radar.rb
 ruby scripts/local/start_radar.rb
@@ -34,6 +36,7 @@ ruby scripts/local/smoke_radar.rb
 - PostgreSQL 表为 `local_radar_snapshot` 与 `local_radar_card`，仅用于 staging vertical slice。
 - 后端通过 `psql` CLI 访问数据库，不把密码、URL 或云凭据写入仓库。
 - 前端只读取 public snapshot，不读取个人记忆；页面明确显示 snapshot、watermark、rights epoch 和 evidence boundary。
+- 采集器只保存 RSS/Atom 元数据、短摘要和原文链接；每个来源配置 `rights_scope` 与摘要长度上限，不把全文复制到本地产品。
 - M5 的实时流、生产 auth/provider、CDN、真实浏览器和治理条件仍需独立环境验证。
 
 外部条件的输入清单和执行顺序见 [production-unblock-runbook.md](production-unblock-runbook.md)。

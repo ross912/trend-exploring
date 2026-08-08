@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS local_radar_card (
   stance text NOT NULL,
   action_stage text NOT NULL,
   evidence_label text NOT NULL,
+  source_name text NOT NULL DEFAULT '',
+  source_url text NOT NULL DEFAULT '',
   sort_order integer NOT NULL CHECK (sort_order >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (snapshot_id, sort_order)
@@ -34,5 +36,25 @@ CREATE TABLE IF NOT EXISTS local_radar_card (
 
 CREATE INDEX IF NOT EXISTS local_radar_card_snapshot_order_idx
   ON local_radar_card (snapshot_id, sort_order);
+
+ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS source_name text NOT NULL DEFAULT '';
+ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS source_url text NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS local_source_item (
+  item_key text PRIMARY KEY,
+  source_id text NOT NULL,
+  source_name text NOT NULL,
+  language text NOT NULL,
+  title text NOT NULL,
+  summary text NOT NULL,
+  source_url text NOT NULL,
+  published_at timestamptz,
+  fetched_at timestamptz NOT NULL,
+  content_hash text NOT NULL,
+  UNIQUE (source_id, source_url)
+);
+
+CREATE INDEX IF NOT EXISTS local_source_item_published_idx
+  ON local_source_item (published_at DESC NULLS LAST, fetched_at DESC);
 
 COMMIT;

@@ -1,5 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
-const signalLabels = { diffusion: "扩散", emergence: "新出现", exploration: "认知探索" };
+const signalLabels = { diffusion: "扩散", emergence: "新出现", exploration: "认知探索", "新闻": "新闻" };
 const metricLabels = { "independent actors": "独立行动者", "mention delta": "讨论增量", "detector result": "检测结果" };
 const actionLabels = { "early adoption": "早期采纳", discussion: "讨论阶段", "not applicable": "不适用" };
 const evidenceLabels = { "action evidence missing": "尚缺行动证据", "exploration only": "仅作探索材料" };
@@ -26,7 +26,7 @@ function renderRadar(payload) {
     <article class="signal-card" data-type="${escapeHtml(card.signal_type)}">
       <div class="card-type">${escapeHtml(signalLabels[card.signal_type] || card.signal_type)}</div>
       <div><h3 class="card-title">${escapeHtml(card.title)}</h3><p class="card-summary">${escapeHtml(card.summary)}</p></div>
-      <div class="card-metric"><span>${escapeHtml(metricLabels[card.metric_label] || card.metric_label)}</span><strong>${escapeHtml(card.metric_value)}</strong><small>${escapeHtml(card.source_count)} 个来源 · ${escapeHtml(evidenceLabels[card.evidence_label] || card.evidence_label)}</small></div>
+      <div class="card-metric"><span>${escapeHtml(metricLabels[card.metric_label] || card.metric_label)}</span><strong>${escapeHtml(card.metric_value)}</strong><small>${escapeHtml(card.source_count)} 个来源 · ${escapeHtml(card.source_name || evidenceLabels[card.evidence_label] || card.evidence_label)}${/^https:\/\//.test(card.source_url || "") ? ` · <a class="source-link" href="${escapeHtml(card.source_url)}" target="_blank" rel="noopener noreferrer">查看原文</a>` : ""}</small></div>
     </article>`).join("");
 }
 

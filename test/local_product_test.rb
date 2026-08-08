@@ -52,4 +52,16 @@ class LocalProductTest < Minitest::Test
       @store.publish_snapshot!(snapshot: { "snapshot_id" => "broken", "surface_id" => "public-radar" }, cards: [])
     end
   end
+
+  def test_source_items_are_deduplicated_in_postgresql
+    item_key = "fixture-#{Time.now.to_f}"
+    item = {
+      "item_key" => item_key, "source_id" => "fixture-source", "source_name" => "中文来源", "language" => "zh-CN",
+      "title" => "真实采集去重测试", "summary" => "仅用于本地 fixture", "source_url" => "https://example.test/#{item_key}",
+      "published_at" => "2026-08-08T07:00:00Z", "fetched_at" => "2026-08-08T07:01:00Z", "content_hash" => "hash-fixture"
+    }
+    assert_equal 1, @store.ingest_source_items!(items: [item])
+    assert_equal 0, @store.ingest_source_items!(items: [item])
+    assert_equal item.fetch("item_key"), @store.latest_source_items(limit: 100).find { |row| row.fetch("item_key") == item.fetch("item_key") }.fetch("item_key")
+  end
 end

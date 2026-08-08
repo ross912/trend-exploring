@@ -82,6 +82,7 @@ h2 { margin-bottom: 0; font-family: var(--display); font-size: clamp(2rem, 3.6vw
 .card-metric span { display: block; color: var(--ink-soft); font-family: var(--mono); font-size: .62rem; letter-spacing: .08em; text-transform: uppercase; }
 .card-metric strong { display: block; margin: 2px 0 7px; color: var(--copper); font-family: var(--display); font-size: 2rem; font-weight: 600; letter-spacing: -.05em; line-height: 1; }
 .card-metric small { display: block; color: var(--ink-soft); font-size: .71rem; }
+.source-link { color: var(--teal); text-decoration: underline; text-underline-offset: 3px; }
 .guardrail { display: flex; align-items: center; gap: 17px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); padding: 25px 0; }
 .guardrail-icon { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--ink); color: var(--copper); font-size: 1.4rem; }
 .guardrail p { max-width: 780px; margin: 0; color: var(--ink-soft); font-size: .82rem; }
