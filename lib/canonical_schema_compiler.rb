@@ -97,6 +97,9 @@ module M1
         if mapping.fetch("role") == "record" && object.fetch("archetype") != "immutable_record"
           raise Error, "#{name} record archetype mismatch"
         end
+        if mapping.fetch("role") == "event" && object.fetch("archetype") != "event_subtype"
+          raise Error, "#{name} event archetype mismatch"
+        end
         expected_profile = object.fetch("timeProfile")
         if mapping.fetch("role") != "child" && expected_profile && mapping.fetch("timeProfile") != expected_profile
           raise Error, "#{name} time profile mismatch: #{mapping.fetch('timeProfile')} != #{expected_profile}"
@@ -112,7 +115,7 @@ module M1
       <<~SQL
         CREATE TABLE canonical_contract_registry (
           canonical_object text PRIMARY KEY,
-          archetype text NOT NULL CHECK (archetype IN ('stable_identity', 'immutable_record', 'immutable_manifest')),
+          archetype text NOT NULL CHECK (archetype IN ('stable_identity', 'immutable_record', 'immutable_manifest', 'event_subtype')),
           time_profile text NOT NULL
         );
         INSERT INTO canonical_contract_registry (canonical_object, archetype, time_profile)

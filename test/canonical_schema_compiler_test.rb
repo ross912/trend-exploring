@@ -23,6 +23,7 @@ class CanonicalSchemaCompilerTest < Minitest::Test
     assert_equal 247, compiled.fetch("objects").length
     assert_match(/CREATE TABLE canonical_contract_registry/, compiled.fetch("ddl"))
     assert_match(/CREATE UNIQUE INDEX canonical_contract_registry_profile_uq/, compiled.fetch("ddl"))
+    assert_match(/event_subtype/, compiled.fetch("ddl"))
     assert_match(/\A[a-f0-9]{64}\z/, compiled.fetch("schemaHash"))
   end
 
