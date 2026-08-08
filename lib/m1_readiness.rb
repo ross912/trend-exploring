@@ -16,7 +16,7 @@ module M1
     ].freeze
     FIXTURE_RESULTS = %w[not_run passed failed environment_blocked external_blocked].freeze
     ARTIFACT_SCHEMA = "m1.readiness-artifact.v1"
-    ARTIFACT_SCHEMAS = [ARTIFACT_SCHEMA, "m2.readiness-artifact.v1"].freeze
+    ARTIFACT_SCHEMAS = [ARTIFACT_SCHEMA, "m2.readiness-artifact.v1", "m3.readiness-artifact.v1"].freeze
 
     module_function
 

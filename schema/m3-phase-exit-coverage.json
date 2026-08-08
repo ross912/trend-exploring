@@ -1,0 +1,383 @@
+{
+  "schemaVersion": "m3.phase-exit-coverage.v1",
+  "entries": [
+    {
+      "testCode": "SIG-001",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_001/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-001.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-005",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_005/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-005.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-006",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_006/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-006.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:59Z"
+      }
+    },
+    {
+      "testCode": "SIG-007",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_007/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-007.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:59Z"
+      }
+    },
+    {
+      "testCode": "SIG-008",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_008/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-008.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-010",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_010/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-010.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-012",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_012/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-012.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-013",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_013/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-013.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-014",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_014/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-014.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-016",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_016/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-016.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-017",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_017/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-017.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SIG-021",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_021/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-021.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:59Z"
+      }
+    },
+    {
+      "testCode": "SIG-024",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_024/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SIG-024.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SEL-001",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sel_001/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SEL-001.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SEL-003",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sel_003/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SEL-003.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "SEL-004",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sel_004/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/SEL-004.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:59Z"
+      }
+    },
+    {
+      "testCode": "ADV-001",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_adv_001/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/ADV-001.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "ADV-004",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_adv_004/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/ADV-004.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "ADV-005",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_adv_005/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/ADV-005.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "MOD-003",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_mod_003/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/MOD-003.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    },
+    {
+      "testCode": "WRM-004",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m3_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_wrm_004/",
+        "result": "passed",
+        "testPaths": [
+          "test/m3_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m3/WRM-004.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:47:58Z"
+      }
+    }
+  ]
+}

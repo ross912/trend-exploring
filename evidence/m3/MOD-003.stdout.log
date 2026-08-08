@@ -1,0 +1,9 @@
+Run options: --name /test_mod_003/ --seed 10442
+
+# Running:
+
+.
+
+Finished in 0.003407s, 293.5134 runs/s, 880.5401 assertions/s.
+
+1 runs, 3 assertions, 0 failures, 0 errors, 0 skips

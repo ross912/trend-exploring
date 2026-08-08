@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m3.readiness-artifact.v1",
+  "testCode": "WRM-004",
+  "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_wrm_004/",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:47:58Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m3_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m3/WRM-004.stdout.log",
+  "stdoutSha256": "4b2fbcedb0f5339b12cb2f4ad22a5933583cd9ea72c1dff9ea1b7eb1643ba29c",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

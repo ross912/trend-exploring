@@ -1,0 +1,9 @@
+Run options: --name /test_wrm_004/ --seed 33513
+
+# Running:
+
+.
+
+Finished in 0.001752s, 570.7763 runs/s, 1712.3288 assertions/s.
+
+1 runs, 3 assertions, 0 failures, 0 errors, 0 skips

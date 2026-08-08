@@ -1,0 +1,9 @@
+Run options: --name /test_sel_004/ --seed 40291
+
+# Running:
+
+.
+
+Finished in 0.002749s, 363.7686 runs/s, 727.5373 assertions/s.
+
+1 runs, 2 assertions, 0 failures, 0 errors, 0 skips

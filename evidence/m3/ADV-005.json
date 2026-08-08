@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m3.readiness-artifact.v1",
+  "testCode": "ADV-005",
+  "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_adv_005/",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:47:58Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m3_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m3/ADV-005.stdout.log",
+  "stdoutSha256": "49b328dddf71388e4f43617df4218495d0ac0aa05eb80537eb6ce64c659d236e",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

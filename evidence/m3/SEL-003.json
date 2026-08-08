@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m3.readiness-artifact.v1",
+  "testCode": "SEL-003",
+  "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sel_003/",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:47:58Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m3_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m3/SEL-003.stdout.log",
+  "stdoutSha256": "8a8218a7dd861dc31e3b253570f272d95aae45ef15674d975c0c6c76d47480c2",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

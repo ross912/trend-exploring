@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m3.readiness-artifact.v1",
+  "testCode": "SIG-007",
+  "command": "ruby -Ilib test/m3_contracts_test.rb --name /test_sig_007/",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:47:59Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m3_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m3/SIG-007.stdout.log",
+  "stdoutSha256": "1906f1f2d98d54d84223cf7a2369c025b54e4933618d4e271456f6e4d464d4c5",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

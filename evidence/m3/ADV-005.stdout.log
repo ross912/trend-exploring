@@ -1,0 +1,9 @@
+Run options: --name /test_adv_005/ --seed 47784
+
+# Running:
+
+.
+
+Finished in 0.007136s, 140.1345 runs/s, 420.4036 assertions/s.
+
+1 runs, 3 assertions, 0 failures, 0 errors, 0 skips

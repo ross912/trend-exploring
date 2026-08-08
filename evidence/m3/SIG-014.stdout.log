@@ -1,0 +1,9 @@
+Run options: --name /test_sig_014/ --seed 35607
+
+# Running:
+
+.
+
+Finished in 0.001452s, 688.7052 runs/s, 2754.8209 assertions/s.
+
+1 runs, 4 assertions, 0 failures, 0 errors, 0 skips
