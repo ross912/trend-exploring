@@ -7,13 +7,33 @@ class ReportClaimContractTest < Minitest::Test
   def test_factual_claim_requires_entailed_evidence
     assert M2::ReportClaimContract.validate!(
       claim_type: "external_world_state", entailment_result: "entailed",
-      evidence_scope_ids: ["evidence-a"]
+      evidence_scope_ids: ["evidence-a"], item_version_id: "item-1",
+      evidence_scopes: [{ "evidence_scope_id" => "evidence-a", "item_version_id" => "item-1" }]
     )
     assert_raises(M2::ReportClaimContract::Error) do
       M2::ReportClaimContract.validate!(
-        claim_type: "external_world_state", entailment_result: "not_entailed", evidence_scope_ids: ["evidence-a"]
+        claim_type: "external_world_state", entailment_result: "not_entailed", evidence_scope_ids: ["evidence-a"],
+        item_version_id: "item-1", evidence_scopes: [{ "evidence_scope_id" => "evidence-a", "item_version_id" => "item-1" }]
       )
     end
+  end
+
+  def test_evidence_scope_must_belong_to_claim_item_version
+    assert_raises(M2::ReportClaimContract::Error) do
+      M2::ReportClaimContract.validate!(
+        claim_type: "source_claim", entailment_result: "entailed", evidence_scope_ids: ["evidence-a"],
+        item_version_id: "item-1", evidence_scopes: [{ "evidence_scope_id" => "evidence-a", "item_version_id" => "item-2" }]
+      )
+    end
+  end
+
+  def test_factual_claim_without_structured_evidence_is_rejected
+    error = assert_raises(M2::ReportClaimContract::Error) do
+      M2::ReportClaimContract.validate!(
+        claim_type: "external_world_state", entailment_result: "entailed", evidence_scope_ids: ["evidence-a"]
+      )
+    end
+    assert_match(/CLAIM_ITEM_VERSION_MISSING/, error.message)
   end
 
   def test_inference_requires_separate_premises_and_support_status
