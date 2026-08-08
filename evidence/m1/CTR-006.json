@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-006",
+  "command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -U midongkeji -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d postgres -v ON_ERROR_STOP=1 -c \"DROP ROLE IF EXISTS m1_global_worker; CREATE ROLE m1_global_worker LOGIN;\" && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -U midongkeji -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr006 -v ON_ERROR_STOP=1 -c \"GRANT INSERT, SELECT, UPDATE ON service_principal, global_service_principal, global_service_principal_database_role, personal_scope, private_query_context, global_query_execution, public_only_input_snapshot, public_only_input_member TO m1_global_worker;\" && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -U m1_global_worker -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr006 -v ON_ERROR_STOP=1 -c \"SELECT set_config('m1.owner_principal', 'user-a', false)\" -f schema/postgres/test/022_data_domain_fixtures.sql",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T04:32:22Z",
+  "runtime": {
+    "name": "postgresql",
+    "version": "15.18"
+  },
+  "testPaths": [
+    "schema/postgres/test/022_data_domain_fixtures.sql"
+  ],
+  "stdoutPath": "evidence/m1/CTR-006.stdout.log",
+  "stdoutSha256": "44f9dcad1be9ec4fc2e8c4b3d26ba40a8d0a5b204591c376867e05d12b8ed5d0",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

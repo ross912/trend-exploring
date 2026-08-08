@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-003",
+  "command": "ruby -Ilib test/manifest_compiler_test.rb",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T04:35:42Z",
+  "runtime": null,
+  "testPaths": [
+    "test/manifest_compiler_test.rb"
+  ],
+  "stdoutPath": "evidence/m1/CTR-003.stdout.log",
+  "stdoutSha256": "4e2def783ea8d8f22a8a6b17a8caf5be5ec748d31812c960a0b23259f96d98ce",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

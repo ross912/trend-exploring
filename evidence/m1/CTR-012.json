@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-012",
+  "command": "ruby -Ilib test/canonical_contract_test.rb",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T04:40:25Z",
+  "runtime": null,
+  "testPaths": [
+    "test/canonical_contract_test.rb"
+  ],
+  "stdoutPath": "evidence/m1/CTR-012.stdout.log",
+  "stdoutSha256": "e7e984c97ae2039790b45cb3c965222374ec4ebfb34a9bc3154daafb20a48710",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

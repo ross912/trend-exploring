@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-001",
+  "command": "ruby scripts/lint_identifiers.rb",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T04:40:25Z",
+  "runtime": null,
+  "testPaths": [
+    "scripts/lint_identifiers.rb"
+  ],
+  "stdoutPath": "evidence/m1/CTR-001.stdout.log",
+  "stdoutSha256": "6dd21249306c1710144c06a5af255dc97dd813b21a9dc549349659be4fafc159",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

@@ -1,0 +1,21 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 3
+INSERT 0 2
+INSERT 0 2
+INSERT 0 9
+INSERT 0 4
+INSERT 0 2
+INSERT 0 2
+COMMIT
+DO
+DO
+DO
+DO
+           result           
+----------------------------
+ EVENT BASE FIXTURES PASSED
+(1 row)
+

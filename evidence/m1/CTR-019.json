@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-019",
+  "command": "M1_DATABASE_URL='host=/private/tmp/m1-pg-socket-20260808 port=55432 dbname=m1_ctr019' M1_CONFIRM_DISPOSABLE_DATABASE=YES PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH bash schema/postgres/test/002_m1_transaction_fixtures.sh",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T05:27:19Z",
+  "runtime": {
+    "name": "postgresql",
+    "version": "15.18"
+  },
+  "testPaths": [
+    "schema/postgres/test/002_m1_transaction_fixtures.sh"
+  ],
+  "stdoutPath": "evidence/m1/CTR-019.stdout.log",
+  "stdoutSha256": "d821cdf2a81b2e58117abc250699f1da614511d1b79ad90e8ad044b9ca5668e2",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

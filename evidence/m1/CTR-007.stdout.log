@@ -1,0 +1,46 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+INSERT 0 3
+INSERT 0 1
+INSERT 0 2
+COMMIT
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+DO
+DO
+DO
+DO
+DO
+             result              
+---------------------------------
+ TEST GOVERNANCE FIXTURES PASSED
+(1 row)
+
+INSERT 0 1
+INSERT 0 1
+DO
+DO
+ preserved_strong_versions 
+---------------------------
+                         1
+(1 row)
+
+                  result                  
+------------------------------------------
+ TEST DEFINITION STRENGTH FIXTURES PASSED
+(1 row)
+
+INSERT 0 1
+INSERT 0 3
+DO
+                  result                   
+-------------------------------------------
+ TEST GOVERNANCE SIGNATURE FIXTURES PASSED
+(1 row)
+

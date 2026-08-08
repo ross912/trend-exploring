@@ -1,0 +1,28 @@
+DROP ROLE
+CREATE ROLE
+GRANT
+ set_config 
+------------
+ user-a
+(1 row)
+
+INSERT 0 4
+INSERT 0 3
+INSERT 0 3
+     set_config      
+---------------------
+ global-radar-worker
+(1 row)
+
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+DO
+           result            
+-----------------------------
+ DATA DOMAIN FIXTURES PASSED
+(1 row)
+
+NOTICE:  role "m1_global_worker" does not exist, skipping

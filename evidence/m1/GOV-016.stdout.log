@@ -1,0 +1,47 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+INSERT 0 3
+INSERT 0 1
+INSERT 0 2
+COMMIT
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+DO
+DO
+DO
+DO
+DO
+             result              
+---------------------------------
+ TEST GOVERNANCE FIXTURES PASSED
+(1 row)
+
+BEGIN
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+COMMIT
+DO
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+DO
+DO
+DO
+             result              
+---------------------------------
+ GATE EVALUATION FIXTURES PASSED
+(1 row)
+

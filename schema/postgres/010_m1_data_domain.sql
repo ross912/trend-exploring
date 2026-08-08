@@ -45,9 +45,15 @@ CREATE TABLE private_query_context (
 ALTER TABLE personal_scope ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private_query_context ENABLE ROW LEVEL SECURITY;
 CREATE POLICY personal_scope_owner_policy ON personal_scope
-  USING (owner_principal_key = current_setting('m1.owner_principal', true));
+  USING (owner_principal_key = current_setting('m1.owner_principal', true))
+  WITH CHECK (owner_principal_key = current_setting('m1.owner_principal', true));
 CREATE POLICY private_query_context_owner_policy ON private_query_context
   USING (EXISTS (
+    SELECT 1 FROM personal_scope p
+     WHERE p.personal_scope_id = private_query_context.personal_scope_id
+       AND p.owner_principal_key = current_setting('m1.owner_principal', true)
+  ))
+  WITH CHECK (EXISTS (
     SELECT 1 FROM personal_scope p
      WHERE p.personal_scope_id = private_query_context.personal_scope_id
        AND p.owner_principal_key = current_setting('m1.owner_principal', true)

@@ -1,0 +1,58 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 3
+INSERT 0 2
+INSERT 0 2
+INSERT 0 9
+INSERT 0 4
+INSERT 0 2
+INSERT 0 2
+COMMIT
+DO
+DO
+DO
+DO
+           result           
+----------------------------
+ EVENT BASE FIXTURES PASSED
+(1 row)
+
+BEGIN
+INSERT 0 1
+INSERT 0 1
+ import_event_registry_manifest 
+--------------------------------
+ m1.event-registry.ctr013.v1
+(1 row)
+
+INSERT 0 7
+INSERT 0 3
+INSERT 0 3
+COMMIT
+DO
+                   result                   
+--------------------------------------------
+ EVENT FAMILY EXPECTED HEAD FIXTURES PASSED
+(1 row)
+
+BEGIN
+INSERT 0 1
+INSERT 0 1
+  import_event_registry_manifest   
+-----------------------------------
+ m1.event-registry.ctr013.extra.v1
+(1 row)
+
+INSERT 0 5
+INSERT 0 9
+INSERT 0 8
+INSERT 0 8
+COMMIT
+DO
+                 result                  
+-----------------------------------------
+ EVENT FAMILY TRANSITION FIXTURES PASSED
+(1 row)
+

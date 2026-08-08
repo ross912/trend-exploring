@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-017",
+  "command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr017 -v ON_ERROR_STOP=1 -f schema/postgres/test/011_manifest_activation_fixtures.sql && M1_DATABASE_URL='host=/private/tmp/m1-pg-socket-20260808 port=55432 dbname=m1_ctr017' PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH bash schema/postgres/test/013_manifest_activation_concurrency.sh",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T05:19:42Z",
+  "runtime": {
+    "name": "postgresql",
+    "version": "15.18"
+  },
+  "testPaths": [
+    "schema/postgres/test/011_manifest_activation_fixtures.sql",
+    "schema/postgres/test/013_manifest_activation_concurrency.sh"
+  ],
+  "stdoutPath": "evidence/m1/CTR-017.stdout.log",
+  "stdoutSha256": "324e84112e26bede90fed875de611df4ad5ddb3b75190c264961a54c26896171",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

@@ -13,7 +13,7 @@
 - `postgres/009_m1_snapshot_membership.sql`：SnapshotMembershipProfile/Role、snapshot header activation/as-of binding、显式 universe member 集合、unit/decision/selected-member 五方闭合；配套 map 与 021 fixture 在同一干净集群回归。
 - `postgres/010_m1_data_domain.sql`：global service-principal allowlist/session gate、PersonalScope/PrivateQueryContext RLS、短期 neutral-query 执行记录与 PublicOnlyInputSnapshot/member 的 global-only、zero-private-lineage 门禁；配套 map 与 022 fixture 在干净集群回归。真实数据库角色/认证系统到 session binding 的外部接入仍需后续完成。
 - `../lib/canonical_schema_compiler.rb` / `../scripts/generate_canonical_schema.rb`：从 05 registry 与 object-map 确定性编译 247 个 canonical objects，输出 schema hash 与 metadata DDL；collision/orphan/profile 负向测试见 `test/canonical_schema_compiler_test.rb`。这仍是 registry/metadata 编译边界，不替代全部领域表 DDL。
-- `../lib/manifest_compiler.rb` / `../scripts/compile_manifest.rb`：统一 36 类 immutable manifest 的 envelope、类型白名单、字段类型/语义、canonical payload hash 和 unsigned-before-activation 标记；`test/manifest_compiler_test.rb` 覆盖全 registry 类型、错误类型值、未知类型、字段缺失和签名缺失。真实领域 FK/跨表语义仍保留为 partial。
+- `../lib/manifest_compiler.rb` / `../scripts/compile_manifest.rb`：统一 36 类 immutable manifest 的 envelope、类型白名单、字段类型/语义、canonical payload hash 和 unsigned-before-activation 标记；`test/manifest_compiler_test.rb` 覆盖全 registry 类型、错误类型值、未知类型、字段缺失和签名缺失。真实领域 FK/跨表语义仍保留为未闭合实现边界。
 - `json/provider-response-set.schema.json`：closed provider response set 的 JSON Schema；跨数组集合相等由 Ruby semantic validator 执行。
 - `object-map.json`：每张 SQL 表到 05 号 canonical object 的唯一映射；closure 等无第二身份 child 必须显式标注。
 - `event-infrastructure-map.json`：002 migration 的九张基础设施表映射；它们不重复登记领域对象。
@@ -22,7 +22,8 @@
 - `m1-presentation-map.json`：008 migration 的 10 张 typed presentation 切片表映射。
 - `m1-snapshot-map.json`：009 migration 的 7 张 snapshot membership 切片表映射。
 - `m1-data-domain-map.json`：010 migration 的 5 张个人/全局数据域表映射。
-- `m1-phase-exit-coverage.json`：M1 phase-exit 30 个 required IDs 的证据覆盖矩阵；partial/not_implemented 自动保持 gate blocked。
+- `m1-phase-exit-coverage.json`：M1 phase-exit 30 个 required IDs 的结构化证据覆盖矩阵。最终状态由 readiness checker 根据实现证据、fixture 命令、真实结果和 artifact 校验计算；`partial` 不再是有效最终状态。旧条目缺少结构化字段时会得到 `invalid_evidence`，不会被当作通过。
+- `m1-readiness-artifact.schema.json`：每次 fixture/test 执行输出的不可变 evidence artifact 合同；checker 还会验证 artifact 文件存在、testCode/命令/结果/测试路径关联和 stdout SHA-256。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。
 - `fixtures/provider-response-set.omitted-member.invalid.json`：只保存成功 B、遗漏失败 A 的 ADV-013 反例。
 - `../lib/provider_response_set.rb`：response member closure 的可执行语义。
@@ -44,7 +45,7 @@
 - `../scripts/generate_bitemporal_queries.rb`：生成 event、operational、derived、bitemporal version 的 as-known 查询模板。
 - `../scripts/lint_identifiers.rb`：跨文档验收 ID、object map、event infrastructure map 和 EventRegistry 的一致性 lint。
 - `../scripts/evaluate_m1_gate.rb`：按 `introduced_phase`/applicable/blocking=phase-exit 计算 M1 gate；未签名 catalog、缺 result、not_applicable 和失败结果均阻断。
-- `../scripts/report_m1_readiness.rb`：对 M0→M1 inherited phase-exit 项逐项对账证据，避免把局部 fixture 误报成 M1 ready；canonical_contract mutation tests 覆盖 archetype/time-profile 缺项和重项。
+- `../scripts/report_m1_readiness.rb`：对 M0→M1 inherited phase-exit 项逐项校验结构化证据链，输出 `fixture_passed`、`implemented`、`not_implemented`、`fixture_failed`、`environment_blocked`、`external_blocked` 与 `invalid_evidence` 分类；不会信任 coverage JSON 中人工填写的 fixture_passed。
 
 ## 本地验证
 
@@ -63,7 +64,7 @@ jq empty schema/json/provider-response-set.schema.json schema/fixtures/*.json
 
 真实 PostgreSQL 15.18 临时集群已执行 migration、catalog smoke、测试治理和 gate evaluation fixture；`validate_m1.rb` 仍只做结构存在性与语义 fixture 检查。`schema/postgres/test/002_m1_transaction_fixtures.sh` 在 disposable 数据库中执行 ADV-013、PRI-012–013、EVA-025 的事务、恢复 epoch 和并发闭合测试；`003`/`004` 覆盖测试目录与 gate evaluation 的 fail-closed 集合语义。
 
-当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 9 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 65 张基础表，另含 vertical slices）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke；007 的 5 张 CoverageItem、008 的 10 张 typed presentation、009 的 7 张 snapshot membership、010 的 6 张 data-domain 表另在干净 PostgreSQL 15.18 集群通过 018–022 fixture/concurrency。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，CTR-010 的越界 result/append-only 负向夹具、CTR-011 的 M2/M5 inherited catalog 回归、LAN-001 的十种正式语言评测闭合回归、CTR-007 的修订强度、oracle/fixture 合同与签名密钥生命周期回归、CTR-006 的静态、身份 allowlist 与数据库 data-domain 回归已通过；CTR-006 的真实数据库角色/认证 session binding、CTR-014 的跨 event typed claim/citation/complete snapshot closure、CTR-015 的真实 detector/stratum domain FK 与跨 watermark projection、CTR-018/020 的真实 SourceRegistry/Endpoint/OwnerGroup domain identity FK 与版本替换投影仍未实现，当前 readiness 为 21/30 fixture_passed、9/30 blocked。
+当前本地回归：Ruby 全量测试、M0+M1 validator、identifier linter、生成器、M1 gate evaluator 和 readiness report 均已接入；001 的 39 张领域表、002 的 9 张 EventBase/registry 基础设施表、004 的 15 张来源/档案表、006 的 2 张 governance quorum 表（总计 65 张基础表，另含 vertical slices）均在 PostgreSQL 15.18 临时集群通过 fixture/smoke；007 的 5 张 CoverageItem、008 的 10 张 typed presentation、009 的 7 张 snapshot membership、010 的 6 张 data-domain 表另在干净 PostgreSQL 15.18 集群通过 targeted fixture/concurrency。M1 TestCatalog 生成器输出 72 个 definitions/members，EventRegistry 生成器输出 29 个 event types；unsigned catalog 被 gate evaluator 明确阻断，CTR-010 的越界 result/append-only 负向夹具、CTR-011 的 M2/M5 inherited catalog 回归、LAN-001 的十种正式语言评测闭合回归、CTR-007 的修订强度、oracle/fixture 合同与签名密钥生命周期回归、CTR-006 的非 superuser role/session、身份 allowlist 与数据库 data-domain 回归已通过。新的 readiness checker 已逐项验证 30 个最新 artifact：当前为 `fixture_passed=30`、`implementation_pending=0`、`fixture_failed=0`、`environment_blocked=0`、`external_blocked=0`、`invalid_evidence=0`；这不是沿用历史 status，而是每项真实命令和输出的结果。
 
 ## 自检记录
 

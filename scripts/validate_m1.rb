@@ -157,10 +157,11 @@ end
 begin
   readiness = M1::M1Readiness.evaluate(
     acceptance_plan: File.read(ACCEPTANCE_PATH),
-    coverage: JSON.parse(File.read(COVERAGE_PATH))
+    coverage: JSON.parse(File.read(COVERAGE_PATH)),
+    root: ROOT
   )
   errors << "M1 coverage matrix has missing/extra IDs" unless readiness.fetch("missingTestCodes").empty? && readiness.fetch("extraTestCodes").empty?
-  errors << "M1 coverage matrix must remain blocked while partial/not-implemented evidence exists" unless readiness.fetch("decision") == "blocked" && readiness.fetch("blockedTestCodes").length > 0
+  errors << "M1 coverage matrix must remain blocked while formal readiness evidence is incomplete" unless readiness.fetch("decision") == "blocked" && readiness.fetch("blockedTestCodes").length > 0
 rescue JSON::ParserError, Errno::ENOENT, KeyError, M1::M1Readiness::Error => e
   errors << "M1 readiness contract error: #{e.message}"
 end

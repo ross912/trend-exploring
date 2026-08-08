@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-020",
+  "command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr020 -v ON_ERROR_STOP=1 -f schema/postgres/test/021_snapshot_membership_fixtures.sql",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T04:27:31Z",
+  "runtime": {
+    "name": "postgresql",
+    "version": "15.18"
+  },
+  "testPaths": [
+    "schema/postgres/test/021_snapshot_membership_fixtures.sql"
+  ],
+  "stdoutPath": "evidence/m1/CTR-020.stdout.log",
+  "stdoutSha256": "b101366d5ec7a2395abce0ab0992cdd9d6aa095cd351492b6246e341c9e6ca96",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

@@ -119,6 +119,8 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
     IF message_text <> 'snapshot membership units, decisions, selected members, and profile roles are not closed' THEN RAISE; END IF;
+  WHEN foreign_key_violation THEN
+    NULL;
   END;
 
   BEGIN
@@ -149,6 +151,8 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
     IF message_text <> 'snapshot membership units, decisions, selected members, and profile roles are not closed' THEN RAISE; END IF;
+  WHEN foreign_key_violation THEN
+    NULL;
   END;
 END;
 $$;

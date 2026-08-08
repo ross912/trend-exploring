@@ -1,0 +1,25 @@
+# M1 formal-readiness executable DoD
+
+本文档把当前 9 个未闭环条目转换为可执行的 Definition of Done。`fixture_passed` 只允许在同一条目对应的命令、fixture、artifact、runtime 与时间戳都由 checker 验证后产生；静态单测或历史输出不能替代该条件。
+
+| ID | Executable Definition of Done | Positive fixture | Negative fixture / blocker | Runtime | Implementation locations |
+|---|---|---|---|---|---|
+| CTR-020 | 在 clean PostgreSQL 15.18 中，对 authoritative/effective/as-of snapshot profile 执行版本替换、shadow/future 分支、角色集合和 selected-member 闭合；所有身份/时间/版本 FK 与集合断言通过。 | `schema/postgres/test/021_snapshot_membership_fixtures.sql` | 缺角色、过期 profile、selected member 越界或跨版本替换必须回滚；若 SourceRegistry/Endpoint/OwnerGroup domain identity 未定义，记录 `external_blocked`。 | PostgreSQL 15.18 | `schema/postgres/009_m1_snapshot_membership.sql`, `schema/m1-snapshot-map.json` |
+| CTR-018 | 同一 clean instance 中验证 snapshot universe、unit、decision、selected-member 四方集合精确相等，并验证 profile activation/as-of 与 canonical member identity。 | `schema/postgres/test/021_snapshot_membership_fixtures.sql` | 漏 member、重复 member、role 未登记和 as-of 越界必须失败；真实 SourceRegistry/Endpoint/OwnerGroup identity FK 缺失时 `external_blocked`。 | PostgreSQL 15.18 | `schema/postgres/009_m1_snapshot_membership.sql`, `schema/m1-snapshot-map.json` |
+| CTR-014 | 在 clean instance 中验证每 event 唯一 render plan、typed claim/citation/source child、顺序闭合和 SourceTextRef XOR，并验证跨 event 引用不能越界。 | `schema/postgres/test/020_presentation_fixtures.sql` | 空 child、双 child、顺序重复、跨 event typed FK 和不完整 snapshot 必须失败；未定义 domain FK 时 `external_blocked`。 | PostgreSQL 15.18 | `schema/postgres/008_m1_presentation.sql`, `schema/m1-presentation-map.json` |
+| CTR-013 | 在 clean instance 中验证每个 registered aggregate family 的 transition child、expected head、predecessor-state continuity 和 exclusive state transition。 | `schema/postgres/test/005_event_base_fixtures.sql`, `023_event_family_expected_head_fixtures.sql`, `025_event_family_transition_fixtures.sql` | 非法 transition、缺 child、旧 head、非 exclusive child 必须失败；尚未注册的 aggregate family 为 `implementation_pending`。 | PostgreSQL 15.18 | `schema/postgres/002_event_base.sql`, `schema/event-infrastructure-map.json` |
+| CTR-015 | 在 clean instance 中验证 policy/role typed identity、deterministic UUIDv5 projection key、append-only、watermark-gap exactly-one 和至少 100 个并发写入的唯一胜者。 | `schema/postgres/test/018_coverage_item_fixtures.sql`, `019_coverage_item_concurrency.sh` | policy/role 越界、projection key 漂移、gap 漏项/重复、并发双胜必须失败；真实 detector/stratum domain FK 未定义时 `external_blocked`。 | PostgreSQL 15.18 | `schema/postgres/007_m1_coverage_item.sql`, `schema/m1-coverage-map.json` |
+| CTR-006 | 在 clean instance 中用非 superuser 数据库 role 运行 global/personal/public-only fixture，验证 role/session principal、RLS、private-lineage zero 和 forbidden-input 门禁。 | `schema/postgres/test/022_data_domain_fixtures.sql` | personal role 读取 global、无效 principal、private lineage 或越界写入必须失败；真实 auth/connection-pool session binding 缺失时 `environment_blocked`。 | PostgreSQL 15.18 + non-superuser role | `schema/postgres/010_m1_data_domain.sql`, `schema/data-domain-boundary.json`, `schema/m1-data-domain-map.json` |
+| CTR-002 | 编译 canonical registry 与 metadata DDL，并对全部 247 objects 验证 global identity collision、orphan parent、profile/time/archetype closure；domain DDL/FK 变成可执行时再做 SQL acceptance。 | `ruby -Ilib test/canonical_schema_compiler_test.rb` | collision、orphan、profile mismatch 和缺 archetype 必须失败；完整 domain DDL/双向 typed FK 未定义时 `implementation_pending`。 | Ruby; SQL portion requires PostgreSQL 15.18 | `lib/canonical_schema_compiler.rb`, `scripts/generate_canonical_schema.rb` |
+| CTR-003 | 编译全部 manifest registry 类型，验证 envelope、field type、hash/time、enum、activation、EventRegistry/TestCatalog 集合与 unsigned-before-activation；每个 domain FK 在 SQL import 中闭合。 | `ruby -Ilib test/manifest_compiler_test.rb` | unknown type、字段缺失、hash/time/enum/activation 语义错误和 unsigned import 必须失败；未定义 domain schema 时 `implementation_pending`。 | Ruby; SQL import requires PostgreSQL 15.18 | `lib/manifest_compiler.rb`, `scripts/compile_manifest.rb`, `scripts/generate_test_catalog.rb` |
+| CTR-007 | 在 clean instance 中验证 manifest kind allowlist、P0 strength/blocking/applicability floor、oracle/fixture strength、签名 key lifecycle、revocation 和 change-impact approval projection。 | `schema/postgres/test/017_test_definition_strength_fixtures.sql`, `024_test_governance_signature_fixtures.sql` | 强度下降、恒真 oracle、过期/撤销 key、无 quorum 或 unsigned import 必须失败；真实 signing/governance provider 缺失时 `external_blocked`。 | PostgreSQL 15.18; signing/governance provider as applicable | `schema/postgres/003_manifest_import.sql`, `schema/postgres/006_governance_quorum.sql` |
+
+## 状态判定
+
+- `not_implemented`：DoD 所需实现证据不存在，且存在可执行的 fixture 合同。
+- `implemented`：实现证据存在，但 fixture 尚未运行或尚未形成通过 artifact。
+- `fixture_failed`：fixture 实际运行并由 artifact 记录为失败。
+- `fixture_passed`：fixture 实际运行成功，artifact、stdout hash、命令、测试路径和 runtime 全部匹配。
+- `environment_blocked`：当前环境缺少可配置的运行时、数据库角色、连接池或生产身份。
+- `external_blocked`：需要 signing service、governance quorum、production credentials 或 provider 等当前环境外依赖。
+- `invalid_evidence`：字段缺失、artifact 不存在/不匹配、旧输出无法关联到当前 fixture，或证据链被篡改；此状态不等同于实现失败。

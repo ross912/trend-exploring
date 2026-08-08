@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-013",
+  "command": "for fixture in schema/postgres/test/005_event_base_fixtures.sql schema/postgres/test/023_event_family_expected_head_fixtures.sql schema/postgres/test/025_event_family_transition_fixtures.sql; do PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr013 -v ON_ERROR_STOP=1 -f \"$fixture\" || exit $?; done",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T04:29:49Z",
+  "runtime": {
+    "name": "postgresql",
+    "version": "15.18"
+  },
+  "testPaths": [
+    "schema/postgres/test/005_event_base_fixtures.sql",
+    "schema/postgres/test/023_event_family_expected_head_fixtures.sql",
+    "schema/postgres/test/025_event_family_transition_fixtures.sql"
+  ],
+  "stdoutPath": "evidence/m1/CTR-013.stdout.log",
+  "stdoutSha256": "bd88387f77d2c1d70422dd86eef32802ff184f04697c5aff419f3adabb098159",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

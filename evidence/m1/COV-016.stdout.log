@@ -1,0 +1,31 @@
+BEGIN
+INSERT 0 1
+INSERT 0 3
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 3
+ assert_purpose_authorized 
+---------------------------
+ t
+(1 row)
+
+INSERT 0 1
+INSERT 0 2
+INSERT 0 2
+INSERT 0 4
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+DO
+              result               
+-----------------------------------
+ M1 SOURCE ARCHIVE FIXTURES PASSED
+(1 row)
+

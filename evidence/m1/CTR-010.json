@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "m1.readiness-artifact.v1",
+  "testCode": "CTR-010",
+  "command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr010 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr010 -v ON_ERROR_STOP=1 -f schema/postgres/test/004_gate_evaluation_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr010 -v ON_ERROR_STOP=1 -f schema/postgres/test/014_test_catalog_result_negative_fixtures.sql",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T05:17:51Z",
+  "runtime": {
+    "name": "postgresql",
+    "version": "15.18"
+  },
+  "testPaths": [
+    "schema/postgres/test/003_test_governance_fixtures.sql",
+    "schema/postgres/test/004_gate_evaluation_fixtures.sql",
+    "schema/postgres/test/014_test_catalog_result_negative_fixtures.sql"
+  ],
+  "stdoutPath": "evidence/m1/CTR-010.stdout.log",
+  "stdoutSha256": "514cfe9aca2ff6b662cd51b1621a66124228f43f2bec1a75effa1fba974b20cd",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

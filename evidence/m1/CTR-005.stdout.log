@@ -1,0 +1,49 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+INSERT 0 3
+INSERT 0 1
+INSERT 0 2
+COMMIT
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+DO
+DO
+DO
+DO
+DO
+             result              
+---------------------------------
+ TEST GOVERNANCE FIXTURES PASSED
+(1 row)
+
+INSERT 0 1
+INSERT 0 0
+INSERT 0 2
+INSERT 0 1
+BEGIN
+ import_event_registry_manifest 
+--------------------------------
+ m1.event-registry.fixture.v1
+(1 row)
+
+     import_test_catalog_manifest     
+--------------------------------------
+ 97000000-0000-4000-8000-000000000001
+(1 row)
+
+COMMIT
+DO
+DO
+DO
+DO
+             result              
+---------------------------------
+ MANIFEST IMPORT FIXTURES PASSED
+(1 row)
+

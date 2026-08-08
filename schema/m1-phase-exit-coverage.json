@@ -1,35 +1,185 @@
 {
-  "schemaVersion": "m1.phase-exit-coverage.v1",
+  "schemaVersion": "m1.phase-exit-coverage.v2",
   "entries": [
-    { "testCode": "ARC-002", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" },
-    { "testCode": "ARC-003", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" },
-    { "testCode": "ARC-007", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" },
-    { "testCode": "COV-002", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" },
-    { "testCode": "COV-006", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" },
-    { "testCode": "COV-016", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" },
-    { "testCode": "COV-019", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" },
-    { "testCode": "CTR-001", "status": "fixture_passed", "evidence": "scripts/lint_identifiers.rb" },
-    { "testCode": "CTR-002", "status": "partial", "evidence": "scripts/validate_m1.rb; lib/canonical_schema_compiler.rb; scripts/generate_canonical_schema.rb; test/canonical_schema_compiler_test.rb; commit:02018cf event_subtype archetype closure" },
-    { "testCode": "CTR-003", "status": "partial", "evidence": "scripts/generate_test_catalog.rb; lib/manifest_compiler.rb; scripts/compile_manifest.rb; test/manifest_compiler_test.rb; commit:c7a00c5 typed event/catalog/mode semantic closure" },
-    { "testCode": "CTR-004", "status": "fixture_passed", "evidence": "schema/postgres/test/005_event_base_fixtures.sql; schema/postgres/test/007_manifest_import_fixtures.sql" },
-    { "testCode": "CTR-005", "status": "fixture_passed", "evidence": "schema/postgres/test/007_manifest_import_fixtures.sql" },
-    { "testCode": "CTR-006", "status": "partial", "evidence": "schema/data-domain-boundary.json; lib/data_boundary.rb; scripts/lint_data_boundary.rb; test/data_boundary_test.rb; schema/postgres/010_m1_data_domain.sql; schema/m1-data-domain-map.json; schema/postgres/test/022_data_domain_fixtures.sql; commit:0015dfa database-role binding" },
-    { "testCode": "CTR-007", "status": "partial", "evidence": "schema/postgres/003_manifest_import.sql; schema/postgres/006_governance_quorum.sql; schema/postgres/test/003_test_governance_fixtures.sql; schema/postgres/test/017_test_definition_strength_fixtures.sql; schema/postgres/test/024_test_governance_signature_fixtures.sql" },
-    { "testCode": "CTR-008", "status": "fixture_passed", "evidence": "schema/postgres/test/003_test_governance_fixtures.sql" },
-    { "testCode": "CTR-009", "status": "fixture_passed", "evidence": "schema/postgres/test/004_gate_evaluation_fixtures.sql; schema/postgres/test/012_governance_quorum_smoke.sql" },
-    { "testCode": "CTR-010", "status": "fixture_passed", "evidence": "schema/postgres/test/004_gate_evaluation_fixtures.sql; schema/postgres/test/014_test_catalog_result_negative_fixtures.sql" },
-    { "testCode": "CTR-011", "status": "fixture_passed", "evidence": "schema/postgres/test/015_inherited_catalog_fixtures.sql" },
-    { "testCode": "CTR-012", "status": "fixture_passed", "evidence": "lib/canonical_contract.rb; test/canonical_contract_test.rb" },
-    { "testCode": "CTR-013", "status": "partial", "evidence": "schema/postgres/002_event_base.sql; schema/event-infrastructure-map.json; schema/postgres/test/005_event_base_fixtures.sql; schema/postgres/test/023_event_family_expected_head_fixtures.sql; schema/postgres/test/025_event_family_transition_fixtures.sql" },
-    { "testCode": "CTR-014", "status": "partial", "evidence": "schema/postgres/008_m1_presentation.sql; schema/m1-presentation-map.json; schema/postgres/test/020_presentation_fixtures.sql" },
-    { "testCode": "CTR-015", "status": "partial", "evidence": "schema/postgres/007_m1_coverage_item.sql; schema/m1-coverage-map.json; schema/postgres/test/018_coverage_item_fixtures.sql; schema/postgres/test/019_coverage_item_concurrency.sh" },
-    { "testCode": "CTR-016", "status": "fixture_passed", "evidence": "schema/postgres/test/005_event_base_fixtures.sql" },
-    { "testCode": "CTR-017", "status": "fixture_passed", "evidence": "schema/postgres/test/011_manifest_activation_fixtures.sql; schema/postgres/test/013_manifest_activation_concurrency.sh" },
-    { "testCode": "CTR-018", "status": "partial", "evidence": "schema/postgres/009_m1_snapshot_membership.sql; schema/m1-snapshot-map.json; schema/postgres/test/021_snapshot_membership_fixtures.sql" },
-    { "testCode": "CTR-019", "status": "fixture_passed", "evidence": "schema/postgres/test/002_m1_transaction_fixtures.sh" },
-    { "testCode": "CTR-020", "status": "partial", "evidence": "schema/postgres/009_m1_snapshot_membership.sql; schema/m1-snapshot-map.json; schema/postgres/test/021_snapshot_membership_fixtures.sql" },
-    { "testCode": "GOV-016", "status": "fixture_passed", "evidence": "schema/postgres/test/004_gate_evaluation_fixtures.sql" },
-    { "testCode": "LAN-001", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql; schema/postgres/test/016_language_evaluation_fixtures.sql" },
-    { "testCode": "TIM-004", "status": "fixture_passed", "evidence": "schema/postgres/test/008_m1_source_archive_fixtures.sql" }
+    {
+      "testCode": "ARC-002",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_arc002 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/ARC-002.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:20:21Z"}
+    },
+    {
+      "testCode": "ARC-003",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ARC_003 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/ARC-003.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:00Z"}
+    },
+    {
+      "testCode": "ARC-007",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ARC_007 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/ARC-007.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:01Z"}
+    },
+    {
+      "testCode": "COV-002",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_COV_002 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/COV-002.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:01Z"}
+    },
+    {
+      "testCode": "COV-006",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_COV_006 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/COV-006.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:02Z"}
+    },
+    {
+      "testCode": "COV-016",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_COV_016 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/COV-016.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:02Z"}
+    },
+    {
+      "testCode": "COV-019",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_COV_019 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/COV-019.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:03Z"}
+    },
+    {
+      "testCode": "CTR-001",
+      "status": "fixture_passed",
+      "implementationEvidence": ["scripts/lint_identifiers.rb"],
+      "fixture": {"command": "ruby scripts/lint_identifiers.rb", "result": "passed", "testPaths": ["scripts/lint_identifiers.rb"], "artifactPath": "evidence/m1/CTR-001.json", "runtimeApplicable": false, "runtime": null, "lastVerifiedAt": "2026-08-08T04:40:25Z"}
+    },
+    {
+      "testCode": "CTR-002",
+      "status": "fixture_passed",
+      "implementationEvidence": ["scripts/validate_m1.rb", "lib/canonical_schema_compiler.rb", "scripts/generate_canonical_schema.rb", "test/canonical_schema_compiler_test.rb"],
+      "fixture": {"command": "ruby -Ilib test/canonical_schema_compiler_test.rb", "result": "passed", "testPaths": ["test/canonical_schema_compiler_test.rb"], "artifactPath": "evidence/m1/CTR-002.json", "runtimeApplicable": false, "runtime": null, "lastVerifiedAt": "2026-08-08T04:32:56Z"}
+    },
+    {
+      "testCode": "CTR-003",
+      "status": "fixture_passed",
+      "implementationEvidence": ["scripts/generate_test_catalog.rb", "lib/manifest_compiler.rb", "scripts/compile_manifest.rb", "test/manifest_compiler_test.rb"],
+      "fixture": {"command": "ruby -Ilib test/manifest_compiler_test.rb", "result": "passed", "testPaths": ["test/manifest_compiler_test.rb"], "artifactPath": "evidence/m1/CTR-003.json", "runtimeApplicable": false, "runtime": null, "lastVerifiedAt": "2026-08-08T04:35:42Z"}
+    },
+    {
+      "testCode": "CTR-004",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/005_event_base_fixtures.sql", "schema/postgres/test/007_manifest_import_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr004 -v ON_ERROR_STOP=1 -f schema/postgres/test/005_event_base_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/005_event_base_fixtures.sql"], "artifactPath": "evidence/m1/CTR-004.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:41:19Z"}
+    },
+    {
+      "testCode": "CTR-005",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/007_manifest_import_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr005 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr005 -v ON_ERROR_STOP=1 -f schema/postgres/test/007_manifest_import_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/003_test_governance_fixtures.sql", "schema/postgres/test/007_manifest_import_fixtures.sql"], "artifactPath": "evidence/m1/CTR-005.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:15:32Z"}
+    },
+    {
+      "testCode": "CTR-006",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/data-domain-boundary.json", "lib/data_boundary.rb", "scripts/lint_data_boundary.rb", "test/data_boundary_test.rb", "schema/postgres/010_m1_data_domain.sql", "schema/m1-data-domain-map.json", "schema/postgres/test/022_data_domain_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -U midongkeji -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d postgres -v ON_ERROR_STOP=1 -c \"DROP ROLE IF EXISTS m1_global_worker; CREATE ROLE m1_global_worker LOGIN;\" && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -U midongkeji -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr006 -v ON_ERROR_STOP=1 -c \"GRANT INSERT, SELECT, UPDATE ON service_principal, global_service_principal, global_service_principal_database_role, personal_scope, private_query_context, global_query_execution, public_only_input_snapshot, public_only_input_member TO m1_global_worker;\" && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -U m1_global_worker -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr006 -v ON_ERROR_STOP=1 -c \"SELECT set_config('m1.owner_principal', 'user-a', false)\" -f schema/postgres/test/022_data_domain_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/022_data_domain_fixtures.sql"], "artifactPath": "evidence/m1/CTR-006.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:32:22Z"}
+    },
+    {
+      "testCode": "CTR-007",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/003_manifest_import.sql", "schema/postgres/006_governance_quorum.sql", "schema/postgres/test/003_test_governance_fixtures.sql", "schema/postgres/test/017_test_definition_strength_fixtures.sql", "schema/postgres/test/024_test_governance_signature_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr007 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr007 -v ON_ERROR_STOP=1 -f schema/postgres/test/017_test_definition_strength_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr007 -v ON_ERROR_STOP=1 -f schema/postgres/test/024_test_governance_signature_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/003_test_governance_fixtures.sql", "schema/postgres/test/017_test_definition_strength_fixtures.sql", "schema/postgres/test/024_test_governance_signature_fixtures.sql"], "artifactPath": "evidence/m1/CTR-007.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:39:01Z"}
+    },
+    {
+      "testCode": "CTR-008",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/003_test_governance_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr008 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/003_test_governance_fixtures.sql"], "artifactPath": "evidence/m1/CTR-008.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:16:05Z"}
+    },
+    {
+      "testCode": "CTR-009",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/004_gate_evaluation_fixtures.sql", "schema/postgres/test/012_governance_quorum_smoke.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr009 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr009 -v ON_ERROR_STOP=1 -f schema/postgres/test/004_gate_evaluation_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/003_test_governance_fixtures.sql", "schema/postgres/test/004_gate_evaluation_fixtures.sql"], "artifactPath": "evidence/m1/CTR-009.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:16:52Z"}
+    },
+    {
+      "testCode": "CTR-010",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/004_gate_evaluation_fixtures.sql", "schema/postgres/test/014_test_catalog_result_negative_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr010 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr010 -v ON_ERROR_STOP=1 -f schema/postgres/test/004_gate_evaluation_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr010 -v ON_ERROR_STOP=1 -f schema/postgres/test/014_test_catalog_result_negative_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/003_test_governance_fixtures.sql", "schema/postgres/test/004_gate_evaluation_fixtures.sql", "schema/postgres/test/014_test_catalog_result_negative_fixtures.sql"], "artifactPath": "evidence/m1/CTR-010.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:17:51Z"}
+    },
+    {
+      "testCode": "CTR-011",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/015_inherited_catalog_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr011 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr011 -v ON_ERROR_STOP=1 -f schema/postgres/test/007_manifest_import_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr011 -v ON_ERROR_STOP=1 -f schema/postgres/test/015_inherited_catalog_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/003_test_governance_fixtures.sql", "schema/postgres/test/007_manifest_import_fixtures.sql", "schema/postgres/test/015_inherited_catalog_fixtures.sql"], "artifactPath": "evidence/m1/CTR-011.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:18:45Z"}
+    },
+    {
+      "testCode": "CTR-012",
+      "status": "fixture_passed",
+      "implementationEvidence": ["lib/canonical_contract.rb", "test/canonical_contract_test.rb"],
+      "fixture": {"command": "ruby -Ilib test/canonical_contract_test.rb", "result": "passed", "testPaths": ["test/canonical_contract_test.rb"], "artifactPath": "evidence/m1/CTR-012.json", "runtimeApplicable": false, "runtime": null, "lastVerifiedAt": "2026-08-08T04:40:25Z"}
+    },
+    {
+      "testCode": "CTR-013",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/002_event_base.sql", "schema/event-infrastructure-map.json", "schema/postgres/test/005_event_base_fixtures.sql", "schema/postgres/test/023_event_family_expected_head_fixtures.sql", "schema/postgres/test/025_event_family_transition_fixtures.sql"],
+      "fixture": {"command": "for fixture in schema/postgres/test/005_event_base_fixtures.sql schema/postgres/test/023_event_family_expected_head_fixtures.sql schema/postgres/test/025_event_family_transition_fixtures.sql; do PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr013 -v ON_ERROR_STOP=1 -f \"$fixture\" || exit $?; done", "result": "passed", "testPaths": ["schema/postgres/test/005_event_base_fixtures.sql", "schema/postgres/test/023_event_family_expected_head_fixtures.sql", "schema/postgres/test/025_event_family_transition_fixtures.sql"], "artifactPath": "evidence/m1/CTR-013.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:29:49Z"}
+    },
+    {
+      "testCode": "CTR-014",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/008_m1_presentation.sql", "schema/m1-presentation-map.json", "schema/postgres/test/020_presentation_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr014 -v ON_ERROR_STOP=1 -f schema/postgres/test/020_presentation_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/020_presentation_fixtures.sql"], "artifactPath": "evidence/m1/CTR-014.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:29:13Z"}
+    },
+    {
+      "testCode": "CTR-015",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/007_m1_coverage_item.sql", "schema/m1-coverage-map.json", "schema/postgres/test/018_coverage_item_fixtures.sql", "schema/postgres/test/019_coverage_item_concurrency.sh"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr015 -v ON_ERROR_STOP=1 -f schema/postgres/test/018_coverage_item_fixtures.sql && M1_DATABASE_URL='host=/private/tmp/m1-pg-socket-20260808 port=55432 dbname=m1_ctr015' PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH bash schema/postgres/test/019_coverage_item_concurrency.sh", "result": "passed", "testPaths": ["schema/postgres/test/018_coverage_item_fixtures.sql", "schema/postgres/test/019_coverage_item_concurrency.sh"], "artifactPath": "evidence/m1/CTR-015.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:30:31Z"}
+    },
+    {
+      "testCode": "CTR-016",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/005_event_base_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr016 -v ON_ERROR_STOP=1 -f schema/postgres/test/005_event_base_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/005_event_base_fixtures.sql"], "artifactPath": "evidence/m1/CTR-016.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:19:14Z"}
+    },
+    {
+      "testCode": "CTR-017",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/011_manifest_activation_fixtures.sql", "schema/postgres/test/013_manifest_activation_concurrency.sh"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr017 -v ON_ERROR_STOP=1 -f schema/postgres/test/011_manifest_activation_fixtures.sql && M1_DATABASE_URL='host=/private/tmp/m1-pg-socket-20260808 port=55432 dbname=m1_ctr017' PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH bash schema/postgres/test/013_manifest_activation_concurrency.sh", "result": "passed", "testPaths": ["schema/postgres/test/011_manifest_activation_fixtures.sql", "schema/postgres/test/013_manifest_activation_concurrency.sh"], "artifactPath": "evidence/m1/CTR-017.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:19:42Z"}
+    },
+    {
+      "testCode": "CTR-018",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/009_m1_snapshot_membership.sql", "schema/m1-snapshot-map.json", "schema/postgres/test/021_snapshot_membership_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr018 -v ON_ERROR_STOP=1 -f schema/postgres/test/021_snapshot_membership_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/021_snapshot_membership_fixtures.sql"], "artifactPath": "evidence/m1/CTR-018.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:28:11Z"}
+    },
+    {
+      "testCode": "CTR-019",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/002_m1_transaction_fixtures.sh"],
+      "fixture": {"command": "M1_DATABASE_URL='host=/private/tmp/m1-pg-socket-20260808 port=55432 dbname=m1_ctr019' M1_CONFIRM_DISPOSABLE_DATABASE=YES PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH bash schema/postgres/test/002_m1_transaction_fixtures.sh", "result": "passed", "testPaths": ["schema/postgres/test/002_m1_transaction_fixtures.sh"], "artifactPath": "evidence/m1/CTR-019.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:27:19Z"}
+    },
+    {
+      "testCode": "CTR-020",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/009_m1_snapshot_membership.sql", "schema/m1-snapshot-map.json", "schema/postgres/test/021_snapshot_membership_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_ctr020 -v ON_ERROR_STOP=1 -f schema/postgres/test/021_snapshot_membership_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/021_snapshot_membership_fixtures.sql"], "artifactPath": "evidence/m1/CTR-020.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T04:27:31Z"}
+    },
+    {
+      "testCode": "GOV-016",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/004_gate_evaluation_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_gov016 -v ON_ERROR_STOP=1 -f schema/postgres/test/003_test_governance_fixtures.sql && PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_gov016 -v ON_ERROR_STOP=1 -f schema/postgres/test/004_gate_evaluation_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/003_test_governance_fixtures.sql", "schema/postgres/test/004_gate_evaluation_fixtures.sql"], "artifactPath": "evidence/m1/GOV-016.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:17:21Z"}
+    },
+    {
+      "testCode": "LAN-001",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql", "schema/postgres/test/016_language_evaluation_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_LAN_001 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/LAN-001.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:03Z"}
+    },
+    {
+      "testCode": "TIM-004",
+      "status": "fixture_passed",
+      "implementationEvidence": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"],
+      "fixture": {"command": "PATH=/private/tmp/pg15-build-20260808/install/bin:$PATH psql -h /private/tmp/m1-pg-socket-20260808 -p 55432 -d m1_TIM_004 -v ON_ERROR_STOP=1 -f schema/postgres/test/008_m1_source_archive_fixtures.sql", "result": "passed", "testPaths": ["schema/postgres/test/008_m1_source_archive_fixtures.sql"], "artifactPath": "evidence/m1/TIM-004.json", "runtimeApplicable": true, "runtime": {"name": "postgresql", "version": "15.18"}, "lastVerifiedAt": "2026-08-08T05:26:04Z"}
+    }
   ]
 }
