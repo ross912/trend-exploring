@@ -80,7 +80,7 @@ class ManifestCompilerTest < Minitest::Test
       end
       payload["targetPhase"] = "M1" if manifest_type == "TestCatalogManifest"
       payload["targetGate"] = "phase-exit" if manifest_type == "TestCatalogManifest"
-      payload["definitions"] = [{ "testCode" => "CTR-001" }] if manifest_type == "TestCatalogManifest"
+      payload["definitions"] = [{ "testCode" => "CTR-001", "testDefinitionVersionId" => "fixture-definition" }] if manifest_type == "TestCatalogManifest"
       payload["members"] = [{ "testDefinitionVersionId" => "fixture-definition", "membership" => "applicable" }] if manifest_type == "TestCatalogManifest"
       payload["definitionsUniverseHash"] = "a" * 64 if manifest_type == "TestCatalogManifest"
       payload["eventTypes"] = [{
@@ -91,6 +91,7 @@ class ManifestCompilerTest < Minitest::Test
       payload["detectors"] = [{ "detectorKey" => "fixture-detector" }] if manifest_type == "DetectorManifest"
       payload["useMode"] = "single_use" if manifest_type == "TokenUsePolicyManifest"
       payload["mode"] = "synchronous" if manifest_type == "ProviderResponseModeProfile"
+      payload["requiredResponseProof"] = ["captured_exchange_id", "authenticated_peer"] if manifest_type == "ProviderResponseModeProfile"
       payload["p95Method"] = "nearest-rank" if manifest_type == "SLOConfig"
       payload["keyState"] = "active" if manifest_type == "SigningKeyVersion"
       payload["expiresAt"] = "2027-08-07T00:00:00Z" if manifest_type == "SigningKeyVersion"

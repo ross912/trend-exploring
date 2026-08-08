@@ -2,6 +2,7 @@
 
 require "digest"
 require "json"
+require "set"
 require "time"
 require_relative "canonical_contract"
 require_relative "test_catalog_generator"
@@ -235,6 +236,7 @@ module M1
       case manifest_type
       when "EventTypeRegistryManifest"
         validate_hash_entries!(manifest_type, payload.fetch("eventTypes"), %w[eventType stateSemantics aggregateKind aggregateConcreteType payloadSchemaHash])
+        validate_event_registry_entries!(payload.fetch("eventTypes"))
       when "DetectorManifest"
         validate_hash_entries!(manifest_type, payload.fetch("detectors"), %w[detectorKey])
       when "TestCatalogManifest"
@@ -246,6 +248,9 @@ module M1
         end
         validate_hash_entries!(manifest_type, payload.fetch("definitions"), %w[testCode])
         validate_hash_entries!(manifest_type, payload.fetch("members"), %w[testDefinitionVersionId membership])
+        definition_ids = payload.fetch("definitions").map { |definition| definition.fetch("testDefinitionVersionId") }.to_set
+        member_ids = payload.fetch("members").map { |member| member.fetch("testDefinitionVersionId") }.to_set
+        raise Error, "TestCatalogManifest members do not cover definitions" unless definition_ids == member_ids
       when "TokenUsePolicyManifest"
         unless %w[single_use multi_use].include?(payload.fetch("useMode"))
           raise Error, "TokenUsePolicyManifest useMode is invalid"
@@ -259,6 +264,10 @@ module M1
       when "ProviderResponseModeProfile"
         unless %w[synchronous callback poll download].include?(payload.fetch("mode"))
           raise Error, "ProviderResponseModeProfile mode is invalid"
+        end
+        required = payload.fetch("mode") == "callback" ? %w[provider_signature nonce] : %w[captured_exchange_id authenticated_peer]
+        unless required.all? { |proof| payload.fetch("requiredResponseProof").include?(proof) }
+          raise Error, "ProviderResponseModeProfile response proof is incomplete for mode"
         end
       when "SLOConfig"
         unless payload.fetch("p95Method") == "nearest-rank"
@@ -312,6 +321,27 @@ module M1
         entry.is_a?(Hash) && required_fields.all? { |field| entry.key?(field) && !entry.fetch(field).to_s.strip.empty? }
       end
         raise Error, "#{manifest_type} contains an incomplete typed entry"
+      end
+    end
+
+    def validate_event_registry_entries!(entries)
+      entries.each do |entry|
+        exclusive = entry.fetch("stateSemantics") == "exclusive_transition"
+        machine_fields = %w[initialState states transitions]
+        has_machine = machine_fields.any? { |field| entry.key?(field) }
+        if exclusive
+          missing = machine_fields.reject { |field| entry.key?(field) }
+          raise Error, "EventTypeRegistryManifest exclusive event missing #{missing.join(',')}" unless missing.empty?
+          states = entry.fetch("states").filter_map { |state| state.is_a?(Hash) ? state["stateKey"] : nil }
+          raise Error, "EventTypeRegistryManifest initial state is not unique" unless states.count(entry.fetch("initialState")) == 1
+          entry.fetch("transitions").each do |transition|
+            unless transition.is_a?(Hash) && states.include?(transition["fromState"]) && states.include?(transition["toState"])
+              raise Error, "EventTypeRegistryManifest transition references unknown state"
+            end
+          end
+        elsif has_machine
+          raise Error, "EventTypeRegistryManifest non-exclusive event has state machine"
+        end
       end
     end
 
