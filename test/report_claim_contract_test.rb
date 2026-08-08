@@ -36,6 +36,23 @@ class ReportClaimContractTest < Minitest::Test
     assert_match(/CLAIM_ITEM_VERSION_MISSING/, error.message)
   end
 
+  def test_conflicting_sources_require_disputed_epistemic_status
+    assert M2::ReportClaimContract.validate!(
+      claim_type: "external_world_state", entailment_result: "entailed", evidence_scope_ids: ["evidence-a"],
+      item_version_id: "item-1", evidence_scopes: [{ "evidence_scope_id" => "evidence-a", "item_version_id" => "item-1" }],
+      epistemic_status: "disputed", reason_codes: ["SOURCE_CONFLICT"],
+      conflicting_source_claim_ids: ["source-claim-a", "source-claim-b"]
+    )
+    assert_raises(M2::ReportClaimContract::Error) do
+      M2::ReportClaimContract.validate!(
+        claim_type: "external_world_state", entailment_result: "entailed", evidence_scope_ids: ["evidence-a"],
+        item_version_id: "item-1", evidence_scopes: [{ "evidence_scope_id" => "evidence-a", "item_version_id" => "item-1" }],
+        epistemic_status: "supported", reason_codes: ["SOURCE_CONFLICT"],
+        conflicting_source_claim_ids: ["source-claim-a", "source-claim-b"]
+      )
+    end
+  end
+
   def test_inference_requires_separate_premises_and_support_status
     assert M2::ReportClaimContract.validate!(
       claim_type: "ai_inference", entailment_result: "not_applicable",

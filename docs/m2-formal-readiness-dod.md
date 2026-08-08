@@ -17,3 +17,13 @@ Positive/negative fixture:
 - negative: scope 属于另一 item version、缺结构化 item version、以及非 entailed factual claim。
 
 实现位置：`lib/report_claim_contract.rb`；回归位置：`test/report_claim_contract_test.rb`。
+
+## INV-004 — source conflict is disputed
+
+Executable DoD:
+
+1. A `SOURCE_CONFLICT` claim must retain `epistemic_status=disputed`.
+2. The conflict record must reference at least two distinct source claims.
+3. A conflict may not be accepted as `supported`/settled without the disputed state.
+
+Positive/negative fixture：`ruby -Ilib test/report_claim_contract_test.rb` 中的双来源争议正例和 settled-state 反例。

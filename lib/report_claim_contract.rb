@@ -9,7 +9,8 @@ module M2
     module_function
 
     def validate!(claim_type:, entailment_result:, evidence_scope_ids:, premise_scope_ids: [], inference_support_status: nil,
-                  item_version_id: nil, evidence_scopes: nil)
+                  item_version_id: nil, evidence_scopes: nil, epistemic_status: nil,
+                  reason_codes: [], conflicting_source_claim_ids: [])
       evidence_scope_ids = Array(evidence_scope_ids)
       premise_scope_ids = Array(premise_scope_ids)
       if EVIDENCE_REQUIRED_TYPES.include?(claim_type)
@@ -19,6 +20,8 @@ module M2
         raise Error, "factual/source claim cannot carry inference premises" unless premise_scope_ids.empty?
         validate_evidence_scopes!(item_version_id: item_version_id, evidence_scope_ids: evidence_scope_ids,
                                  evidence_scopes: evidence_scopes)
+        validate_source_conflict!(epistemic_status: epistemic_status, reason_codes: reason_codes,
+                                  conflicting_source_claim_ids: conflicting_source_claim_ids)
       elsif INFERENCE_TYPES.include?(claim_type)
         raise Error, "AI inference must use not_applicable entailment" unless entailment_result == "not_applicable"
         raise Error, "AI inference requires premise scopes" if premise_scope_ids.empty?
@@ -27,6 +30,18 @@ module M2
         end
       else
         raise Error, "unsupported report claim type: #{claim_type}"
+      end
+      true
+    end
+
+    def validate_source_conflict!(epistemic_status:, reason_codes:, conflicting_source_claim_ids:)
+      return true unless Array(reason_codes).map(&:to_s).include?("SOURCE_CONFLICT")
+
+      unless epistemic_status.to_s == "disputed"
+        raise Error, "SOURCE_CONFLICT_REQUIRES_DISPUTED: conflicting sources cannot be rendered as settled fact"
+      end
+      if Array(conflicting_source_claim_ids).map(&:to_s).uniq.length < 2
+        raise Error, "SOURCE_CONFLICT_SOURCES_MISSING: conflict requires at least two source claims"
       end
       true
     end
@@ -58,6 +73,6 @@ module M2
 
       value
     end
-    private_class_method :validate_evidence_scopes!, :read_scope_value
+    private_class_method :validate_evidence_scopes!, :validate_source_conflict!, :read_scope_value
   end
 end
