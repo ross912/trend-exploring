@@ -120,6 +120,36 @@ BEGIN
     GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
     IF message_text <> 'snapshot membership units, decisions, selected members, and profile roles are not closed' THEN RAISE; END IF;
   END;
+
+  BEGIN
+    INSERT INTO snapshot_membership_snapshot VALUES
+      ('dd000000-0000-4000-8000-000000000098', 'SourceRegistrySnapshot', 'source-registry',
+       'cc000000-0000-4000-8000-000000000092', 'bb000000-0000-4000-8000-000000000092',
+       '2026-08-07 03:00+00', '2026-08-07 03:01+00', '2026-08-07 03:00+00', '2026-08-07 03:01+00',
+       repeat('c', 64));
+    INSERT INTO snapshot_membership_universe_member VALUES
+      ('12000000-0000-4000-8000-000000000098', 'dd000000-0000-4000-8000-000000000098',
+       'source_endpoint_version', 'record', 'source_endpoint_version', 'endpoint-v2',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00'),
+      ('12000000-0000-4000-8000-000000000099', 'dd000000-0000-4000-8000-000000000098',
+       'unexpected_role', 'record', 'owner_group', 'owner-a',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00');
+    INSERT INTO snapshot_membership_unit VALUES
+      ('ee000000-0000-4000-8000-000000000098', 'dd000000-0000-4000-8000-000000000098',
+       'record', 'endpoint-v2', 'source_endpoint_version',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00', '2026-08-07 03:00+00', 'prospective', ARRAY[]::uuid[]),
+      ('ee000000-0000-4000-8000-000000000099', 'dd000000-0000-4000-8000-000000000098',
+       'record', 'owner-a', 'unexpected_role',
+       '2026-08-07 03:00+00', '2026-08-07 03:00+00', '2026-08-07 03:00+00', 'prospective', ARRAY[]::uuid[]);
+    INSERT INTO snapshot_membership_decision VALUES
+      ('ff000000-0000-4000-8000-000000000098', 'ee000000-0000-4000-8000-000000000098', 'absent', NULL, NULL, '2026-08-07 03:00+00', '2026-08-07 03:00+00'),
+      ('ff000000-0000-4000-8000-000000000099', 'ee000000-0000-4000-8000-000000000099', 'absent', NULL, NULL, '2026-08-07 03:00+00', '2026-08-07 03:00+00');
+    SET CONSTRAINTS snapshot_membership_snapshot_closure_guard IMMEDIATE;
+    RAISE EXCEPTION 'snapshot role set mismatch was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS message_text = MESSAGE_TEXT;
+    IF message_text <> 'snapshot membership units, decisions, selected members, and profile roles are not closed' THEN RAISE; END IF;
+  END;
 END;
 $$;
 
