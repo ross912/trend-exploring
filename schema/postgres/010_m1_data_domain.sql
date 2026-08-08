@@ -16,6 +16,14 @@ CREATE TABLE global_service_principal (
   CHECK (effective_from <= system_available_at)
 );
 
+CREATE TABLE global_service_principal_database_role (
+  global_service_principal_id uuid PRIMARY KEY REFERENCES global_service_principal,
+  database_role_name text NOT NULL CHECK (btrim(database_role_name) <> ''),
+  recorded_at timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (recorded_at <= system_available_at)
+);
+
 CREATE TABLE personal_scope (
   personal_scope_id uuid PRIMARY KEY,
   owner_principal_key text NOT NULL CHECK (btrim(owner_principal_key) <> ''),
@@ -92,7 +100,12 @@ BEGIN
    WHERE principal_name = session_principal
      AND effective_from <= p_at
      AND (expires_at IS NULL OR p_at < expires_at);
-  IF principal_id IS NULL THEN
+  IF principal_id IS NULL OR NOT EXISTS (
+    SELECT 1
+      FROM global_service_principal_database_role r
+     WHERE r.global_service_principal_id = principal_id
+       AND r.database_role_name = current_user
+  ) THEN
     RAISE EXCEPTION 'global data access requires an authorized global service principal';
   END IF;
   RETURN principal_id;
@@ -131,7 +144,7 @@ DECLARE
   immutable_table text;
 BEGIN
   FOREACH immutable_table IN ARRAY ARRAY[
-    'global_service_principal', 'personal_scope', 'private_query_context', 'global_query_execution',
+    'global_service_principal', 'global_service_principal_database_role', 'personal_scope', 'private_query_context', 'global_query_execution',
     'public_only_input_snapshot', 'public_only_input_member'
   ] LOOP
     EXECUTE format(

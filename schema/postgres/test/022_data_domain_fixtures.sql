@@ -23,6 +23,13 @@ INSERT INTO global_service_principal (
   ('a6000000-0000-4000-8000-000000000003', 'global-training-runner', 'training',
    '2026-08-07 06:00+00', NULL, '2026-08-07 06:00+00');
 
+INSERT INTO global_service_principal_database_role (
+  global_service_principal_id, database_role_name, recorded_at, system_available_at
+) VALUES
+  ('a6000000-0000-4000-8000-000000000001', current_user, '2026-08-07 06:00+00', '2026-08-07 06:00+00'),
+  ('a6000000-0000-4000-8000-000000000002', current_user, '2026-08-07 06:00+00', '2026-08-07 06:00+00'),
+  ('a6000000-0000-4000-8000-000000000003', current_user, '2026-08-07 06:00+00', '2026-08-07 06:00+00');
+
 SELECT set_config('m1.service_principal', 'global-radar-worker', false);
 
 INSERT INTO personal_scope VALUES

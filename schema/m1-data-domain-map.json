@@ -3,6 +3,7 @@
   "purpose": "M1 personal/global data-domain enforcement mappings.",
   "mappings": [
     { "table": "global_service_principal", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
+    { "table": "global_service_principal_database_role", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
     { "table": "personal_scope", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
     { "table": "private_query_context", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
     { "table": "global_query_execution", "role": "m1_data_domain_slice", "timeProfile": "operational_record_time" },
