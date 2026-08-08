@@ -69,6 +69,17 @@ CREATE TABLE snapshot_membership_snapshot (
   UNIQUE (snapshot_type, canonical_scope_key, snapshot_membership_snapshot_id)
 );
 
+CREATE TABLE snapshot_membership_member_registry (
+  subject_kind text NOT NULL CHECK (btrim(subject_kind) <> ''),
+  member_kind text NOT NULL CHECK (btrim(member_kind) <> ''),
+  member_key text NOT NULL CHECK (btrim(member_key) <> ''),
+  member_hash text NOT NULL CHECK (member_hash ~ '^[a-f0-9]{64}$'),
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at),
+  PRIMARY KEY (subject_kind, member_kind, member_key)
+);
+
 CREATE TABLE snapshot_membership_universe_member (
   snapshot_membership_universe_member_id uuid PRIMARY KEY,
   snapshot_membership_snapshot_id uuid NOT NULL REFERENCES snapshot_membership_snapshot,
@@ -79,6 +90,8 @@ CREATE TABLE snapshot_membership_universe_member (
   recorded_at timestamptz NOT NULL,
   system_available_at timestamptz NOT NULL,
   CHECK (recorded_at <= system_available_at),
+  FOREIGN KEY (subject_kind, member_kind, member_key)
+    REFERENCES snapshot_membership_member_registry (subject_kind, member_kind, member_key),
   UNIQUE (snapshot_membership_snapshot_id, member_role, subject_kind, member_kind, member_key)
 );
 
@@ -295,6 +308,7 @@ DECLARE
 BEGIN
   FOREACH immutable_table IN ARRAY ARRAY[
     'snapshot_membership_profile', 'snapshot_membership_profile_role',
+    'snapshot_membership_member_registry',
     'snapshot_membership_snapshot', 'snapshot_membership_universe_member',
     'snapshot_membership_unit',
     'snapshot_membership_decision', 'snapshot_membership_selected_member'

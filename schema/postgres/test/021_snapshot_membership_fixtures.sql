@@ -31,6 +31,12 @@ INSERT INTO snapshot_membership_profile_role VALUES
   ('cc000000-0000-4000-8000-000000000092', 'source_endpoint_version', 'record', 'source_endpoint_version', repeat('4', 64)),
   ('cc000000-0000-4000-8000-000000000092', 'owner_group', 'record', 'owner_group', repeat('5', 64));
 
+INSERT INTO snapshot_membership_member_registry (
+  subject_kind, member_kind, member_key, member_hash, effective_from, system_available_at
+) VALUES
+  ('record', 'source_endpoint_version', 'endpoint-v2', repeat('6', 64), '2026-08-07 00:00+00', '2026-08-07 05:32+00'),
+  ('record', 'owner_group', 'owner-a', repeat('7', 64), '2026-08-07 00:00+00', '2026-08-07 05:32+00');
+
 INSERT INTO snapshot_membership_snapshot VALUES
   ('dd000000-0000-4000-8000-000000000091', 'SourceRegistrySnapshot', 'source-registry',
    'cc000000-0000-4000-8000-000000000091', 'bb000000-0000-4000-8000-000000000091',

@@ -5,6 +5,7 @@
     { "table": "snapshot_membership_profile", "role": "m1_snapshot_slice", "timeProfile": "immutable_manifest_time" },
     { "table": "snapshot_membership_profile_role", "role": "m1_snapshot_slice", "timeProfile": "immutable_manifest_time" },
     { "table": "snapshot_membership_snapshot", "role": "m1_snapshot_slice", "timeProfile": "standalone_snapshot_time" },
+    { "table": "snapshot_membership_member_registry", "role": "m1_snapshot_slice", "timeProfile": "immutable_manifest_time" },
     { "table": "snapshot_membership_universe_member", "role": "m1_snapshot_slice", "timeProfile": "inherits_parent" },
     { "table": "snapshot_membership_unit", "role": "m1_snapshot_slice", "timeProfile": "derived_record_time" },
     { "table": "snapshot_membership_decision", "role": "m1_snapshot_slice", "timeProfile": "derived_record_time" },
