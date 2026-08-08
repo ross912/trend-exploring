@@ -9,6 +9,7 @@
     { "table": "presentation_title_content", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
     { "table": "presentation_body_content", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
     { "table": "presentation_claim_content", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
+    { "table": "presentation_source_identity_registry", "role": "m1_presentation_slice", "timeProfile": "manifest_time" },
     { "table": "presentation_claim_citation", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
     { "table": "presentation_raw_source_listing_reference", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" },
     { "table": "source_text_ref", "role": "m1_presentation_slice", "timeProfile": "derived_record_time" }

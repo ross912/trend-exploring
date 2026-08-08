@@ -108,6 +108,15 @@ BEGIN
     NULL;
   END;
 
+  INSERT INTO presentation_source_identity_registry (
+    source_record_identity_id, identity_kind, concrete_type, source_hash,
+    effective_from, system_available_at
+  ) VALUES
+    ('77777777-0000-4000-8000-000000000020', 'record', 'RawItemVersion', repeat('1', 64), '2026-08-07 05:00+00', '2026-08-07 05:05+00'),
+    ('77777777-0000-4000-8000-000000000021', 'record', 'RawItemVersion', repeat('2', 64), '2026-08-07 05:00+00', '2026-08-07 05:06+00'),
+    ('77777777-0000-4000-8000-000000000022', 'record', 'RawItemVersion', repeat('3', 64), '2026-08-07 05:00+00', '2026-08-07 05:06+00'),
+    ('77777777-0000-4000-8000-000000000023', 'record', 'RawItemVersion', repeat('4', 64), '2026-08-07 05:00+00', '2026-08-07 05:08+00');
+
   INSERT INTO presentation_claim_citation (
     claim_citation_id, presentation_event_id, presentation_render_plan_id,
     presentation_content_unit_id, claim_id, source_record_identity_id,

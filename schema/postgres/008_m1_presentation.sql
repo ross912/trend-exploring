@@ -129,6 +129,16 @@ CREATE TABLE presentation_claim_content (
   claim_id uuid NOT NULL
 );
 
+CREATE TABLE presentation_source_identity_registry (
+  source_record_identity_id uuid PRIMARY KEY,
+  identity_kind text NOT NULL CHECK (btrim(identity_kind) <> ''),
+  concrete_type text NOT NULL CHECK (btrim(concrete_type) <> ''),
+  source_hash text NOT NULL CHECK (source_hash ~ '^[a-f0-9]{64}$'),
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at)
+);
+
 CREATE TABLE presentation_claim_citation (
   claim_citation_id uuid PRIMARY KEY,
   presentation_event_id uuid NOT NULL,
@@ -143,6 +153,7 @@ CREATE TABLE presentation_claim_citation (
   recorded_at timestamptz NOT NULL,
   system_available_at timestamptz NOT NULL,
   CHECK (recorded_at <= system_available_at),
+  FOREIGN KEY (source_record_identity_id) REFERENCES presentation_source_identity_registry,
   UNIQUE (presentation_event_id, presentation_content_unit_id, source_record_identity_id, locale)
 );
 
@@ -159,6 +170,7 @@ CREATE TABLE presentation_raw_source_listing_reference (
   recorded_at timestamptz NOT NULL,
   system_available_at timestamptz NOT NULL,
   CHECK (recorded_at <= system_available_at),
+  FOREIGN KEY (source_record_identity_id) REFERENCES presentation_source_identity_registry,
   UNIQUE (presentation_event_id, presentation_content_unit_id, source_record_identity_id, locale)
 );
 
@@ -306,6 +318,7 @@ DECLARE
 BEGIN
   FOREACH immutable_table IN ARRAY ARRAY[
     'claim_generation_unit', 'claim_generation_decision', 'presentation_render_plan',
+    'presentation_source_identity_registry',
     'presentation_content_unit', 'presentation_title_content', 'presentation_body_content',
     'presentation_claim_content', 'presentation_claim_citation',
     'presentation_raw_source_listing_reference', 'source_text_ref'
