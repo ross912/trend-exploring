@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m5.readiness-artifact.v1",
+  "testCode": "RTM-010",
+  "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_009_and_010/",
+  "result": "environment_blocked",
+  "verified": true,
+  "verifiedAt": "2026-08-08T07:12:12Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m5_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m5/RTM-010.stdout.log",
+  "stdoutSha256": "89d9786ea4d2bfdc68e96841e0f9c0215e2111abee4293638e21591028e18970",
+  "commandExitStatus": null,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

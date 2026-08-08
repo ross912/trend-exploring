@@ -1,0 +1,195 @@
+{
+  "schemaVersion": "m5.release-coverage.v1",
+  "entries": [
+    {
+      "testCode": "RTM-001",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_001/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-001.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要两种实时语言层、持续连接和生产 comparison_watermark；当前环境无实时采集与生产 runtime。"
+    },
+    {
+      "testCode": "RTM-002",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_002/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-002.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要固定实时快照、30 分钟持续运行和个人域隔离的生产 Radar；当前无生产 auth/runtime。"
+    },
+    {
+      "testCode": "RTM-003",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_003/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-003.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要真实流连接、断线重连、cursor gap 和持久化到达流水；当前只有本地纯 contract fixture。"
+    },
+    {
+      "testCode": "RTM-004",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_004/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-004.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要 RadarPipelineManifest、真实数据库并发/CAS、崩溃恢复和 delivery head；当前没有 M5 持久化 runtime。"
+    },
+    {
+      "testCode": "RTM-005",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_005/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-005.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要真实 revocation epoch 在排序、物化、首字节、分页、详情和缓存边界交错；当前无 Radar delivery runtime。"
+    },
+    {
+      "testCode": "RTM-006",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_006/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-006.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要 production RadarViewToken 签名、continuation membership 与真实请求链；当前无 token service。"
+    },
+    {
+      "testCode": "RTM-007",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_007/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-007.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要 CDN、SSE/WebSocket、Range、304/stale-if-error 和异步 export 的真实代理环境；当前未部署。"
+    },
+    {
+      "testCode": "RTM-008",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_008/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-008.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要 committed render snapshot、真实 delivery 写入和首字节门禁；当前只有本地 representation contract。"
+    },
+    {
+      "testCode": "RTM-009",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_009_and_010/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-009.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要共享代理、真实浏览器和跨 audience cache 验证；当前环境没有已部署 delivery envelope。"
+    },
+    {
+      "testCode": "RTM-010",
+      "status": "environment_blocked",
+      "implementationEvidence": [
+        "lib/m5_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_009_and_010/",
+        "result": "environment_blocked",
+        "testPaths": [
+          "test/m5_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m5/RTM-010.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+      },
+      "blockerReason": "需要 H2→H1 proxy、浏览器导航/脚本 oracle、真实 header policy 与零首字节执行门禁；当前未配置。"
+    }
+  ]
+}

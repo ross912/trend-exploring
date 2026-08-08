@@ -25,7 +25,7 @@ M3 与 M4 的 phase-exit 只表示对应阶段的可执行基础能力完成，�
 | M3 version-promotion | 5 | external_blocked / environment_blocked | 真实 champion/challenger 运行、冻结未来窗口、模型供应商与生产晋升治理 |
 | M4 release | 14 | external_blocked / environment_blocked | 生产认证与 RLS、私域 canary 删除、provider erasure、token signing/restore、真实跨租户服务身份 |
 | M4 version-promotion | 1 | external_blocked | 个人数据隔离的训练/评价/晋升 lineage 与生产 challenger 管线 |
-| M5 release | 10 | external_blocked / environment_blocked | 实时雷达、生产模型与凭据、浏览器/表格 sink oracle、真实投递与运行 SLO |
+| M5 release | 10 | `fixture_passed=0`、`environment_blocked=10` | 实时雷达、生产模型与凭据、浏览器/表格 sink oracle、真实投递与运行 SLO |
 
 合计还有 167 个非 phase-exit 定义未被 formal readiness 关闭。它们没有被手工改成 `fixture_passed`；在建立相应 coverage/evidence 前，不能宣称产品已最终落地。
 
@@ -36,6 +36,8 @@ M3 与 M4 的 phase-exit 只表示对应阶段的可执行基础能力完成，�
 3. capability-claim 需要冻结的隐藏来源/独立留出集和真实前瞻数据；本地合成 fixture 不能证明真实能力。
 4. M5 的实时运行、人工盲评和浏览器/电子表格安全 oracle 需要部署环境与人工复核。
 5. 部分 domain schema、source frame 和服务 SLO 仍需产品/运营方冻结，属于 requirement/configuration blocker，而不是测试绿灯。
+
+M5 本轮已完成本地 contract fixture（9 tests / 21 assertions）和 10 个 release gate 的 blocker artifact；这些 gate 尚未达到 release `fixture_passed`。
 
 ## Unblock 后顺序
 

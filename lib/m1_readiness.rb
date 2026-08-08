@@ -16,22 +16,22 @@ module M1
     ].freeze
     FIXTURE_RESULTS = %w[not_run passed failed environment_blocked external_blocked].freeze
     ARTIFACT_SCHEMA = "m1.readiness-artifact.v1"
-    ARTIFACT_SCHEMAS = [ARTIFACT_SCHEMA, "m2.readiness-artifact.v1", "m3.readiness-artifact.v1", "m4.readiness-artifact.v1"].freeze
+    ARTIFACT_SCHEMAS = [ARTIFACT_SCHEMA, "m2.readiness-artifact.v1", "m3.readiness-artifact.v1", "m4.readiness-artifact.v1", "m5.readiness-artifact.v1"].freeze
 
     module_function
 
-    def required_test_codes(acceptance_plan, phases: %w[M0 M1])
+    def required_test_codes(acceptance_plan, phases: %w[M0 M1], blocking_modes: ["phase-exit"])
       acceptance_plan.each_line.each_with_object([]) do |line, ids|
         cells = line.split("|").map(&:strip)
         next unless cells.length >= 6 && cells[1].match?(/\A[A-Z][A-Z0-9]*-[0-9]{3}[A-Z]?\z/)
-        next unless phases.include?(cells[2]) && cells[4] == "phase-exit"
+        next unless phases.include?(cells[2]) && blocking_modes.include?(cells[4])
 
         ids << cells[1]
       end.uniq.sort
     end
 
-    def evaluate(acceptance_plan:, coverage:, root: Dir.pwd, phases: %w[M0 M1])
-      required = required_test_codes(acceptance_plan, phases: phases)
+    def evaluate(acceptance_plan:, coverage:, root: Dir.pwd, phases: %w[M0 M1], blocking_modes: ["phase-exit"])
+      required = required_test_codes(acceptance_plan, phases: phases, blocking_modes: blocking_modes)
       entries = coverage.fetch("entries")
       by_code = entries.each_with_object({}) do |entry, memo|
         code = entry.fetch("testCode")

@@ -1,0 +1,1 @@
+environment_blocked: 需要 committed render snapshot、真实 delivery 写入和首字节门禁；当前只有本地 representation contract。

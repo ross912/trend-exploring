@@ -1,0 +1,1 @@
+environment_blocked: 需要 H2→H1 proxy、浏览器导航/脚本 oracle、真实 header policy 与零首字节执行门禁；当前未配置。

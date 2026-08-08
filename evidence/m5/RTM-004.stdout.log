@@ -1,0 +1,1 @@
+environment_blocked: 需要 RadarPipelineManifest、真实数据库并发/CAS、崩溃恢复和 delivery head；当前没有 M5 持久化 runtime。

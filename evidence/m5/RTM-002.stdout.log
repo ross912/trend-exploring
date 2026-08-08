@@ -1,0 +1,1 @@
+environment_blocked: 需要固定实时快照、30 分钟持续运行和个人域隔离的生产 Radar；当前无生产 auth/runtime。

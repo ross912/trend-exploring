@@ -1,0 +1,1 @@
+environment_blocked: 需要真实流连接、断线重连、cursor gap 和持久化到达流水；当前只有本地纯 contract fixture。
