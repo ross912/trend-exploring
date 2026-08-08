@@ -161,7 +161,7 @@ begin
     root: ROOT
   )
   errors << "M1 coverage matrix has missing/extra IDs" unless readiness.fetch("missingTestCodes").empty? && readiness.fetch("extraTestCodes").empty?
-  errors << "M1 coverage matrix must remain blocked while formal readiness evidence is incomplete" unless readiness.fetch("decision") == "blocked" && readiness.fetch("blockedTestCodes").length > 0
+  errors << "M1 formal readiness evidence is incomplete" unless readiness.fetch("decision") == "ready" && readiness.fetch("blockedTestCodes").empty? && readiness.dig("summary", "fixture_passed") == readiness.fetch("requiredCount")
 rescue JSON::ParserError, Errno::ENOENT, KeyError, M1::M1Readiness::Error => e
   errors << "M1 readiness contract error: #{e.message}"
 end
@@ -420,7 +420,7 @@ if errors.empty?
   puts "  manifest compiler: 36 typed manifest schemas; deterministic envelope/payload hash; activation signature required"
   puts "  M1 phase-exit report: database function and positive/negative fixture"
   puts "  Governance quorum: 2 tables, deferred approval trigger, and manifest-key authorization"
-  puts "  M1 phase-exit coverage: 30 required IDs; readiness intentionally blocked until all are fixture_passed"
+  puts "  M1 phase-exit coverage: 30 required IDs; readiness requires verified fixture evidence for all IDs"
   puts "  JSON Schema: #{SCHEMA_PATH}"
   puts "  valid fixture: accepted"
   puts "  omitted-member fixture: blocked"
