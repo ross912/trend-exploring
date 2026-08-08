@@ -11,6 +11,15 @@ INSERT INTO coverage_projection_role_registry (
   projection_role, role_kind, effective_from, system_available_at
 ) VALUES
   ('primary', 'coverage-primary', '2026-08-07 04:00+00', '2026-08-07 04:00+00');
+INSERT INTO coverage_stratum_version_registry (
+  stratum_version_id, stratum_key, stratum_hash, effective_from, system_available_at
+) VALUES
+  ('bbbbbbbb-0000-4000-8000-000000000001', 'stratum-a', repeat('a', 64), '2026-08-07 04:00+00', '2026-08-07 04:00+00'),
+  ('bbbbbbbb-0000-4000-8000-000000000002', 'stratum-b', repeat('b', 64), '2026-08-07 04:00+00', '2026-08-07 04:00+00');
+INSERT INTO coverage_detector_version_registry (
+  detector_version_id, detector_key, detector_hash, effective_from, system_available_at
+) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000001', 'detector-v1', repeat('c', 64), '2026-08-07 04:00+00', '2026-08-07 04:00+00');
 
 WITH source AS (
   SELECT

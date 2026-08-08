@@ -68,6 +68,24 @@ CREATE TABLE coverage_projection_role_registry (
   CHECK (effective_from <= system_available_at)
 );
 
+CREATE TABLE coverage_stratum_version_registry (
+  stratum_version_id uuid PRIMARY KEY,
+  stratum_key text NOT NULL CHECK (btrim(stratum_key) <> ''),
+  stratum_hash text NOT NULL CHECK (stratum_hash ~ '^[a-f0-9]{64}$'),
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at)
+);
+
+CREATE TABLE coverage_detector_version_registry (
+  detector_version_id uuid PRIMARY KEY,
+  detector_key text NOT NULL CHECK (btrim(detector_key) <> ''),
+  detector_hash text NOT NULL CHECK (detector_hash ~ '^[a-f0-9]{64}$'),
+  effective_from timestamptz NOT NULL,
+  system_available_at timestamptz NOT NULL,
+  CHECK (effective_from <= system_available_at)
+);
+
 CREATE TABLE coverage_item (
   coverage_item_id uuid PRIMARY KEY,
   scope_snapshot_id uuid NOT NULL,
@@ -123,7 +141,7 @@ FOR EACH ROW EXECUTE FUNCTION validate_coverage_item_identity();
 CREATE TABLE coverage_generation_unit (
   generation_unit_id uuid PRIMARY KEY,
   coverage_item_id uuid NOT NULL REFERENCES coverage_item,
-  detector_version_id uuid NOT NULL,
+  detector_version_id uuid NOT NULL REFERENCES coverage_detector_version_registry,
   generation_semantics_version text NOT NULL CHECK (btrim(generation_semantics_version) <> ''),
   generation_key text GENERATED ALWAYS AS (
     m1_coverage_generation_key(coverage_item_id, detector_version_id, generation_semantics_version)
@@ -157,6 +175,27 @@ $$;
 CREATE TRIGGER coverage_generation_identity_guard
 BEFORE INSERT ON coverage_generation_unit
 FOR EACH ROW EXECUTE FUNCTION validate_coverage_generation_identity();
+
+CREATE OR REPLACE FUNCTION validate_coverage_stratum_refs()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  stratum_id uuid;
+BEGIN
+  FOREACH stratum_id IN ARRAY NEW.primary_stratum_version_ids LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM coverage_stratum_version_registry
+       WHERE stratum_version_id = stratum_id
+    ) THEN
+      RAISE EXCEPTION 'coverage item references an unregistered stratum version';
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER coverage_item_stratum_registry_guard
+BEFORE INSERT ON coverage_item
+FOR EACH ROW EXECUTE FUNCTION validate_coverage_stratum_refs();
 
 CREATE TABLE coverage_watermark_gap (
   coverage_watermark_gap_id uuid PRIMARY KEY,
@@ -218,6 +257,14 @@ FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
 
 CREATE TRIGGER coverage_projection_role_registry_reject_mutation
 BEFORE UPDATE OR DELETE ON coverage_projection_role_registry
+FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
+
+CREATE TRIGGER coverage_stratum_version_registry_reject_mutation
+BEFORE UPDATE OR DELETE ON coverage_stratum_version_registry
+FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
+
+CREATE TRIGGER coverage_detector_version_registry_reject_mutation
+BEFORE UPDATE OR DELETE ON coverage_detector_version_registry
 FOR EACH ROW EXECUTE FUNCTION reject_row_mutation();
 
 CREATE TRIGGER coverage_watermark_gap_reject_mutation

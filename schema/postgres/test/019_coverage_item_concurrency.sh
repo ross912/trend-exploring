@@ -28,6 +28,9 @@ psql_cmd -c "
   INSERT INTO coverage_projection_role_registry (projection_role, role_kind, effective_from, system_available_at)
   VALUES ('primary', 'coverage-primary', '2026-08-07 04:10+00', '2026-08-07 04:10+00')
   ON CONFLICT (projection_role) DO NOTHING;
+  INSERT INTO coverage_stratum_version_registry (stratum_version_id, stratum_key, stratum_hash, effective_from, system_available_at)
+  VALUES ('bbbbbbbb-0000-4000-8000-000000000010', 'concurrency-stratum', repeat('b', 64), '2026-08-07 04:10+00', '2026-08-07 04:10+00')
+  ON CONFLICT (stratum_version_id) DO NOTHING;
 "
 
 temp_dir="$(mktemp -d)"

@@ -4,6 +4,8 @@
   "mappings": [
     { "table": "coverage_policy_registry", "role": "m1_coverage_slice", "timeProfile": "operational_record_time" },
     { "table": "coverage_projection_role_registry", "role": "m1_coverage_slice", "timeProfile": "operational_record_time" },
+    { "table": "coverage_stratum_version_registry", "role": "m1_coverage_slice", "timeProfile": "manifest_time" },
+    { "table": "coverage_detector_version_registry", "role": "m1_coverage_slice", "timeProfile": "manifest_time" },
     { "table": "coverage_item", "role": "m1_coverage_slice", "timeProfile": "derived_record_time" },
     { "table": "coverage_generation_unit", "role": "m1_coverage_slice", "timeProfile": "derived_record_time" },
     { "table": "coverage_watermark_gap", "role": "m1_coverage_slice", "timeProfile": "operational_record_time" }
