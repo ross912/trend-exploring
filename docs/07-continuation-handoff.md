@@ -55,7 +55,7 @@
 - 本轮新增：CTR-018/020 的 `snapshot_membership_universe_member` 已接入 `009_m1_snapshot_membership.sql`，snapshot unit 集合、profile role 集合与 selected typed member 必须与显式 universe 精确闭合；021 fixture 在 PostgreSQL 15.18 通过。真实 SourceRegistry/Endpoint/OwnerGroup domain identity FK 和版本替换投影仍需继续收束。
 - 本轮新增：CTR-014 的 `PresentationClaimCitation`、`PresentationRawSourceListingReference` 与 `SourceTextRef` typed binding 已接入 `008_m1_presentation.sql`；claim content、plan、presentation event、channel/locale 必须复合一致，双 child/空 child 和跨 event citation 均 fail closed，020 fixture 在 PostgreSQL 15.18 通过。跨 event 的真实 Claim/Evidence/Source domain FK 与 complete snapshot closure 仍需继续收束。
 - 本轮新增：CTR-003 的 manifest compiler 已覆盖 05 registry 的全部 36 类 immutable manifest，增加字段类型、时间/hash、枚举和关键跨字段语义校验；全类型正向编译与错误值负向测试通过。真实 domain FK、policy activation 与跨表语义仍需继续收束。
-- 本轮新增：CTR-007 的 `test_contract_strength_rank` 与 tautological-oracle guard 已接入 `001_m1_core.sql`；新增版本的 oracle/fixture 合同等级不得下降，恒真 oracle、v0 fixture 负向夹具均在 PostgreSQL 15.18 通过。真实签名授权链与完整 change-impact 审批投影仍需继续收束。
+- 本轮新增：CTR-002 compiler 已补齐 `event_subtype` 第四 archetype 的 metadata DDL CHECK；CTR-003 manifest compiler 已补齐 EventRegistry exclusive state/transition、TestCatalog definitions/members 集合和 response-mode proof 语义；CTR-006 global service principal 已增加数据库角色映射并与 session principal 双重校验。上述新增代码静态回归通过，但当前机器缺少 PostgreSQL runtime，不能把未重跑的 SQL 证据提升为 fixture_passed。CTR-007 的 `test_contract_strength_rank` 与 tautological-oracle guard 已接入 `001_m1_core.sql`；新增版本的 oracle/fixture 合同等级不得下降，恒真 oracle、v0 fixture 负向夹具均在此前 PostgreSQL 15.18 通过。真实签名授权链与完整 change-impact 审批投影仍需继续收束。
 
 1. 用实际签名服务产出 signed TestCatalog/EventRegistry，导入 003 并激活 manifest。
 2. 将 permission matrix 与 RevocationDependencySnapshot、实际 egress/训练门禁接通。
