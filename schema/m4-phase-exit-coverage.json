@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "m4.phase-exit-coverage.v1",
+  "entries": [
+    {
+      "testCode": "PRI-004",
+      "status": "fixture_passed",
+      "implementationEvidence": [
+        "lib/m4_contracts.rb"
+      ],
+      "fixture": {
+        "command": "ruby -Ilib test/m4_contracts_test.rb",
+        "result": "passed",
+        "testPaths": [
+          "test/m4_contracts_test.rb"
+        ],
+        "artifactPath": "evidence/m4/PRI-004.json",
+        "runtimeApplicable": false,
+        "runtime": null,
+        "lastVerifiedAt": "2026-08-08T06:52:22Z"
+      }
+    }
+  ]
+}

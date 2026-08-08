@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m4.readiness-artifact.v1",
+  "testCode": "PRI-004",
+  "command": "ruby -Ilib test/m4_contracts_test.rb",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:52:22Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m4_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m4/PRI-004.stdout.log",
+  "stdoutSha256": "a862080ba9e0d82f0b453b3a90c058b34aa0b9bbde7dda5f1d69f39f42c24d0e",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}
