@@ -5,7 +5,7 @@ require "json"
 require_relative "../lib/rss_ingest"
 
 class RSSIngestTest < Minitest::Test
-  SOURCE = { "id" => "fixture", "name" => "中文来源", "url" => "https://example.test/feed.xml", "language" => "zh-CN", "max_items" => 5 }.freeze
+  SOURCE = { "id" => "fixture", "name" => "中文来源", "url" => "https://example.test/feed.xml", "language" => "zh-CN", "region" => "全球", "max_items" => 5 }.freeze
 
   def test_rss_items_are_normalized_and_html_is_removed
     xml = <<~XML
@@ -20,6 +20,7 @@ class RSSIngestTest < Minitest::Test
     item = RSSIngest::Fetcher.new.send(:parse, SOURCE, xml).fetch(0)
     assert_equal "一个真实的中文标题", item.fetch("title")
     assert_equal "第一段摘要 第二段摘要", item.fetch("summary")
+    assert_equal "全球", item.fetch("region")
     assert_equal "2026-08-08T07:03:35Z", item.fetch("published_at")
     assert_equal 64, item.fetch("item_key").length
   end
@@ -50,6 +51,8 @@ class RSSIngestTest < Minitest::Test
       assert_equal "https", URI.parse(source.fetch("url")).scheme
       assert_equal "metadata_short_summary_link", source.fetch("rights_scope")
       assert_operator source.fetch("max_summary_chars"), :<=, 320
+      assert_includes %w[zh-CN en], source.fetch("language")
+      refute_empty source.fetch("region")
     end
   end
 end

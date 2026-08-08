@@ -19,7 +19,7 @@ module RSSIngest
       @max_bytes = max_bytes
     end
 
-    def fetch(source)
+    def fetch(source, redirect_count = 0)
       uri = URI.parse(source.fetch("url"))
       raise Error, "source URL must use HTTPS: #{uri}" unless uri.scheme == "https"
       raise Error, "source host is missing: #{uri}" if uri.host.to_s.empty?
@@ -29,6 +29,14 @@ module RSSIngest
         request["User-Agent"] = USER_AGENT
         request["Accept"] = "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9"
         http.request(request)
+      end
+      if response.is_a?(Net::HTTPRedirection)
+        raise Error, "too many HTTPS redirects: #{source.fetch('id')}" if redirect_count >= 3
+        location = response["location"].to_s
+        raise Error, "redirect location is missing: #{source.fetch('id')}" if location.empty?
+        redirected = URI.join(uri.to_s, location).to_s
+        raise Error, "redirect target must use HTTPS: #{redirected}" unless URI.parse(redirected).scheme == "https"
+        return fetch(source.merge("url" => redirected), redirect_count + 1)
       end
       raise Error, "source returned HTTP #{response.code}: #{source.fetch('id')}" unless response.is_a?(Net::HTTPSuccess)
       body = response.body.to_s
@@ -67,6 +75,8 @@ module RSSIngest
           "source_id" => source.fetch("id"),
           "source_name" => source.fetch("name"),
           "language" => source.fetch("language", "zh-CN"),
+          "region" => source.fetch("region", "未标注"),
+          "publisher_region" => source.fetch("publisher_region", source.fetch("region", "未标注")),
           "title" => title,
           "summary" => summary[0, Integer(source.fetch("max_summary_chars", 320))],
           "source_url" => link,
@@ -79,7 +89,7 @@ module RSSIngest
 
     def text(element, name)
       node = element.elements[name]
-      node ? node.text.to_s.strip : ""
+      node ? node.texts.map { |text_node| text_node.value.to_s }.join.strip : ""
     end
 
     def clean_text(value)

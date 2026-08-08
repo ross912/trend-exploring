@@ -47,7 +47,7 @@ server.mount_proc "/api/radar/publish" do |request, response|
     next
   end
   payload = JSON.parse(request.body.to_s)
-  json_response.call(response, store.publish_snapshot!(snapshot: payload.fetch("snapshot"), cards: payload.fetch("cards")), 201)
+  json_response.call(response, store.publish_snapshot!(snapshot: payload.fetch("snapshot"), cards: payload.fetch("cards"), trends: payload.fetch("trends", [])), 201)
 rescue JSON::ParserError, KeyError, LocalRadarStore::Error => error
   json_response.call(response, { "error" => error.message }, 400)
 end

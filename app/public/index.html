@@ -35,18 +35,39 @@
             <div class="frontier-head"><span>当前前沿</span><span class="mono" id="revision">—</span></div>
             <div class="frontier-line"><span class="frontier-pulse"></span><span id="watermark">—</span></div>
             <div class="frontier-stats">
+              <div><span>活跃来源</span><strong id="source-count">—</strong></div>
+              <div><span>覆盖地区</span><strong id="region-count">—</strong></div>
+              <div><span>可验证趋势</span><strong id="trend-count">—</strong></div>
               <div><span>方法版本</span><strong id="method-epoch">—</strong></div>
               <div><span>权利纪元</span><strong id="rights-epoch">—</strong></div>
               <div><span>雷达表面</span><strong id="surface-id">—</strong></div>
             </div>
-            <p class="frontier-caption">同一 comparison watermark 下的公开快照。更快到达的内容只进入局部快讯，不直接改变跨层排序。</p>
+            <p class="frontier-caption">趋势必须同时满足时间窗变化和至少两个独立来源；单条新闻只留在新闻区。</p>
           </aside>
+        </section>
+
+        <section class="coverage-section" aria-labelledby="coverage-heading">
+          <div class="coverage-copy">
+            <p class="eyebrow">来源矩阵</p>
+            <h2 id="coverage-heading">全球覆盖，不等于单一榜单</h2>
+            <p>来源按地区与语言分层。每个来源显示最近一次真实采集数量；英文条目保留原文，不伪装成中文翻译。</p>
+          </div>
+          <div class="source-roster" id="source-roster" aria-live="polite"></div>
+        </section>
+
+        <section class="trend-section" aria-labelledby="trend-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">可解释趋势</p><h2 id="trend-heading">先看交叉来源的变化</h2></div>
+            <span class="section-count" id="trend-count-label">0 条趋势</span>
+          </div>
+          <div class="trend-note">趋势门槛：48 小时观察窗 / 最近 12 小时对比 / 至少 2 次提及 / 至少 2 个独立来源。</div>
+          <div class="trend-grid" id="trends" aria-live="polite"></div>
         </section>
 
         <section class="signal-section" aria-labelledby="signal-heading">
           <div class="section-heading">
-            <div><p class="eyebrow">信号板</p><h2 id="signal-heading">今天值得盯住的三条线</h2></div>
-            <span class="section-count" id="card-count">0 条信号</span>
+            <div><p class="eyebrow">最新新闻</p><h2 id="signal-heading">按来源查看现场</h2></div>
+            <span class="section-count" id="card-count">0 条新闻</span>
           </div>
           <div class="signal-layout">
             <div class="signal-rail" aria-hidden="true"><span class="rail-dot active"></span><span class="rail-line"></span><span class="rail-dot"></span><span class="rail-line short"></span><span class="rail-dot"></span></div>

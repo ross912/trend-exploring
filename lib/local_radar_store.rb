@@ -34,19 +34,55 @@ class LocalRadarStore
        ORDER BY revision DESC
        LIMIT 1
     SQL
-    return { "snapshot" => nil, "cards" => [] } if snapshot_rows.empty?
+    return { "snapshot" => nil, "cards" => [], "trends" => [], "sources" => source_summary } if snapshot_rows.empty?
 
     snapshot = row_to_hash(snapshot_rows.fetch(0), %w[snapshot_id surface_id revision comparison_watermark method_epoch rights_epoch render_plan_hash snapshot_status created_at])
     cards = query(<<~SQL).map do |row|
       SELECT card_id, signal_type, title, summary, metric_label, metric_value,
-             source_count, stance, action_stage, evidence_label, source_name, source_url, sort_order
+             source_count, stance, action_stage, evidence_label, source_name, source_url,
+             source_language, source_region, sort_order
         FROM local_radar_card
        WHERE snapshot_id = #{literal(snapshot.fetch("snapshot_id"))}
        ORDER BY sort_order ASC
     SQL
-      row_to_hash(row, %w[card_id signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url sort_order])
+      row_to_hash(row, %w[card_id signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region sort_order])
     end
-    { "snapshot" => snapshot, "cards" => cards }
+    trends = query(<<~SQL).map do |row|
+      SELECT trend_id, topic_key, topic, topic_language, topic_kind, signal_state, summary,
+             mention_count, recent_mention_count, prior_mention_count, source_count,
+             region_count, language_count, growth_rate::text, window_hours,
+             recent_window_hours, window_start::text, window_end::text,
+             source_names::text, regions::text, languages::text, evidence_urls::text, sort_order
+        FROM local_radar_trend
+       WHERE snapshot_id = #{literal(snapshot.fetch("snapshot_id"))}
+       ORDER BY sort_order ASC
+    SQL
+      trend = row_to_hash(row, %w[trend_id topic_key topic topic_language topic_kind signal_state summary mention_count recent_mention_count prior_mention_count source_count region_count language_count growth_rate window_hours recent_window_hours window_start window_end source_names regions languages evidence_urls sort_order])
+      %w[source_names regions languages evidence_urls].each { |key| trend[key] = parse_json_array(trend.fetch(key)) }
+      trend
+    end
+    { "snapshot" => snapshot, "cards" => cards, "trends" => trends, "sources" => source_summary }
+  end
+
+  def source_summary
+    query(<<~SQL).map do |row|
+      SELECT r.source_id, r.source_name, r.source_url, r.language, r.region,
+             r.publisher_region, r.enabled::text, r.last_fetch_at::text,
+             r.last_item_count, r.last_error, COUNT(i.item_key)
+        FROM local_source_registry r
+        LEFT JOIN local_source_item i ON i.source_id = r.source_id
+       GROUP BY r.source_id, r.source_name, r.source_url, r.language, r.region,
+                r.publisher_region, r.enabled, r.last_fetch_at, r.last_item_count, r.last_error
+       ORDER BY r.enabled DESC, r.region ASC, r.source_name ASC
+    SQL
+      row_to_hash(row, %w[source_id source_name source_url language region publisher_region enabled last_fetch_at last_item_count last_error item_count]).tap do |source|
+        source["enabled"] = %w[t true].include?(source.fetch("enabled").downcase)
+        source["last_item_count"] = source.fetch("last_item_count").to_i
+        source["item_count"] = source.fetch("item_count").to_i
+      end
+    end
+  rescue LocalRadarStore::Error
+    []
   end
 
   def seed_demo!
@@ -72,7 +108,43 @@ class LocalRadarStore
 
   def reset_demo!
     raise Error, "reset is restricted to the disposable local database" unless @database == "trend_exploring_local"
-    execute("TRUNCATE local_radar_card, local_radar_snapshot")
+    execute("TRUNCATE local_radar_trend, local_radar_card, local_radar_snapshot")
+    true
+  end
+
+  def register_sources!(sources:)
+    transaction do
+      Array(sources).each do |source|
+        execute(<<~SQL)
+          INSERT INTO local_source_registry
+            (source_id, source_name, source_url, language, region, publisher_region, enabled, updated_at)
+          VALUES (#{literal(source.fetch("id"))}, #{literal(source.fetch("name"))}, #{literal(source.fetch("url"))},
+                  #{literal(source.fetch("language", "zh-CN"))}, #{literal(source.fetch("region", "未标注"))},
+                  #{literal(source.fetch("publisher_region", source.fetch("region", "未标注")))},
+                  #{source.fetch("enabled", true) ? "TRUE" : "FALSE"}, now())
+          ON CONFLICT (source_id) DO UPDATE SET
+            source_name = EXCLUDED.source_name,
+            source_url = EXCLUDED.source_url,
+            language = EXCLUDED.language,
+            region = EXCLUDED.region,
+            publisher_region = EXCLUDED.publisher_region,
+            enabled = EXCLUDED.enabled,
+            updated_at = now()
+        SQL
+      end
+    end
+    true
+  rescue KeyError, ArgumentError, TypeError => error
+    raise Error, "source registry update is incomplete: #{error.message}"
+  end
+
+  def record_source_fetch!(source_id:, item_count:, error: nil)
+    execute(<<~SQL)
+      UPDATE local_source_registry
+         SET last_fetch_at = now(), last_item_count = #{Integer(item_count)},
+             last_error = #{literal(error.to_s)}, updated_at = now()
+       WHERE source_id = #{literal(source_id)}
+    SQL
     true
   end
 
@@ -82,14 +154,16 @@ class LocalRadarStore
       Array(items).each do |item|
         rows = execute(<<~SQL)
           INSERT INTO local_source_item
-            (item_key, source_id, source_name, language, title, summary, source_url, published_at, fetched_at, content_hash)
+            (item_key, source_id, source_name, language, region, title, summary, source_url, published_at, fetched_at, content_hash)
           VALUES (#{literal(item.fetch("item_key"))}, #{literal(item.fetch("source_id"))}, #{literal(item.fetch("source_name"))},
-                  #{literal(item.fetch("language"))}, #{literal(item.fetch("title"))}, #{literal(item.fetch("summary").to_s[0, 320])},
+                  #{literal(item.fetch("language"))}, #{literal(item.fetch("region", "未标注"))}, #{literal(item.fetch("title"))},
+                  #{literal(item.fetch("summary").to_s[0, 320])},
                   #{literal(item.fetch("source_url"))}, #{item.fetch("published_at") ? literal(item.fetch("published_at")) : "NULL"},
                   #{literal(item.fetch("fetched_at"))}, #{literal(item.fetch("content_hash"))})
           ON CONFLICT (item_key) DO UPDATE SET
             title = EXCLUDED.title,
             summary = EXCLUDED.summary,
+            region = EXCLUDED.region,
             fetched_at = EXCLUDED.fetched_at,
             content_hash = EXCLUDED.content_hash
           RETURNING (xmax = 0)::text
@@ -102,15 +176,16 @@ class LocalRadarStore
     raise Error, "source item ingest is incomplete: #{error.message}"
   end
 
-  def latest_source_items(limit: 12)
+  def latest_source_items(limit: 12, published_only: false)
     query(<<~SQL).map do |row|
-      SELECT item_key, source_id, source_name, language, title, summary, source_url,
+      SELECT item_key, source_id, source_name, language, region, title, summary, source_url,
              published_at::text, fetched_at::text
         FROM local_source_item
-       ORDER BY COALESCE(published_at, fetched_at) DESC, item_key ASC
+       #{published_only ? "WHERE published_at IS NOT NULL" : ""}
+       ORDER BY published_at DESC NULLS LAST, fetched_at DESC, item_key ASC
        LIMIT #{Integer(limit)}
     SQL
-      row_to_hash(row, %w[item_key source_id source_name language title summary source_url published_at fetched_at])
+      row_to_hash(row, %w[item_key source_id source_name language region title summary source_url published_at fetched_at])
     end
   end
 
@@ -118,7 +193,7 @@ class LocalRadarStore
     query("SELECT COALESCE(MAX(revision), 0) + 1 FROM local_radar_snapshot WHERE surface_id = #{literal(surface_id)}").fetch(0).to_i
   end
 
-  def publish_snapshot!(snapshot:, cards:)
+  def publish_snapshot!(snapshot:, cards:, trends: [])
     required = %w[snapshot_id surface_id revision comparison_watermark method_epoch rights_epoch render_plan_hash]
     missing = required.reject { |key| snapshot.key?(key) && !snapshot.fetch(key).to_s.empty? }
     raise Error, "snapshot fields missing: #{missing.join(',')}" unless missing.empty?
@@ -136,11 +211,33 @@ class LocalRadarStore
       rows.each do |card|
         execute(<<~SQL)
           INSERT INTO local_radar_card
-            (card_id, snapshot_id, signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage, evidence_label, source_name, source_url, sort_order)
+            (card_id, snapshot_id, signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage, evidence_label, source_name, source_url, source_language, source_region, sort_order)
           VALUES (#{literal(card.fetch("card_id"))}, #{literal(snapshot.fetch("snapshot_id"))}, #{literal(card.fetch("signal_type"))},
                   #{literal(card.fetch("title"))}, #{literal(card.fetch("summary"))}, #{literal(card.fetch("metric_label"))}, #{literal(card.fetch("metric_value"))},
                   #{Integer(card.fetch("source_count"))}, #{literal(card.fetch("stance"))}, #{literal(card.fetch("action_stage"))},
-                  #{literal(card.fetch("evidence_label"))}, #{literal(card.fetch("source_name", ""))}, #{literal(card.fetch("source_url", ""))}, #{Integer(card.fetch("sort_order"))})
+                  #{literal(card.fetch("evidence_label"))}, #{literal(card.fetch("source_name", ""))}, #{literal(card.fetch("source_url", ""))},
+                  #{literal(card.fetch("source_language", ""))}, #{literal(card.fetch("source_region", ""))}, #{Integer(card.fetch("sort_order"))})
+        SQL
+      end
+      Array(trends).each do |trend|
+        execute(<<~SQL)
+          INSERT INTO local_radar_trend
+            (trend_id, snapshot_id, topic_key, topic, topic_language, topic_kind, signal_state, summary,
+             mention_count, recent_mention_count, prior_mention_count, source_count,
+             region_count, language_count, growth_rate, window_hours, recent_window_hours,
+             window_start, window_end, source_names, regions, languages, evidence_urls, sort_order)
+          VALUES (#{literal(trend.fetch("trend_id"))}, #{literal(snapshot.fetch("snapshot_id"))}, #{literal(trend.fetch("topic_key"))},
+                  #{literal(trend.fetch("topic"))}, #{literal(trend.fetch("topic_language"))}, #{literal(trend.fetch("topic_kind", "term"))}, #{literal(trend.fetch("signal_state"))},
+                  #{literal(trend.fetch("summary"))}, #{Integer(trend.fetch("mention_count"))}, #{Integer(trend.fetch("recent_mention_count"))},
+                  #{Integer(trend.fetch("prior_mention_count"))}, #{Integer(trend.fetch("source_count"))}, #{Integer(trend.fetch("region_count"))},
+                  #{Integer(trend.fetch("language_count"))}, #{trend.fetch("growth_rate").nil? ? "NULL" : trend.fetch("growth_rate")},
+                  #{Integer(trend.fetch("window_hours"))}, #{Integer(trend.fetch("recent_window_hours"))},
+                  #{literal(trend.fetch("window_start"))}, #{literal(trend.fetch("window_end"))},
+                  #{literal(JSON.generate(Array(trend.fetch("source_names", []))))}::jsonb,
+                  #{literal(JSON.generate(Array(trend.fetch("regions", []))))}::jsonb,
+                  #{literal(JSON.generate(Array(trend.fetch("languages", []))))}::jsonb,
+                  #{literal(JSON.generate(Array(trend.fetch("evidence_urls", []))))}::jsonb,
+                  #{Integer(trend.fetch("sort_order"))})
         SQL
       end
     end
@@ -182,5 +279,12 @@ class LocalRadarStore
   def row_to_hash(row, keys)
     values = row.split("\t", -1)
     keys.each_with_index.each_with_object({}) { |(key, index), result| result[key] = values[index] }
+  end
+
+  def parse_json_array(value)
+    parsed = JSON.parse(value.to_s)
+    parsed.is_a?(Array) ? parsed : []
+  rescue JSON::ParserError
+    []
   end
 end

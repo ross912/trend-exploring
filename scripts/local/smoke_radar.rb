@@ -20,4 +20,20 @@ abort "database health is not ok" unless health.fetch("status") == "ok"
 radar = get_json(base, "/api/radar")
 abort "radar snapshot is missing" unless radar.dig("snapshot", "snapshot_id")
 abort "radar cards are empty" if radar.fetch("cards").empty?
-puts JSON.pretty_generate({ "status" => "passed", "database" => health.fetch("database"), "serverVersion" => health.fetch("server_version"), "snapshot" => radar.dig("snapshot", "snapshot_id"), "cardCount" => radar.fetch("cards").length })
+abort "radar trend collection is missing" unless radar.key?("trends")
+abort "source matrix is missing" unless radar.key?("sources")
+radar.fetch("trends").each do |trend|
+  %w[topic mention_count recent_mention_count prior_mention_count source_count window_start window_end].each do |key|
+    abort "trend field is missing: #{key}" unless trend.key?(key)
+  end
+end
+puts JSON.pretty_generate({
+  "status" => "passed",
+  "database" => health.fetch("database"),
+  "serverVersion" => health.fetch("server_version"),
+  "snapshot" => radar.dig("snapshot", "snapshot_id"),
+  "cardCount" => radar.fetch("cards").length,
+  "trendCount" => radar.fetch("trends").length,
+  "sourceCount" => radar.fetch("sources").length,
+  "activeSourceCount" => radar.fetch("sources").count { |source| source.fetch("enabled") }
+})

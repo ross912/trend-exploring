@@ -2,38 +2,51 @@
 # frozen_string_literal: true
 
 require "json"
+require "digest"
 require "time"
 require_relative "../../lib/local_radar_store"
 require_relative "../../lib/rss_ingest"
+require_relative "../../lib/trend_analyzer"
 
 root = File.expand_path("../..", __dir__)
 config_path = ENV.fetch("LOCAL_SOURCES_CONFIG", File.join(root, "config/sources.json"))
 config = JSON.parse(File.read(config_path))
 selected_ids = ENV["LOCAL_SOURCE_IDS"]&.split(",")&.map(&:strip)
-sources = Array(config.fetch("sources")).select { |source| selected_ids.nil? || selected_ids.include?(source.fetch("id")) }
+configured_sources = Array(config.fetch("sources"))
+store = LocalRadarStore.new
+store.register_sources!(sources: configured_sources)
+sources = configured_sources.select do |source|
+  selected_ids.nil? ? source.fetch("enabled", true) : selected_ids.include?(source.fetch("id"))
+end
 abort "no configured sources selected" if sources.empty?
 
 fetcher = RSSIngest::Fetcher.new
-store = LocalRadarStore.new
 items = []
 errors = []
 sources.each do |source|
   begin
     fetched = fetcher.fetch(source)
     items.concat(fetched)
+    store.record_source_fetch!(source_id: source.fetch("id"), item_count: fetched.length)
     puts "fetched #{source.fetch('id')}: #{fetched.length} items"
   rescue RSSIngest::Error => error
     errors << { "source_id" => source.fetch("id"), "error" => error.message }
+    store.record_source_fetch!(source_id: source.fetch("id"), item_count: 0, error: error.message)
     warn error.message
   end
 end
 abort "all source fetches failed" if items.empty?
 
 inserted = store.ingest_source_items!(items: items)
-latest = store.latest_source_items(limit: Integer(ENV.fetch("LOCAL_RADAR_CARD_LIMIT", "8")))
+latest = store.latest_source_items(limit: Integer(ENV.fetch("LOCAL_RADAR_CARD_LIMIT", "8")), published_only: true)
+analysis_items = store.latest_source_items(limit: Integer(ENV.fetch("LOCAL_TREND_ITEM_LIMIT", "500")), published_only: true)
+raw_trends = TrendAnalyzer.new(
+  window_hours: Integer(ENV.fetch("LOCAL_TREND_WINDOW_HOURS", "48")),
+  recent_window_hours: Integer(ENV.fetch("LOCAL_TREND_RECENT_HOURS", "12"))
+).analyze(items: analysis_items)
 revision = store.next_revision
 snapshot_id = "live-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-r#{revision}"
-watermark = latest.map { |item| item.fetch("published_at") }.compact.min || Time.now.utc.iso8601
+watermark = latest.map { |item| item.fetch("published_at").to_s }.reject(&:empty?).min || Time.now.utc.iso8601
 cards = latest.each_with_index.map do |item, index|
   published = item.fetch("published_at").to_s
   display_time = begin
@@ -54,8 +67,16 @@ cards = latest.each_with_index.map do |item, index|
     "evidence_label" => "#{item.fetch('source_name')} · 原文版本",
     "source_name" => item.fetch("source_name"),
     "source_url" => item.fetch("source_url"),
+    "source_language" => item.fetch("language"),
+    "source_region" => item.fetch("region", "未标注"),
     "sort_order" => index
   }
+end
+trends = raw_trends.each_with_index.map do |trend, index|
+  trend.merge(
+    "trend_id" => "#{snapshot_id}-trend-#{Digest::SHA256.hexdigest(trend.fetch('trend_key'))[0, 12]}",
+    "sort_order" => index
+  )
 end
 
 published = store.publish_snapshot!(
@@ -68,7 +89,8 @@ published = store.publish_snapshot!(
     "rights_epoch" => 1,
     "render_plan_hash" => "#{snapshot_id}-render"
   },
-  cards: cards
+  cards: cards,
+  trends: trends
 )
 
 puts JSON.pretty_generate({
@@ -78,5 +100,9 @@ puts JSON.pretty_generate({
   "inserted_item_count" => inserted,
   "published_snapshot_id" => published.dig("snapshot", "snapshot_id"),
   "card_count" => published.fetch("cards").length,
+  "trend_count" => published.fetch("trends").length,
+  "trend_topics" => published.fetch("trends").map { |trend| trend.fetch("topic") },
+  "active_source_count" => published.fetch("sources").count { |source| source.fetch("enabled") },
+  "source_item_counts" => published.fetch("sources").to_h { |source| [source.fetch("source_id"), source.fetch("last_item_count")] },
   "source_errors" => errors
 })
