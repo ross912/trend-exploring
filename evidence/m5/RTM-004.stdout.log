@@ -1,1 +1,1 @@
-environment_blocked: 需要 RadarPipelineManifest、真实数据库并发/CAS、崩溃恢复和 delivery head；当前没有 M5 持久化 runtime。
+environment_blocked: 本地 staging 已具备 snapshot CAS、连续 revision 和并发 winner；仍需要生产 RadarPipelineManifest、数据库恢复和真实 delivery head。

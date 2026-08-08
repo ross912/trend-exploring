@@ -1,1 +1,1 @@
-environment_blocked: 需要真实 revocation epoch 在排序、物化、首字节、分页、详情和缓存边界交错；当前无 Radar delivery runtime。
+environment_blocked: 本地 staging 已具备 revocation epoch 整体失效；仍需要生产排序、分页、详情、缓存和首字节交错验证。

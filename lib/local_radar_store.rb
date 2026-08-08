@@ -1,0 +1,144 @@
+# frozen_string_literal: true
+
+require "json"
+require "open3"
+
+class LocalRadarStore
+  class Error < StandardError; end
+
+  def initialize(psql: ENV.fetch("LOCAL_PSQL", "/private/tmp/pg15-build-20260808/install/bin/psql"),
+                 host: ENV.fetch("LOCAL_PGHOST", "/private/tmp/m1-pg-socket-20260808"),
+                 port: ENV.fetch("LOCAL_PGPORT", "55432"),
+                 database: ENV.fetch("LOCAL_PGDATABASE", "trend_exploring_local"),
+                 user: ENV.fetch("LOCAL_PGUSER", ENV.fetch("USER", "postgres")))
+    @psql = psql
+    @host = host
+    @port = port
+    @database = database
+    @user = user
+  end
+
+  def health
+    value = query("SELECT json_build_object('database', current_database(), 'server_version', current_setting('server_version'), 'status', 'ok')::text")
+    JSON.parse(value.fetch(0))
+  rescue StandardError => error
+    raise Error, "local database health check failed: #{error.message}"
+  end
+
+  def current_radar
+    snapshot_rows = query(<<~SQL)
+      SELECT snapshot_id, surface_id, revision, comparison_watermark, method_epoch,
+             rights_epoch, render_plan_hash, snapshot_status, created_at::text
+        FROM local_radar_snapshot
+       WHERE snapshot_status = 'published'
+       ORDER BY revision DESC
+       LIMIT 1
+    SQL
+    return { "snapshot" => nil, "cards" => [] } if snapshot_rows.empty?
+
+    snapshot = row_to_hash(snapshot_rows.fetch(0), %w[snapshot_id surface_id revision comparison_watermark method_epoch rights_epoch render_plan_hash snapshot_status created_at])
+    cards = query(<<~SQL).map do |row|
+      SELECT card_id, signal_type, title, summary, metric_label, metric_value,
+             source_count, stance, action_stage, evidence_label, sort_order
+        FROM local_radar_card
+       WHERE snapshot_id = #{literal(snapshot.fetch("snapshot_id"))}
+       ORDER BY sort_order ASC
+    SQL
+      row_to_hash(row, %w[card_id signal_type title summary metric_label metric_value source_count stance action_stage evidence_label sort_order])
+    end
+    { "snapshot" => snapshot, "cards" => cards }
+  end
+
+  def seed_demo!
+    transaction do
+      execute(<<~SQL)
+        INSERT INTO local_radar_snapshot
+          (snapshot_id, surface_id, revision, comparison_watermark, method_epoch, rights_epoch, render_plan_hash, snapshot_status)
+        VALUES ('staging-snapshot-001', 'public-radar', 1, '2026-08-08T07:00:00Z', 'method-v1', 1, 'render-staging-001', 'published')
+        ON CONFLICT (snapshot_id) DO NOTHING
+      SQL
+      execute(<<~SQL)
+        INSERT INTO local_radar_card
+          (card_id, snapshot_id, signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage, evidence_label, sort_order)
+        VALUES
+          ('card-001', 'staging-snapshot-001', 'diffusion', 'Small language, wider footprint', 'A low-volume concept is appearing across three local actor groups with independent evidence edges.', 'independent actors', '3', 7, 'mixed', 'early adoption', '3 local edges / 7 source versions', 0),
+          ('card-002', 'staging-snapshot-001', 'emergence', 'The conversation moved before the count did', 'Mentions rose while action evidence stayed flat; the signal remains attention, not adoption.', 'mention delta', '+42%', 12, 'skeptical', 'discussion', 'action evidence missing', 1),
+          ('card-003', 'staging-snapshot-001', 'exploration', 'Unknown territory', 'An open-world sample was eligible for exploration but no detector promoted it to a candidate.', 'detector result', 'no-candidate', 0, 'unknown', 'not applicable', 'exploration only', 2)
+        ON CONFLICT (card_id) DO NOTHING
+      SQL
+    end
+    current_radar
+  end
+
+  def reset_demo!
+    raise Error, "reset is restricted to the disposable local database" unless @database == "trend_exploring_local"
+    execute("TRUNCATE local_radar_card, local_radar_snapshot")
+    true
+  end
+
+  def publish_snapshot!(snapshot:, cards:)
+    required = %w[snapshot_id surface_id revision comparison_watermark method_epoch rights_epoch render_plan_hash]
+    missing = required.reject { |key| snapshot.key?(key) && !snapshot.fetch(key).to_s.empty? }
+    raise Error, "snapshot fields missing: #{missing.join(',')}" unless missing.empty?
+    rows = Array(cards)
+    raise Error, "at least one radar card is required" if rows.empty?
+
+    transaction do
+      execute(<<~SQL)
+        INSERT INTO local_radar_snapshot
+          (snapshot_id, surface_id, revision, comparison_watermark, method_epoch, rights_epoch, render_plan_hash, snapshot_status)
+        VALUES (#{literal(snapshot.fetch("snapshot_id"))}, #{literal(snapshot.fetch("surface_id"))}, #{Integer(snapshot.fetch("revision"))},
+                #{literal(snapshot.fetch("comparison_watermark"))}, #{literal(snapshot.fetch("method_epoch"))}, #{Integer(snapshot.fetch("rights_epoch"))},
+                #{literal(snapshot.fetch("render_plan_hash"))}, 'published')
+      SQL
+      rows.each do |card|
+        execute(<<~SQL)
+          INSERT INTO local_radar_card
+            (card_id, snapshot_id, signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage, evidence_label, sort_order)
+          VALUES (#{literal(card.fetch("card_id"))}, #{literal(snapshot.fetch("snapshot_id"))}, #{literal(card.fetch("signal_type"))},
+                  #{literal(card.fetch("title"))}, #{literal(card.fetch("summary"))}, #{literal(card.fetch("metric_label"))}, #{literal(card.fetch("metric_value"))},
+                  #{Integer(card.fetch("source_count"))}, #{literal(card.fetch("stance"))}, #{literal(card.fetch("action_stage"))},
+                  #{literal(card.fetch("evidence_label"))}, #{Integer(card.fetch("sort_order"))})
+        SQL
+      end
+    end
+    current_radar
+  rescue KeyError, ArgumentError, TypeError => error
+    raise Error, "snapshot publish is incomplete: #{error.message}"
+  end
+
+  private
+
+  def transaction
+    execute("BEGIN")
+    yield
+    execute("COMMIT")
+  rescue StandardError
+    begin
+      execute("ROLLBACK")
+    rescue StandardError
+      nil
+    end
+    raise
+  end
+
+  def execute(sql)
+    query(sql)
+  end
+
+  def query(sql)
+    args = [@psql, "-XAt", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-h", @host, "-p", @port, "-U", @user, "-d", @database, "-c", sql]
+    stdout, stderr, status = Open3.capture3(*args)
+    raise Error, stderr.strip unless status.success?
+    stdout.lines(chomp: true).reject(&:empty?)
+  end
+
+  def literal(value)
+    "'#{value.to_s.gsub("'", "''")}'"
+  end
+
+  def row_to_hash(row, keys)
+    values = row.split("\t", -1)
+    keys.each_with_index.each_with_object({}) { |(key, index), result| result[key] = values[index] }
+  end
+end

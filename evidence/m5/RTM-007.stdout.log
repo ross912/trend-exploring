@@ -1,1 +1,1 @@
-environment_blocked: 需要 CDN、SSE/WebSocket、Range、304/stale-if-error 和异步 export 的真实代理环境；当前未部署。
+environment_blocked: 本地 staging 只允许完整物化响应；仍需要 CDN、SSE/WebSocket、Range、304/stale-if-error 和异步 export 的代理验证。

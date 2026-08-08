@@ -4,13 +4,13 @@
   "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_009_and_010/",
   "result": "environment_blocked",
   "verified": true,
-  "verifiedAt": "2026-08-08T07:12:12Z",
+  "verifiedAt": "2026-08-08T07:30:16Z",
   "runtime": null,
   "testPaths": [
     "test/m5_contracts_test.rb"
   ],
   "stdoutPath": "evidence/m5/RTM-010.stdout.log",
-  "stdoutSha256": "89d9786ea4d2bfdc68e96841e0f9c0215e2111abee4293638e21591028e18970",
+  "stdoutSha256": "f5d5e319a900833f5ded9b716efa6f7e249dcdf38ddb58e2349bec902220e7dd",
   "commandExitStatus": null,
   "runner": "scripts/record_m1_readiness_evidence.rb"
 }

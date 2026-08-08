@@ -15,6 +15,6 @@ M5 的 10 个 release gate 是 `RTM-001`–`RTM-010`。本轮先实现本地可�
 | RTM-009 | body 与安全 headers 原子一致 | 共享代理、浏览器和跨 audience cache 验证 | environment_blocked |
 | RTM-010 | MIME、CSP、cache、CRLF header allowlist | H2→H1 proxy、浏览器执行/导航 oracle | environment_blocked |
 
-本地 contract fixture：`ruby -Ilib test/m5_contracts_test.rb`，9 tests / 21 assertions，已通过。它只证明纯 contract 的失败闭环，不证明实时生产系统已经部署。
+本地 contract fixture：`ruby -Ilib test/m5_contracts_test.rb`，9 tests / 21 assertions，已通过；另有 staging-only 的 `M5::StagingRuntime`、PostgreSQL snapshot/card store 和 HTTP delivery vertical slice。它们证明本机链路的失败闭环，不证明实时生产系统已经部署。
 
 M5 readiness 的 10 个 artifact 使用 `environment_blocked`，没有任何项目被手工改成 `fixture_passed`。

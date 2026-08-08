@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Trend Exploring local signal radar">
+    <title>Trend Exploring · Signal Field</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="masthead">
+        <a class="brand" href="/" aria-label="Trend Exploring home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><strong>Trend Exploring</strong><small>signal field / staging</small></span>
+        </a>
+        <div class="header-meta">
+          <span class="live-chip"><span class="live-dot"></span><span id="health-label">LOCAL LINK</span></span>
+          <span class="header-time" id="clock">--:--:--</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero-grid" aria-labelledby="page-title">
+          <div class="hero-copy">
+            <p class="eyebrow">PUBLIC RADAR · WHAT MOVED</p>
+            <h1 id="page-title">看见变化，<em>在它变得显而易见之前。</em></h1>
+            <p class="hero-note">把讨论量、扩散路径、行动证据和覆盖缺口放在同一张可追溯的桌面上。这里不替你下结论，只把下一步值得观察的地方标出来。</p>
+            <div class="hero-actions">
+              <button class="refresh-button" id="refresh-button" type="button"><span>↻</span> 刷新雷达</button>
+              <span class="data-note" id="data-note">读取 staging snapshot…</span>
+            </div>
+          </div>
+          <aside class="frontier-panel" aria-label="Radar frontier">
+            <div class="frontier-head"><span>当前前沿</span><span class="mono" id="revision">—</span></div>
+            <div class="frontier-line"><span class="frontier-pulse"></span><span id="watermark">—</span></div>
+            <div class="frontier-stats">
+              <div><span>method</span><strong id="method-epoch">—</strong></div>
+              <div><span>rights epoch</span><strong id="rights-epoch">—</strong></div>
+              <div><span>surface</span><strong id="surface-id">—</strong></div>
+            </div>
+            <p class="frontier-caption">同一 comparison watermark 下的公开快照。更快到达的内容只进入局部快讯，不直接改变跨层排序。</p>
+          </aside>
+        </section>
+
+        <section class="signal-section" aria-labelledby="signal-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">SIGNAL BOARD</p><h2 id="signal-heading">今天值得盯住的三条线</h2></div>
+            <span class="section-count" id="card-count">0 signals</span>
+          </div>
+          <div class="signal-layout">
+            <div class="signal-rail" aria-hidden="true"><span class="rail-dot active"></span><span class="rail-line"></span><span class="rail-dot"></span><span class="rail-line short"></span><span class="rail-dot"></span></div>
+            <div class="cards" id="cards" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="guardrail" aria-label="Evidence guardrail">
+          <div class="guardrail-icon">⌁</div>
+          <div><p class="eyebrow">READ THE BOUNDARY</p><p>这些卡片来自本地 staging 数据库。每条信号都保留来源数量、行动阶段和证据边界；“unknown” 是可见状态，不是空白。</p></div>
+          <span class="guardrail-tag">evidence first</span>
+        </section>
+      </main>
+
+      <footer class="footer"><span>Trend Exploring / local vertical slice</span><span>public radar · no personal memory</span></footer>
+    </div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

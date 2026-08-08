@@ -5,7 +5,8 @@
       "testCode": "RTM-001",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_001/",
@@ -16,15 +17,16 @@
         "artifactPath": "evidence/m5/RTM-001.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要两种实时语言层、持续连接和生产 comparison_watermark；当前环境无实时采集与生产 runtime。"
+      "blockerReason": "本地已具备 frontier/watermark contract；仍需要两种实时语言层、持续连接和生产 comparison_watermark。"
     },
     {
       "testCode": "RTM-002",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_002/",
@@ -35,15 +37,16 @@
         "artifactPath": "evidence/m5/RTM-002.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要固定实时快照、30 分钟持续运行和个人域隔离的生产 Radar；当前无生产 auth/runtime。"
+      "blockerReason": "本地已具备确定性 snapshot/runtime；仍需要固定实时快照、30 分钟持续运行和生产个人域隔离/auth。"
     },
     {
       "testCode": "RTM-003",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_003/",
@@ -54,15 +57,18 @@
         "artifactPath": "evidence/m5/RTM-003.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要真实流连接、断线重连、cursor gap 和持久化到达流水；当前只有本地纯 contract fixture。"
+      "blockerReason": "本地 staging 已具备持久化去重/gap 投影；仍需要真实流连接、断线重连和生产到达流水。"
     },
     {
       "testCode": "RTM-004",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb",
+        "lib/local_radar_store.rb",
+        "scripts/local/start_radar.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_004/",
@@ -73,15 +79,18 @@
         "artifactPath": "evidence/m5/RTM-004.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要 RadarPipelineManifest、真实数据库并发/CAS、崩溃恢复和 delivery head；当前没有 M5 持久化 runtime。"
+      "blockerReason": "本地 staging 已具备 snapshot CAS、连续 revision 和并发 winner；仍需要生产 RadarPipelineManifest、数据库恢复和真实 delivery head。"
     },
     {
       "testCode": "RTM-005",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb",
+        "lib/local_radar_store.rb",
+        "scripts/local/start_radar.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_005/",
@@ -92,15 +101,18 @@
         "artifactPath": "evidence/m5/RTM-005.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要真实 revocation epoch 在排序、物化、首字节、分页、详情和缓存边界交错；当前无 Radar delivery runtime。"
+      "blockerReason": "本地 staging 已具备 revocation epoch 整体失效；仍需要生产排序、分页、详情、缓存和首字节交错验证。"
     },
     {
       "testCode": "RTM-006",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb",
+        "lib/local_radar_store.rb",
+        "scripts/local/start_radar.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_006/",
@@ -111,15 +123,18 @@
         "artifactPath": "evidence/m5/RTM-006.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要 production RadarViewToken 签名、continuation membership 与真实请求链；当前无 token service。"
+      "blockerReason": "本地 staging 已具备 HMAC view token 与 scope 校验；仍需要 production key management、continuation membership 和真实请求链。"
     },
     {
       "testCode": "RTM-007",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb",
+        "lib/local_radar_store.rb",
+        "scripts/local/start_radar.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_007/",
@@ -130,15 +145,18 @@
         "artifactPath": "evidence/m5/RTM-007.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要 CDN、SSE/WebSocket、Range、304/stale-if-error 和异步 export 的真实代理环境；当前未部署。"
+      "blockerReason": "本地 staging 只允许完整物化响应；仍需要 CDN、SSE/WebSocket、Range、304/stale-if-error 和异步 export 的代理验证。"
     },
     {
       "testCode": "RTM-008",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb",
+        "lib/local_radar_store.rb",
+        "scripts/local/start_radar.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_008/",
@@ -149,15 +167,18 @@
         "artifactPath": "evidence/m5/RTM-008.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要 committed render snapshot、真实 delivery 写入和首字节门禁；当前只有本地 representation contract。"
+      "blockerReason": "本地已有 representation/hash/length 与 HTTP delivery 切片；仍需要 committed render snapshot 和生产首字节门禁。"
     },
     {
       "testCode": "RTM-009",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb",
+        "lib/local_radar_store.rb",
+        "scripts/local/start_radar.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_009_and_010/",
@@ -168,15 +189,18 @@
         "artifactPath": "evidence/m5/RTM-009.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要共享代理、真实浏览器和跨 audience cache 验证；当前环境没有已部署 delivery envelope。"
+      "blockerReason": "本地 delivery 已设置 no-store、CSP、nosniff 和 Vary；仍需要共享代理、真实浏览器和跨 audience cache 验证。"
     },
     {
       "testCode": "RTM-010",
       "status": "environment_blocked",
       "implementationEvidence": [
-        "lib/m5_contracts.rb"
+        "lib/m5_contracts.rb",
+        "lib/m5_staging_runtime.rb",
+        "lib/local_radar_store.rb",
+        "scripts/local/start_radar.rb"
       ],
       "fixture": {
         "command": "ruby -Ilib test/m5_contracts_test.rb --name /test_rtm_009_and_010/",
@@ -187,9 +211,9 @@
         "artifactPath": "evidence/m5/RTM-010.json",
         "runtimeApplicable": false,
         "runtime": null,
-        "lastVerifiedAt": "2026-08-08T07:12:12Z"
+        "lastVerifiedAt": "2026-08-08T07:30:16Z"
       },
-      "blockerReason": "需要 H2→H1 proxy、浏览器导航/脚本 oracle、真实 header policy 与零首字节执行门禁；当前未配置。"
+      "blockerReason": "本地 header allowlist 已拒绝 CRLF、public cache、危险 MIME/CSP；仍需要 H2→H1 proxy、浏览器执行 oracle 和生产零首字节门禁。"
     }
   ]
 }

@@ -1,1 +1,1 @@
-environment_blocked: 需要共享代理、真实浏览器和跨 audience cache 验证；当前环境没有已部署 delivery envelope。
+environment_blocked: 本地 delivery 已设置 no-store、CSP、nosniff 和 Vary；仍需要共享代理、真实浏览器和跨 audience cache 验证。

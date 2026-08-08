@@ -1,1 +1,1 @@
-environment_blocked: 需要真实流连接、断线重连、cursor gap 和持久化到达流水；当前只有本地纯 contract fixture。
+environment_blocked: 本地 staging 已具备持久化去重/gap 投影；仍需要真实流连接、断线重连和生产到达流水。

@@ -1,1 +1,1 @@
-environment_blocked: 需要 H2→H1 proxy、浏览器导航/脚本 oracle、真实 header policy 与零首字节执行门禁；当前未配置。
+environment_blocked: 本地 header allowlist 已拒绝 CRLF、public cache、危险 MIME/CSP；仍需要 H2→H1 proxy、浏览器执行 oracle 和生产零首字节门禁。

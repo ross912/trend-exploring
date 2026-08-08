@@ -1,1 +1,1 @@
-environment_blocked: 需要 production RadarViewToken 签名、continuation membership 与真实请求链；当前无 token service。
+environment_blocked: 本地 staging 已具备 HMAC view token 与 scope 校验；仍需要 production key management、continuation membership 和真实请求链。

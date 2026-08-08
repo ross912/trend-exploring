@@ -1,6 +1,6 @@
 # 个人全球信息知识库
 
-当前阶段：M1——可执行 schema 与最小垂直切片。M0 已于 2026-08-05 经最终有界审查后有条件冻结；当前验收目录包含 233 个可失败场景。旧“连续无新增”计数停在 0/3，不再继续无限审查；后续问题进入 implementation backlog，重大数据破坏、越权或错误能力声明除外。
+当前阶段：M5——本地 staging vertical slice 已可启动（PostgreSQL 15.18 + Ruby API + Radar 前端）；M0–M4 阶段门已有可信 evidence，M5 的 10 个生产 release gate 仍需实时/生产环境验证。当前验收目录包含 233 个可失败场景。旧“连续无新增”计数停在 0/3，不再继续无限审查；后续问题进入 implementation backlog，重大数据破坏、越权或错误能力声明除外。
 
 这个项目不承诺穷尽世界、消除所有偏差或预测黑天鹅。它的目标是在公开声明的可观察范围内，以不受个人兴趣驱动、权重透明、原始证据可追溯的方式扩大信息覆盖，并尽早识别可能正在发生的变化。
 
@@ -15,6 +15,7 @@
 7. [Codex × Kimi 中继协作协议](docs/06-kimi-codex-relay-collaboration-protocol.md)（外部协作附录，非知识库规范本体）
 8. [设计续跑交接](docs/07-continuation-handoff.md)
 9. [外部开源项目参考目录](reference/README.md)
+10. [本地产品 vertical slice](docs/local-product.md)
 
 ## 当前架构不变量
 
