@@ -12,6 +12,7 @@ root = File.expand_path("..", __dir__)
 options = {
   root: root,
   result: nil,
+  schema_version: "m1.readiness-artifact.v1",
   runtime_name: nil,
   runtime_version: nil,
   test_paths: []
@@ -26,6 +27,7 @@ OptionParser.new do |parser|
   parser.on("--stdout PATH", "Repository-relative combined stdout/stderr path") { |value| options[:stdout] = value }
   parser.on("--root PATH", "Repository root") { |value| options[:root] = File.expand_path(value) }
   parser.on("--result RESULT", "not_run, passed, failed, environment_blocked, or external_blocked") { |value| options[:result] = value }
+  parser.on("--schema-version VERSION", "Artifact schema version") { |value| options[:schema_version] = value }
   parser.on("--blocker-reason REASON", "Required for blocked/not-run records") { |value| options[:blocker_reason] = value }
   parser.on("--runtime-name NAME", "Runtime name, e.g. postgresql") { |value| options[:runtime_name] = value }
   parser.on("--runtime-version VERSION", "Runtime version, e.g. 15.18") { |value| options[:runtime_version] = value }
@@ -86,7 +88,7 @@ FileUtils.mkdir_p(File.dirname(artifact_file))
 File.write(stdout_file, output)
 
 artifact = {
-  "schemaVersion" => "m1.readiness-artifact.v1",
+  "schemaVersion" => options.fetch(:schema_version),
   "testCode" => options.fetch(:code),
   "command" => options.fetch(:command),
   "result" => result,

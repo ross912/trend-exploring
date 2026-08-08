@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m2.readiness-artifact.v1",
+  "testCode": "TIM-012",
+  "command": "ruby -Ilib test/m2_contracts_test.rb",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:35:02Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m2_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m2/TIM-012.stdout.log",
+  "stdoutSha256": "7ebf9836488730bc4f94634e89d7131ab8bb1e3526025843b23cedc8745db5bb",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

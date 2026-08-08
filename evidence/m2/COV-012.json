@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m2.readiness-artifact.v1",
+  "testCode": "COV-012",
+  "command": "ruby -Ilib test/m2_contracts_test.rb",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:35:01Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m2_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m2/COV-012.stdout.log",
+  "stdoutSha256": "84116de729e8a51056cded6d40e3e0ba2bf97b367924a38d37c76bdee13d7c8d",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}

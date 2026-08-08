@@ -16,21 +16,22 @@ module M1
     ].freeze
     FIXTURE_RESULTS = %w[not_run passed failed environment_blocked external_blocked].freeze
     ARTIFACT_SCHEMA = "m1.readiness-artifact.v1"
+    ARTIFACT_SCHEMAS = [ARTIFACT_SCHEMA, "m2.readiness-artifact.v1"].freeze
 
     module_function
 
-    def required_test_codes(acceptance_plan)
+    def required_test_codes(acceptance_plan, phases: %w[M0 M1])
       acceptance_plan.each_line.each_with_object([]) do |line, ids|
         cells = line.split("|").map(&:strip)
         next unless cells.length >= 6 && cells[1].match?(/\A[A-Z][A-Z0-9]*-[0-9]{3}[A-Z]?\z/)
-        next unless %w[M0 M1].include?(cells[2]) && cells[4] == "phase-exit"
+        next unless phases.include?(cells[2]) && cells[4] == "phase-exit"
 
         ids << cells[1]
       end.uniq.sort
     end
 
-    def evaluate(acceptance_plan:, coverage:, root: Dir.pwd)
-      required = required_test_codes(acceptance_plan)
+    def evaluate(acceptance_plan:, coverage:, root: Dir.pwd, phases: %w[M0 M1])
+      required = required_test_codes(acceptance_plan, phases: phases)
       entries = coverage.fetch("entries")
       by_code = entries.each_with_object({}) do |entry, memo|
         code = entry.fetch("testCode")
@@ -172,7 +173,7 @@ module M1
     end
 
     def validate_artifact!(artifact, code, fixture, root, errors)
-      errors << "artifact schema mismatch" unless artifact["schemaVersion"] == ARTIFACT_SCHEMA
+      errors << "artifact schema mismatch" unless ARTIFACT_SCHEMAS.include?(artifact["schemaVersion"])
       errors << "artifact testCode mismatch" unless artifact["testCode"] == code
       errors << "artifact command mismatch" unless artifact["command"] == fixture["command"]
       errors << "artifact result mismatch" unless artifact["result"] == fixture["result"]

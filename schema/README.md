@@ -24,6 +24,8 @@
 - `m1-data-domain-map.json`：010 migration 的 5 张个人/全局数据域表映射。
 - `m1-phase-exit-coverage.json`：M1 phase-exit 30 个 required IDs 的结构化证据覆盖矩阵。最终状态由 readiness checker 根据实现证据、fixture 命令、真实结果和 artifact 校验计算；`partial` 不再是有效最终状态。旧条目缺少结构化字段时会得到 `invalid_evidence`，不会被当作通过。
 - `m1-readiness-artifact.schema.json`：每次 fixture/test 执行输出的不可变 evidence artifact 合同；checker 还会验证 artifact 文件存在、testCode/命令/结果/测试路径关联和 stdout SHA-256。
+- `m2-phase-exit-coverage.json`：M2 phase-exit 的 14 个 required IDs 结构化覆盖矩阵；由 `report_m2_readiness.rb` 使用同一 artifact 链校验。
+- `m2-readiness-artifact.schema.json`：M2 artifact schema；实现/测试变更后必须重新 recorder，旧输出不能证明新代码。
 - `fixtures/provider-response-set.valid.json`：A 失败、B 成功但完整闭合的合法批次。
 - `fixtures/provider-response-set.omitted-member.invalid.json`：只保存成功 B、遗漏失败 A 的 ADV-013 反例。
 - `../lib/provider_response_set.rb`：response member closure 的可执行语义。
@@ -46,6 +48,7 @@
 - `../scripts/lint_identifiers.rb`：跨文档验收 ID、object map、event infrastructure map 和 EventRegistry 的一致性 lint。
 - `../scripts/evaluate_m1_gate.rb`：按 `introduced_phase`/applicable/blocking=phase-exit 计算 M1 gate；未签名 catalog、缺 result、not_applicable 和失败结果均阻断。
 - `../scripts/report_m1_readiness.rb`：对 M0→M1 inherited phase-exit 项逐项校验结构化证据链，输出 `fixture_passed`、`implemented`、`not_implemented`、`fixture_failed`、`environment_blocked`、`external_blocked` 与 `invalid_evidence` 分类；不会信任 coverage JSON 中人工填写的 fixture_passed。
+- `../scripts/report_m2_readiness.rb`：对 M2 phase-exit 14 项按同一规则逐项校验证据链；release/normal-edition/service-claim 属于后续独立 gate，不因 phase-exit ready 自动通过。
 
 ## 本地验证
 

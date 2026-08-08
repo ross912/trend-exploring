@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "m2.readiness-artifact.v1",
+  "testCode": "UX-008",
+  "command": "ruby -Ilib test/m2_contracts_test.rb",
+  "result": "passed",
+  "verified": true,
+  "verifiedAt": "2026-08-08T06:35:03Z",
+  "runtime": null,
+  "testPaths": [
+    "test/m2_contracts_test.rb"
+  ],
+  "stdoutPath": "evidence/m2/UX-008.stdout.log",
+  "stdoutSha256": "374187f89751c6fd1526672c9bf3ec7336320769e33ae860e58138964c4e9504",
+  "commandExitStatus": 0,
+  "runner": "scripts/record_m1_readiness_evidence.rb"
+}
