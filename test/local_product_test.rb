@@ -38,6 +38,8 @@ class LocalProductTest < Minitest::Test
     assert_includes html, "来源矩阵"
     assert_includes html, "可解释趋势"
     assert_includes css, ".signal-card"
+    assert_includes css, ".card-meta"
+    assert_includes js, "card-time"
     assert_includes js, "/api/radar"
   end
 

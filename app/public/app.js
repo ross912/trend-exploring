@@ -16,10 +16,18 @@ function formatGrowth(value) {
 
 function renderSources(sources) {
   const roster = $("#source-roster");
+  const summary = $("#coverage-summary");
   if (!sources.length) {
     roster.innerHTML = '<div class="empty-state">还没有来源采集记录。</div>';
+    summary.innerHTML = "";
     return;
   }
+  const groups = sources.filter((source) => source.enabled).reduce((result, source) => {
+    const region = source.region || "未标注";
+    result[region] = (result[region] || 0) + 1;
+    return result;
+  }, {});
+  summary.innerHTML = Object.entries(groups).map(([region, count]) => `<span><strong>${escapeHtml(count)}</strong>${escapeHtml(region)}</span>`).join("");
   roster.innerHTML = sources.map((source) => {
     const status = source.last_error ? "采集异常" : `${escapeHtml(source.last_item_count)} 条新条目`;
     const sourceLink = /^https:\/\//.test(source.source_url || "")
@@ -66,8 +74,8 @@ function renderNews(cards) {
   container.innerHTML = cards.map((card) => `
     <article class="signal-card" data-type="${escapeHtml(card.signal_type)}">
       <div class="card-type">${escapeHtml(signalLabels[card.signal_type] || card.signal_type)}</div>
-      <div><h3 class="card-title">${escapeHtml(card.title)}</h3><p class="card-summary">${escapeHtml(card.summary)}</p></div>
-      <div class="card-metric"><span>${escapeHtml(card.metric_label)}</span><strong>${escapeHtml(card.metric_value)}</strong><small>${escapeHtml(card.source_name)} · ${escapeHtml(languageLabels[card.source_language] || card.source_language || "原文")} · ${escapeHtml(card.source_region || "未标注")}${/^https:\/\//.test(card.source_url || "") ? ` · <a class="source-link" href="${escapeHtml(card.source_url)}" target="_blank" rel="noopener noreferrer">查看原文</a>` : ""}</small></div>
+      <div class="card-main"><h3 class="card-title">${escapeHtml(card.title)}</h3><p class="card-summary">${escapeHtml(card.summary)}</p></div>
+      <div class="card-meta"><span class="card-source">${escapeHtml(card.source_name)}</span><span class="card-language">${escapeHtml(languageLabels[card.source_language] || card.source_language || "原文")} · ${escapeHtml(card.source_region || "未标注")}</span><span class="card-time"><span>${escapeHtml(card.metric_label)}</span>${escapeHtml(card.metric_value)}</span>${/^https:\/\//.test(card.source_url || "") ? ` <a class="source-link" href="${escapeHtml(card.source_url)}" target="_blank" rel="noopener noreferrer">查看原文</a>` : ""}</div>
     </article>`).join("");
 }
 

@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Trend Exploring 本地信号雷达">
-    <title>Trend Exploring · Signal Field</title>
+    <meta name="description" content="Trend Exploring 全球变化台">
+    <title>Trend Exploring · 全球变化台</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -12,7 +12,7 @@
       <header class="masthead">
         <a class="brand" href="/" aria-label="Trend Exploring home">
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span><strong>Trend Exploring</strong><small>信号场 / 本地 staging</small></span>
+          <span><strong>Trend Exploring</strong><small>全球变化台 / 本地验证版</small></span>
         </a>
         <div class="header-meta">
           <span class="live-chip"><span class="live-dot"></span><span id="health-label">本地连接</span></span>
@@ -23,50 +23,53 @@
       <main>
         <section class="hero-grid" aria-labelledby="page-title">
           <div class="hero-copy">
-            <p class="eyebrow">公开雷达 · 变化发生处</p>
-            <h1 id="page-title">看见变化，<em>在它变得显而易见之前。</em></h1>
-            <p class="hero-note">把讨论量、扩散路径、行动证据和覆盖缺口放在同一张可追溯的桌面上。这里不替你下结论，只把下一步值得观察的地方标出来。</p>
+            <p class="eyebrow">全球情报台 · 当前快照</p>
+            <h1 id="page-title">先看变化，<em>再看新闻。</em></h1>
+            <p class="hero-note">从多地区、多语言来源中，先找出交叉出现且仍在变化的话题，再回到原文核验。趋势是候选线索，不是自动下结论。</p>
             <div class="hero-actions">
-              <button class="refresh-button" id="refresh-button" type="button"><span>↻</span> 刷新雷达</button>
-              <span class="data-note" id="data-note">读取 staging snapshot…</span>
+              <button class="refresh-button" id="refresh-button" type="button"><span>↻</span> 更新快照</button>
+              <span class="data-note" id="data-note">读取当前快照…</span>
             </div>
           </div>
           <aside class="frontier-panel" aria-label="雷达前沿">
-            <div class="frontier-head"><span>当前前沿</span><span class="mono" id="revision">—</span></div>
-            <div class="frontier-line"><span class="frontier-pulse"></span><span id="watermark">—</span></div>
+            <div class="frontier-head"><span>当前快照</span><span class="mono" id="revision">—</span></div>
+            <div class="frontier-line"><span class="frontier-pulse"></span><span><small>数据截至</small><strong id="watermark">—</strong></span></div>
             <div class="frontier-stats">
               <div><span>活跃来源</span><strong id="source-count">—</strong></div>
               <div><span>覆盖地区</span><strong id="region-count">—</strong></div>
               <div><span>可验证趋势</span><strong id="trend-count">—</strong></div>
-              <div><span>方法版本</span><strong id="method-epoch">—</strong></div>
+            </div>
+            <details class="trace-details">
+              <summary>查看快照溯源</summary>
+              <div><span>方法</span><strong id="method-epoch">—</strong></div>
               <div><span>权利纪元</span><strong id="rights-epoch">—</strong></div>
               <div><span>雷达表面</span><strong id="surface-id">—</strong></div>
-            </div>
-            <p class="frontier-caption">趋势必须同时满足时间窗变化和至少两个独立来源；单条新闻只留在新闻区。</p>
+            </details>
           </aside>
         </section>
 
         <section class="coverage-section" aria-labelledby="coverage-heading">
           <div class="coverage-copy">
             <p class="eyebrow">来源矩阵</p>
-            <h2 id="coverage-heading">全球覆盖，不等于单一榜单</h2>
-            <p>来源按地区与语言分层。每个来源显示最近一次真实采集数量；英文条目保留原文，不伪装成中文翻译。</p>
+            <h2 id="coverage-heading">先看覆盖，再相信结论</h2>
+            <p>来源按地区与语言分层。覆盖越广，交叉验证越有意义；英文条目保留原文，不伪装成中文翻译。</p>
+            <div class="coverage-summary" id="coverage-summary" aria-label="覆盖摘要"></div>
           </div>
           <div class="source-roster" id="source-roster" aria-live="polite"></div>
         </section>
 
         <section class="trend-section" aria-labelledby="trend-heading">
           <div class="section-heading">
-            <div><p class="eyebrow">可解释趋势</p><h2 id="trend-heading">先看交叉来源的变化</h2></div>
+            <div><p class="eyebrow">可解释趋势</p><h2 id="trend-heading">什么正在变化？</h2></div>
             <span class="section-count" id="trend-count-label">0 条趋势</span>
           </div>
-          <div class="trend-note">趋势门槛：48 小时观察窗 / 最近 12 小时对比 / 至少 2 次提及 / 至少 2 个独立来源。</div>
+          <div class="trend-note">趋势候选 = 48 小时观察窗 × 最近 12 小时变化 × 至少 2 个独立来源。点击证据回到原文。</div>
           <div class="trend-grid" id="trends" aria-live="polite"></div>
         </section>
 
         <section class="signal-section" aria-labelledby="signal-heading">
           <div class="section-heading">
-            <div><p class="eyebrow">最新新闻</p><h2 id="signal-heading">按来源查看现场</h2></div>
+            <div><p class="eyebrow">最新新闻</p><h2 id="signal-heading">回到原文现场</h2></div>
             <span class="section-count" id="card-count">0 条新闻</span>
           </div>
           <div class="signal-layout">
@@ -77,12 +80,12 @@
 
         <section class="guardrail" aria-label="证据边界">
           <div class="guardrail-icon">⌁</div>
-          <div><p class="eyebrow">先看证据边界</p><p>这些卡片来自本地 staging 数据库。每条信号都保留来源数量、行动阶段和证据边界；“未知”是可见状态，不是空白。</p></div>
+          <div><p class="eyebrow">先看证据边界</p><p>趋势只表示多来源、时间窗内的重复变化；它不是预测，也不替代人工核验。单源新闻会留在新闻区。</p></div>
           <span class="guardrail-tag">证据优先</span>
         </section>
       </main>
 
-      <footer class="footer"><span>Trend Exploring / 本地产品切片</span><span>公开雷达 · 不读取个人记忆</span></footer>
+      <footer class="footer"><span>Trend Exploring / 本地验证版</span><span>公开来源 · 原文可追溯</span></footer>
     </div>
     <script src="/app.js" defer></script>
   </body>
