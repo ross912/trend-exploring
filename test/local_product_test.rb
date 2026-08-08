@@ -24,13 +24,15 @@ class LocalProductTest < Minitest::Test
     radar = @store.current_radar
     assert_equal "staging-snapshot-001", radar.dig("snapshot", "snapshot_id")
     assert_equal 3, radar.fetch("cards").length
+    assert_includes radar.fetch("cards").first.fetch("title"), "小语种"
+    assert_includes radar.fetch("cards").first.fetch("summary"), "独立证据"
   end
 
   def test_frontend_is_present_and_contains_evidence_boundary_copy
     html = File.read(File.join(ROOT, "app/public/index.html"))
     css = File.read(File.join(ROOT, "app/public/styles.css"))
     js = File.read(File.join(ROOT, "app/public/app.js"))
-    assert_includes html, "evidence first"
+    assert_includes html, "证据优先"
     assert_includes css, ".signal-card"
     assert_includes js, "/api/radar"
   end

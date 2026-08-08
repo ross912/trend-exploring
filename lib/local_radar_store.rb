@@ -61,9 +61,9 @@ class LocalRadarStore
         INSERT INTO local_radar_card
           (card_id, snapshot_id, signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage, evidence_label, sort_order)
         VALUES
-          ('card-001', 'staging-snapshot-001', 'diffusion', 'Small language, wider footprint', 'A low-volume concept is appearing across three local actor groups with independent evidence edges.', 'independent actors', '3', 7, 'mixed', 'early adoption', '3 local edges / 7 source versions', 0),
-          ('card-002', 'staging-snapshot-001', 'emergence', 'The conversation moved before the count did', 'Mentions rose while action evidence stayed flat; the signal remains attention, not adoption.', 'mention delta', '+42%', 12, 'skeptical', 'discussion', 'action evidence missing', 1),
-          ('card-003', 'staging-snapshot-001', 'exploration', 'Unknown territory', 'An open-world sample was eligible for exploration but no detector promoted it to a candidate.', 'detector result', 'no-candidate', 0, 'unknown', 'not applicable', 'exploration only', 2)
+          ('card-001', 'staging-snapshot-001', 'diffusion', '小语种，正在扩散的足迹', '一个低总量命题正在三个本地行动者群体中出现，并且每条路径都有独立证据边。', '独立行动者', '3', 7, 'mixed', '早期采纳', '3 条本地路径 / 7 个来源版本', 0),
+          ('card-002', 'staging-snapshot-001', 'emergence', '讨论先动了，数量还没有', '讨论量已经上升，但行动证据保持不变；当前更像关注增加，而不是采用增加。', '讨论增量', '+42%', 12, 'skeptical', '讨论阶段', '尚缺行动证据', 1),
+          ('card-003', 'staging-snapshot-001', 'exploration', '未知地带', '一个开放世界样本通过了探索资格，但没有任何检测器把它升级为候选信号。', '检测结果', '无候选', 0, 'unknown', '不适用', '仅作探索材料', 2)
         ON CONFLICT (card_id) DO NOTHING
       SQL
     end
