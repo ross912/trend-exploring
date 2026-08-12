@@ -23,7 +23,7 @@ module M2
       ordered = windows.sort_by { |window| parse_time(window_value(window, :start)) }
       ordered.each_cons(2) do |left, right|
         raise Error, "nominal windows must be non-overlapping and contiguous" unless
-          parse_time(window_value(left, :end)) <= parse_time(window_value(right, :start))
+          parse_time(window_value(left, :end)) == parse_time(window_value(right, :start))
       end
       ordered.each do |window|
         raise Error, "nominal window must have positive duration" unless

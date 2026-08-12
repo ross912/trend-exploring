@@ -53,9 +53,12 @@ class TrendAnalyzer
       timestamp = parse_time(item["published_at"])
       next if timestamp.nil? || timestamp < window_start || timestamp > ending + 300
 
-      tokens(item.fetch("title", ""), item.fetch("summary", ""), item.fetch("language", "" )).each do |token|
+      analysis_language = item.fetch("translation_status", "") == "translated" ? "zh-CN" : item.fetch("language", "")
+      item_tokens = tokens(item.fetch("display_title", item.fetch("title", "")), item.fetch("display_summary", item.fetch("summary", "")), analysis_language)
+      token_labels = item_tokens.map { |token| token.fetch("label") }
+      item_tokens.each do |token|
         bucket = candidates[token.fetch("key")]
-        bucket["items"] << item.merge("_trend_timestamp" => timestamp)
+        bucket["items"] << item.merge("_trend_timestamp" => timestamp, "_trend_tokens" => token_labels)
         bucket["topic"] ||= token.fetch("label")
         bucket["language"] ||= token.fetch("language")
         bucket["topic_kind"] ||= token.fetch("kind", "term")
@@ -64,8 +67,9 @@ class TrendAnalyzer
 
     trends = candidates.each_with_object([]) do |(topic_key, bucket), result|
       records = bucket.fetch("items")
-      unique_sources = records.map { |item| item.fetch("source_id") }.uniq
+      unique_sources = records.map { |item| source_identity(item) }.uniq
       next if records.length < MIN_MENTIONS || unique_sources.length < MIN_INDEPENDENT_SOURCES
+      next if bucket.fetch("topic_kind", "term") == "term" && !contextual_support?(records, bucket.fetch("topic"))
 
       recent_records, prior_records = records.partition { |item| item.fetch("_trend_timestamp") >= recent_start }
       recent_count = recent_records.length
@@ -78,7 +82,7 @@ class TrendAnalyzer
               else
                 "watching"
               end
-      source_names = records.map { |item| item.fetch("source_name") }.uniq.sort
+      source_names = records.map { |item| item.fetch("publisher_name", item.fetch("source_name")) }.uniq.sort
       regions = records.map { |item| item.fetch("region", "未标注") }.uniq.sort
       languages = records.map { |item| item.fetch("language", "未标注") }.uniq.sort
       growth_rate = prior_count.zero? ? nil : (((recent_count - prior_count).to_f / prior_count) * 100).round(1)
@@ -88,14 +92,18 @@ class TrendAnalyzer
                       "相对前一窗口 #{format_growth(growth_rate)}"
                     end
       topic = bucket.fetch("topic")
+      semantic_status = bucket.fetch("topic_kind", "term") == "phrase" ? "deterministic_episode" : "contextual_term"
       result << {
         "trend_key" => topic_key,
         "topic_key" => topic_key,
         "topic" => topic,
         "topic_language" => bucket.fetch("language"),
         "topic_kind" => bucket.fetch("topic_kind", "term"),
+        "semantic_status" => semantic_status,
+        "topic_label" => topic,
+        "topic_explanation" => bucket.fetch("topic_kind", "term") == "phrase" ? "多个去重来源标识共享同一重复相邻词组。" : "多个去重来源标识提及同一词，并共享标题上下文。",
         "signal_state" => state,
-        "summary" => "“#{topic}”在最近 #{@recent_window_hours} 小时出现 #{recent_count} 次，覆盖 #{unique_sources.length} 个独立来源；#{growth_text}。",
+        "summary" => "“#{topic}”在最近 #{@recent_window_hours} 小时出现 #{recent_count} 次，包含 #{unique_sources.length} 个去重来源标识；这是词频线索，#{growth_text}。",
         "mention_count" => records.length,
         "recent_mention_count" => recent_count,
         "prior_mention_count" => prior_count,
@@ -172,6 +180,23 @@ class TrendAnalyzer
   def better_fragment_representative?(candidate, other)
     candidate.fetch("source_count") > other.fetch("source_count") ||
       (candidate.fetch("source_count") == other.fetch("source_count") && candidate.fetch("mention_count") >= other.fetch("mention_count"))
+  end
+
+  def source_identity(item)
+    publisher_url = item.fetch("publisher_url", "").to_s.strip.downcase
+    publisher_url.empty? ? "feed:#{item.fetch('source_id')}" : "publisher:#{publisher_url}"
+  end
+
+  def contextual_support?(records, topic)
+    context_counts = Hash.new { |hash, key| hash[key] = Set.new }
+    records.each do |item|
+      Array(item.fetch("_trend_tokens", [])).uniq.each do |token|
+        next if token == topic
+
+        context_counts[token] << source_identity(item)
+      end
+    end
+    context_counts.values.any? { |sources| sources.length >= MIN_INDEPENDENT_SOURCES }
   end
 
   def parse_time(value)

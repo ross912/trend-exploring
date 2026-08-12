@@ -204,6 +204,8 @@ module M2
         end
       end
       true
+    rescue ReportWindowContract::Error => error
+      raise Error, error.message
     rescue KeyError, ArgumentError, TypeError => error
       raise Error, "report publication contract is incomplete: #{error.message}"
     end

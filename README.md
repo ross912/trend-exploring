@@ -1,8 +1,14 @@
-# 个人全球信息知识库
+# 多来源信息台
 
-当前阶段：M5——本地 staging vertical slice 已可启动（PostgreSQL 15.18 + Ruby API + Radar 前端），已接入多区域、多语言公开 RSS/Atom 来源矩阵，并以真实采集条目生成独立来源与时间窗可解释趋势；M0–M4 阶段门已有可信 evidence，M5 的 10 个生产 release gate 仍需实时/生产环境验证。当前验收目录包含 233 个可失败场景。旧“连续无新增”计数停在 0/3，不再继续无限审查；后续问题进入 implementation backlog，重大数据破坏、越权或错误能力声明除外。
+当前阶段：单用户本地产品已经可持续运行（PostgreSQL 15.18 + Ruby API + 统一前端 + macOS 定时任务），接入 13 个编辑 RSS、6 个预设 Google News 主题查询入口和 8 个 Google News locale headlines 入口；signal 分析仍只接收当前支持的中英文，locale 探索会保留更多原文语言供归档/浏览。它记录域名观察、重复词频候选和高精度低召回事件文本相似候选；事件地域尚未验证，主题查询受预设关键词条件约束，词频与事件候选输出只是可追溯线索，机器译文不等于人工核验。它不是全球覆盖、开放世界发现或连续实时流。
 
-这个项目不承诺穷尽世界、消除所有偏差或预测黑天鹅。它的目标是在公开声明的可观察范围内，以不受个人兴趣驱动、权重透明、原始证据可追溯的方式扩大信息覆盖，并尽早识别可能正在发生的变化。
+这个项目把公开来源的采集入口、元数据、短摘要和原文链接保存在本地，并以去重来源标识统计哪些词在重复出现；它不把入口标签当作事件地域，也不把域名观察当作组织属性。当前能力用于可追溯的本地核验，不承诺穷尽世界或预测变化。
+
+探索前沿是独立的 locale-conditioned、topic-unconditioned 聚合器中介切片：每批从配置的 Google News locale headlines 入口记录成功/空/失败分母，并按不可变版本选择最多 12 条归档材料。它只支持原文归档与浏览，不进入趋势、事件候选、卡片或翻译；locale-only 发布会在 snapshot 标记 `reused_previous` 并沿用 signal projection，不声称重要、新颖、趋势或早期信号；事件地域仍未验证。
+
+本地日报账本另有两个 Asia/Shanghai 半开时段（08:00 morning、19:00 evening），先发布不可变 raw listings，再可选地通过 CLI 追加可替换、可追溯的 AI summary projection；summary 不回写 edition/placement/version，不代表全球覆盖或确定性结论。无 API 凭据会明确保留 blocked run，raw 日报仍可读。
+
+运维入口见 [本地产品运行手册](docs/local-product.md)：默认持久化在 macOS 的 `~/Library/Application Support/TrendExploring`，无 PostgreSQL 时安装器会校验固定源码 SHA256 后构建；LaunchAgent 提供 07:55/18:55 预采集、08:05/19:05 日报周期和登录后本地 UI server。`status_local.rb`、`backup_local.sh`、`restore_local.sh` 分别提供状态、全局+个人一致性备份和 disposable DB 恢复验证。
 
 ## 阅读顺序
 
@@ -30,9 +36,9 @@
 - 候选与 proposition family 双身份冻结，合并/拆分不改变前瞻评价分母；
 - 数据缺失、来源断流和不可观察区域必须显式呈现。
 
-## 当前实施入口
+## 契约与回归入口
 
-从统一契约派生首批 PostgreSQL DDL 与 JSON Schema，并建立 schema validator、最小反例 fixtures 和 M1 小规模端到端垂直切片；先覆盖 identity/record registry、manifest activation、provider response set、token use、credential lifecycle 与 evaluation arm closure，再做来源授权、语言质量、处理成本和报告时延试验。
+仓库同时保留从统一契约派生的 PostgreSQL DDL、JSON Schema、schema validator、反例 fixtures 与 M1 端到端切片；这些工件用于验证 identity/record registry、manifest activation、provider response set、token use、credential lifecycle 与 evaluation arm closure，不等同于本地产品的运行状态。
 
 首批 M1 工件已建立：
 

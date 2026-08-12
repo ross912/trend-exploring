@@ -3,89 +3,158 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Trend Exploring 全球变化台">
-    <title>Trend Exploring · 全球变化台</title>
+    <meta name="description" content="Trend Exploring：保留原始来源、报告、探索材料与个人对话边界的本地观察台">
+    <title>Trend Exploring · 世界观察台</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <div class="app-shell">
       <header class="masthead">
-        <a class="brand" href="/" aria-label="Trend Exploring home">
+        <a class="brand" href="#top" aria-label="Trend Exploring home">
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span><strong>Trend Exploring</strong><small>全球变化台 / 本地验证版</small></span>
+          <span><strong>Trend Exploring</strong><small>个人世界观察台 / 本地验证版</small></span>
         </a>
         <div class="header-meta">
-          <span class="live-chip"><span class="live-dot"></span><span id="health-label">本地连接</span></span>
+          <span class="live-chip"><span class="live-dot" id="health-dot"></span><span id="health-label">连接检查中</span></span>
           <span class="header-time" id="clock">--:--:--</span>
         </div>
       </header>
 
-      <main>
+      <nav class="desk-nav" aria-label="观察台入口">
+        <a href="#reports">日报</a>
+        <a href="#live-radar">来源雷达</a>
+        <a href="#exploration">探索前沿</a>
+        <a href="#weak-signals">弱信号候选</a>
+        <a href="#conversation">与资料对话</a>
+      </nav>
+
+      <main id="top">
         <section class="hero-grid" aria-labelledby="page-title">
           <div class="hero-copy">
-            <p class="eyebrow">全球情报台 · 当前快照</p>
-            <h1 id="page-title">先看变化，<em>再看新闻。</em></h1>
-            <p class="hero-note">从多地区、多语言来源中，先找出交叉出现且仍在变化的话题，再回到原文核验。趋势是候选线索，不是自动下结论。</p>
+            <p class="eyebrow">多来源信息台 · 观察入口</p>
+            <h1 id="page-title">先保留现场，<em>再讨论方向。</em></h1>
+            <p class="hero-note">原始条目、日报事实账本、探索材料和词组变化候选分开呈现。AI 只在已归档证据之上工作，个人记忆只进入对话服务，不进入采集与雷达。</p>
             <div class="hero-actions">
-              <button class="refresh-button" id="refresh-button" type="button"><span>↻</span> 更新快照</button>
-              <span class="data-note" id="data-note">读取当前快照…</span>
+              <button class="refresh-button" id="refresh-button" type="button"><span aria-hidden="true">↻</span> 更新观察台</button>
+              <span class="data-note" id="data-note">正在读取已发布数据…</span>
             </div>
           </div>
-          <aside class="frontier-panel" aria-label="雷达前沿">
-            <div class="frontier-head"><span>当前快照</span><span class="mono" id="revision">—</span></div>
-            <div class="frontier-line"><span class="frontier-pulse"></span><span><small>数据截至</small><strong id="watermark">—</strong></span></div>
+          <aside class="frontier-panel" aria-label="当前观察状态">
+            <div class="frontier-head"><span>当前观察状态</span><span class="mono" id="revision">未提供</span></div>
+            <div class="frontier-line"><span class="frontier-pulse"></span><span><small>本批采集水位</small><strong id="watermark">未提供</strong></span></div>
             <div class="frontier-stats">
-              <div><span>活跃来源</span><strong id="source-count">—</strong></div>
-              <div><span>覆盖地区</span><strong id="region-count">—</strong></div>
-              <div><span>可验证趋势</span><strong id="trend-count">—</strong></div>
+              <div><span>已启用入口</span><strong id="source-count">未提供</strong></div>
+              <div><span>词频线索</span><strong id="trend-count">未提供</strong></div>
+              <div><span>弱信号候选</span><strong id="weak-count">未提供</strong></div>
             </div>
             <details class="trace-details">
               <summary>查看快照溯源</summary>
-              <div><span>方法</span><strong id="method-epoch">—</strong></div>
-              <div><span>权利纪元</span><strong id="rights-epoch">—</strong></div>
-              <div><span>雷达表面</span><strong id="surface-id">—</strong></div>
+              <div><span>方法</span><strong id="method-epoch">未提供</strong></div>
+              <div><span>权利纪元</span><strong id="rights-epoch">未提供</strong></div>
+              <div><span>雷达表面</span><strong id="surface-id">未提供</strong></div>
+              <div><span>signal 投影</span><strong id="signal-projection">未提供</strong></div>
             </details>
           </aside>
+        </section>
+
+        <section class="reports-section" id="reports" aria-labelledby="reports-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">08:00 / 19:00 · Asia/Shanghai</p><h2 id="reports-heading">两次日报，先读摘要，再回到原文</h2></div>
+            <span class="section-count" id="report-count-label">等待日报</span>
+          </div>
+          <p class="section-boundary">日报只覆盖已归档且落入固定半开时间窗的条目。raw edition 永不被 AI 摘要覆盖；摘要没有凭据或生成失败时，原文入口仍然可读。</p>
+          <div class="report-grid">
+            <article class="report-card" id="morning-report" aria-labelledby="morning-report-heading">
+              <div class="report-card-head"><div><span class="report-slot">MORNING / 08:00</span><h3 id="morning-report-heading">昨晚到今早</h3></div><span class="report-status" data-report-status>读取中</span></div>
+              <div class="report-content" data-report-content><div class="loading-state">正在读取日报事实账本…</div></div>
+            </article>
+            <article class="report-card" id="evening-report" aria-labelledby="evening-report-heading">
+              <div class="report-card-head"><div><span class="report-slot">EVENING / 19:00</span><h3 id="evening-report-heading">今早到傍晚</h3></div><span class="report-status" data-report-status>读取中</span></div>
+              <div class="report-content" data-report-content><div class="loading-state">正在读取日报事实账本…</div></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="radar-section" id="live-radar" aria-labelledby="radar-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">已发布快照 · 非连续流</p><h2 id="radar-heading">当前来源雷达</h2></div>
+            <span class="section-count" id="card-count">0 条新闻</span>
+          </div>
+          <p class="section-boundary">这里展示当前已发布 snapshot：编辑 RSS、预设主题入口与它们的证据边界分开。archive 当前只保存元数据、短摘要和原文链接，不是新闻全文副本。入口标签不是事件地域，词频线索不等于世界变化结论。</p>
+          <div class="signal-layout">
+            <div class="signal-rail" aria-hidden="true"><span class="rail-dot active"></span><span class="rail-line"></span><span class="rail-dot"></span><span class="rail-line short"></span><span class="rail-dot"></span></div>
+            <div class="cards" id="cards" aria-live="polite"><div class="loading-state">正在读取原文入口…</div></div>
+          </div>
         </section>
 
         <section class="coverage-section" aria-labelledby="coverage-heading">
           <div class="coverage-copy">
             <p class="eyebrow">来源矩阵</p>
-            <h2 id="coverage-heading">先看覆盖，再相信结论</h2>
-            <p>来源按地区与语言分层。覆盖越广，交叉验证越有意义；英文条目保留原文，不伪装成中文翻译。</p>
+            <h2 id="coverage-heading">先看边界，再看变化</h2>
+            <p>编辑 RSS、预设主题查询与 locale 头条入口分开展示；观察到的出版方只按域名记录。事件地域尚未验证，locale 市场标签不是事件地域，英文及未支持分析语言保留原文。</p>
             <div class="coverage-summary" id="coverage-summary" aria-label="覆盖摘要"></div>
+            <div class="coverage-debts" id="coverage-debts" aria-label="覆盖债务"></div>
+            <p class="coverage-note" id="coverage-note">等待来源边界…</p>
           </div>
-          <div class="source-roster" id="source-roster" aria-live="polite"></div>
+          <div class="source-roster" id="source-roster" aria-live="polite"><div class="loading-state">正在读取入口矩阵…</div></div>
         </section>
 
-        <section class="trend-section" aria-labelledby="trend-heading">
+        <section class="signal-section" aria-labelledby="trend-heading">
           <div class="section-heading">
-            <div><p class="eyebrow">可解释趋势</p><h2 id="trend-heading">什么正在变化？</h2></div>
-            <span class="section-count" id="trend-count-label">0 条趋势</span>
+            <div><p class="eyebrow">词频线索 · 非事件判定</p><h2 id="trend-heading">哪些词在重复出现？</h2></div>
+            <span class="section-count" id="trend-count-label">0 个词频线索</span>
           </div>
-          <div class="trend-note">趋势候选 = 48 小时观察窗 × 最近 12 小时变化 × 至少 2 个独立来源。点击证据回到原文。</div>
-          <div class="trend-grid" id="trends" aria-live="polite"></div>
+          <p class="section-boundary">词频候选 = 观察窗内的重复出现与去重来源标识。它不判断影响、重要性、新颖性或因果关系。</p>
+          <div class="trend-grid" id="trends" aria-live="polite"><div class="loading-state">正在读取词频候选…</div></div>
+          <div class="event-block">
+            <div class="subsection-heading"><h3>事件候选</h3><span class="section-count" id="event-count-label">0 个候选</span></div>
+            <p class="section-boundary">仅展示同语言、同时间窗且通过确定性文本锚门槛的候选；这不是已确认事件，也不会把 query evidence 计入资格。</p>
+            <div class="event-grid" id="event-candidates" aria-live="polite"><div class="loading-state">正在读取事件候选…</div></div>
+          </div>
         </section>
 
-        <section class="signal-section" aria-labelledby="signal-heading">
+        <section class="exploration-section" id="exploration" aria-labelledby="exploration-heading">
           <div class="section-heading">
-            <div><p class="eyebrow">最新新闻</p><h2 id="signal-heading">回到原文现场</h2></div>
-            <span class="section-count" id="card-count">0 条新闻</span>
+            <div><p class="eyebrow">探索前沿 · 仅归档/浏览</p><h2 id="exploration-heading">预设主题之外，本批看到了什么？</h2></div>
+            <span class="section-count" id="exploration-count-label">等待本批</span>
           </div>
-          <div class="signal-layout">
-            <div class="signal-rail" aria-hidden="true"><span class="rail-dot active"></span><span class="rail-line"></span><span class="rail-dot"></span><span class="rail-line short"></span><span class="rail-dot"></span></div>
-            <div class="cards" id="cards" aria-live="polite"></div>
+          <div class="exploration-boundary" id="exploration-boundary">聚合器中介的 locale headlines；topic-conditioned=false，signal-eligible=false，事件地域未验证。这里不声称重要、新颖、趋势或早期信号。</div>
+          <div class="exploration-meta" id="exploration-meta"></div>
+          <div class="exploration-grid" id="exploration-items" aria-live="polite"><div class="loading-state">正在读取探索归档…</div></div>
+        </section>
+
+        <section class="weak-section" id="weak-signals" aria-labelledby="weak-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">规则检测 · v1</p><h2 id="weak-heading">弱信号候选</h2></div>
+            <span class="section-count" id="weak-status-label">等待检测器</span>
           </div>
+          <p class="section-boundary">弱信号区只展示词组的重复、来源扩张、语言/locale 参与或讨论下降候选。基线不足时显示 warming_up；候选不是预测、趋势确认或重要性排序。</p>
+          <div class="weak-run-meta" id="weak-run-meta"></div>
+          <div class="weak-grid" id="weak-items" aria-live="polite"><div class="loading-state">正在读取弱信号检测结果…</div></div>
+        </section>
+
+        <section class="conversation-section" id="conversation" aria-labelledby="conversation-heading">
+          <div class="conversation-intro">
+            <p class="eyebrow">隔离的个人窗口</p>
+            <h2 id="conversation-heading">与已归档资料对话</h2>
+            <p>提问时先检索全球原始档案，再读取个人记忆。个人记忆数据库与采集数据库物理分离；网页不会自动写入记忆。没有 provider 凭据时仍显示 raw evidence 与个人记忆，不伪造 AI 回答。</p>
+          </div>
+          <form class="conversation-form" id="conversation-form">
+            <label for="conversation-question">你的问题</label>
+            <textarea id="conversation-question" name="question" rows="4" maxlength="2000" required placeholder="例如：哪些词组最近在更多出版方中出现？"></textarea>
+            <div class="form-row"><span class="form-help">敏感信息、URL、密钥与联系方式会在检索前阻断。</span><button class="refresh-button" type="submit" id="conversation-submit">检索并回答</button></div>
+          </form>
+          <div class="conversation-result" id="conversation-result" aria-live="polite"><div class="empty-state">输入问题后，这里会显示证据、个人记忆和可选的 AI 结构化回答。</div></div>
         </section>
 
         <section class="guardrail" aria-label="证据边界">
           <div class="guardrail-icon">⌁</div>
-          <div><p class="eyebrow">先看证据边界</p><p>趋势只表示多来源、时间窗内的重复变化；它不是预测，也不替代人工核验。单源新闻会留在新闻区。</p></div>
+          <div><p class="eyebrow">先看证据边界</p><p>本地切片不声称全球覆盖、开放世界发现、无权重排序或预测未来。所有“候选”都需要回到原始版本核验，缺失、断流与未验证区域会直接显示。</p></div>
           <span class="guardrail-tag">证据优先</span>
         </section>
       </main>
 
-      <footer class="footer"><span>Trend Exploring / 本地验证版</span><span>公开来源 · 原文可追溯</span></footer>
+      <footer class="footer"><span>Trend Exploring / 本地世界观察台</span><span>公开来源 · 原文可追溯 · 个人域隔离</span></footer>
     </div>
     <script src="/app.js" defer></script>
   </body>

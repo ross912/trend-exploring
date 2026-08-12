@@ -39,6 +39,10 @@ class TrendAnalyzerTest < Minitest::Test
     assert_equal 3, trend.fetch("source_count")
     assert_equal 200.0, trend.fetch("growth_rate")
     assert_equal 3, trend.fetch("region_count")
+    assert_includes %w[deterministic_episode contextual_term], trend.fetch("semantic_status")
+    assert_includes trend.fetch("summary"), "去重来源标识"
+    assert_includes trend.fetch("summary"), "词频线索"
+    assert_includes trend.fetch("topic_explanation"), "去重来源标识"
   end
 
   def test_repeated_articles_from_one_source_are_not_a_trend
@@ -49,6 +53,16 @@ class TrendAnalyzerTest < Minitest::Test
     ], now: NOW)
 
     assert_empty trends
+  end
+
+  def test_same_term_without_shared_event_context_is_not_promoted
+    trends = TrendAnalyzer.new.analyze(items: [
+      item("source-a", "无人机扑灭森林火灾", "2026-08-08T02:00:00Z"),
+      item("source-b", "无人机参与边境巡逻", "2026-08-08T03:00:00Z", region: "欧洲"),
+      item("source-c", "无人机用于农田测绘", "2026-08-08T04:00:00Z", region: "北美")
+    ], now: NOW)
+
+    refute trends.any? { |trend| trend.fetch("topic") == "无人机" }
   end
 
   def test_english_and_chinese_topics_do_not_claim_cross_language_semantics
