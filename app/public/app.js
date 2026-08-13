@@ -71,6 +71,22 @@ function renderCoverage(coverage) {
   $("#coverage-note").textContent = `事件地域：${coverage.event_geography_status === "unverified" ? "当前未验证" : escapeHtml(coverage.event_geography_status)} · locale 观察标签：${escapeHtml((coverage.observed_locale_tags || []).join(" / ") || "无")} · 原始语言：${escapeHtml((coverage.observed_original_languages || []).map((language) => languageLabels[language] || language).join(" / ") || "无")}`;
 }
 
+function renderArchive(archive) {
+  const policies = archive.source_policies || [];
+  const permitted = Number(archive.full_archive_source_count || 0);
+  const attempts = archive.archive_attempts || {};
+  const queue = archive.translation_queue || {};
+  $("#archive-summary").innerHTML = [
+    [archive.versioned_item_count || 0, "原语言版本"], [policies.length, "已登记来源"],
+    [permitted, "已核验全文许可"], [archive.fulltext_archive_count || 0, "正文已归档"],
+    [archive.fulltext_translation_count || 0, "中文全文"], [queue.pending || 0, "全文待翻译"]
+  ].map(([count, label]) => `<span><strong>${escapeHtml(count)}</strong>${escapeHtml(label)}</span>`).join("");
+  $("#archive-note").textContent = permitted === 0
+    ? `当前没有来源登记为已核验 full_archive，因此正文归档为 0 是权限门禁的正确结果；已记录 ${attempts.not_permitted || 0} 次未获许可决策。`
+    : `已许可来源会自动进入正文归档和中文翻译；失败状态：抓取 ${attempts.fetch_failed || 0}，解析 ${attempts.parse_failed || 0}，空正文 ${attempts.empty_body || 0}。`;
+  $("#archive-policies").innerHTML = policies.length ? policies.map((policy) => `<article class="source-pill"><div class="source-pill-head"><strong>${escapeHtml(policy.source_name || policy.source_id)}</strong><span>${policy.rights_scope === "full_archive" ? "全文归档" : policy.rights_scope === "excerpt_only" ? "元数据/短摘要" : "仅链接"}</span></div><div class="source-pill-meta"><span>${policy.rights_scope === "full_archive" ? `许可：${escapeHtml(policy.permission_basis)} · 核验 ${escapeHtml(policy.permission_verified_at)}` : "未登记全文许可，不请求文章页"}</span></div></article>`).join("") : '<div class="empty-state">尚无来源保存政策记录。</div>';
+}
+
 function renderExploration(exploration) {
   const latest = exploration && exploration.latest_batch;
   const items = (exploration && exploration.items) || [];
@@ -94,7 +110,10 @@ function renderExploration(exploration) {
     const link = safeUrl(item.source_url);
     const unsupported = !["zh-CN", "en"].includes(item.language);
     const publisher = item.resolution === "resolved" ? `publisher_id/domain=${escapeHtml(item.publisher_id || "")}` : "出版方域名未解析";
-    return `<article class="exploration-card"><div class="exploration-card-top"><span>${escapeHtml(item.locale_tag || "locale 未标注")} · ${escapeHtml(item.market_label || "market 未标注")} · 聚合器 locale 标签</span><span>${escapeHtml(item.resolution === "resolved" ? "出版方域名已观察" : "出版方域名未解析")}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.summary || "该条目没有短摘要。")}</p><div class="exploration-card-meta"><span>${escapeHtml(languageLabels[item.language] || item.language)}${unsupported ? " · 仅归档/浏览" : ""} · ${publisher}</span><span>basis=${escapeHtml(item.market_label_basis || "aggregator_locale_label")} · ${link ? `<a href="${link}" target="_blank" rel="noopener noreferrer">条目/原文入口</a>` : "无原文链接"}</span></div><div class="exploration-card-boundary">raw_listing · claim_status=${escapeHtml(item.claim_status || "raw_listing")} · lane=${escapeHtml(item.lane || "locale_frontier")}</div></article>`;
+    const title = item.display_title || item.title;
+    const summary = item.display_summary || item.summary;
+    const original = item.translation_status === "translated" ? `<details class="original-copy"><summary>查看原语言元数据</summary><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.summary || "")}</p></details>` : "";
+    return `<article class="exploration-card"><div class="exploration-card-top"><span>${escapeHtml(item.locale_tag || "locale 未标注")} · ${escapeHtml(item.market_label || "market 未标注")} · 聚合器 locale 标签</span><span>${escapeHtml(translationStatusLabels[item.translation_status] || (item.resolution === "resolved" ? "出版方域名已观察" : "出版方域名未解析"))}</span></div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(summary || "该条目没有短摘要。")}</p>${original}<div class="exploration-card-meta"><span>${escapeHtml(languageLabels[item.language] || item.language)}${unsupported ? " · 仅归档/浏览" : ""} · ${publisher}</span><span>basis=${escapeHtml(item.market_label_basis || "aggregator_locale_label")} · ${link ? `<a href="${link}" target="_blank" rel="noopener noreferrer">条目/原文入口</a>` : "无原文链接"}</span></div><div class="exploration-card-boundary">raw_listing · claim_status=${escapeHtml(item.claim_status || "raw_listing")} · lane=${escapeHtml(item.lane || "locale_frontier")}</div></article>`;
   }).join("");
 }
 
@@ -170,7 +189,7 @@ function renderReport(kind, payload) {
   const summaryHtml = summary.status === "succeeded"
     ? `<div class="report-summary"><div class="summary-label">AI 摘要 · 仅作 additive projection</div>${overview ? `<ul class="report-units">${overview}</ul>` : ""}${changes ? `<h4>关键变化候选</h4><ul class="report-units">${changes}</ul>` : ""}${uncertainties ? `<h4>不确定性</h4><ul class="report-units">${uncertainties}</ul>` : ""}</div>`
     : `<div class="report-summary report-summary-muted">AI 摘要：${escapeHtml(summary.status === "blocked" ? "当前没有可用 provider 或不适用，仍保留 raw。" : summary.status === "failed" ? "生成失败，仍保留 raw。" : "尚未生成，仍保留 raw。")}</div>`;
-  const raw = items.length ? `<details class="raw-list"><summary>查看 ${items.length} 条 raw listings</summary><ol>${items.map((item) => `<li><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.publisher_name || item.source_name || "未知来源")} · ${escapeHtml(item.created_at || item.published_at || "")}</span>${safeUrl(item.source_url) ? `<a href="${safeUrl(item.source_url)}" target="_blank" rel="noopener noreferrer">原文</a>` : ""}</li>`).join("")}</ol></details>` : '<div class="empty-state">该时段没有可报告的原始条目。</div>';
+  const raw = items.length ? `<details class="raw-list"><summary>查看 ${items.length} 条 raw listings</summary><ol>${items.map((item) => `<li><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(translationStatusLabels[item.translation_status] || "原文")} · ${escapeHtml(item.publisher_name || item.source_name || "未知来源")} · ${escapeHtml(item.created_at || item.published_at || "")}</span>${item.translation_status === "translated" ? `<details class="original-copy"><summary>查看原语言元数据</summary><strong>${escapeHtml(item.original_title || "")}</strong><p>${escapeHtml(item.original_summary || "")}</p></details>` : ""}${safeUrl(item.source_url) ? `<a href="${safeUrl(item.source_url)}" target="_blank" rel="noopener noreferrer">原文</a>` : ""}</li>`).join("")}</ol></details>` : '<div class="empty-state">该时段没有可报告的原始条目。</div>';
   content.innerHTML = summaryHtml + raw;
 }
 
@@ -196,6 +215,49 @@ function renderWeak(payload) {
   }).join("");
 }
 
+const worldChannelLabels = {
+  technical_capability: "技术能力", capital_commitment: "资本承诺", policy_action: "政策行动",
+  real_world_adoption: "现实采用", public_discussion: "公共讨论"
+};
+
+function renderWorldChanges(payload, lifecyclePayload) {
+  const run = payload && (payload.run || payload);
+  const status = payload?.status || run?.status || "not_run";
+  const candidates = Array.isArray(run?.candidates) ? run.candidates : [];
+  const lifecycle = Object.fromEntries((lifecyclePayload?.lifecycle || []).map((entry) => [entry.signal_id, entry]));
+  const caps = payload?.evidence_boundary?.per_channel_refs;
+  const boundary = caps ? `公开 refs 上限：资格 ${caps.qualifying} / support ${caps.supporting} / 反证 ${caps.contradicting}；正文不出接口。` : "";
+  $("#world-change-status-label").textContent = status === "evaluated" ? `${candidates.length} 个候选 · 非预测` : status === "not_run" ? "尚未运行" : status;
+  $("#world-change-run-meta").textContent = run ? `检测器 ${run.detector_version || "v1"} · as_of ${run.as_of || "未提供"} · 固定 run_id ${run.run_id || "未提供"} · ${payload?.truncated ? "公开证据已截断；" : ""}${boundary}不输出总分/置信度/预测。` : "尚无世界变化检测运行记录；这不是空结果。";
+  if (!run || !candidates.length) {
+    $("#world-change-items").innerHTML = `<div class="empty-state">${status === "not_run" ? "检测器尚未运行。" : "当前没有达到独立 publisher 与通道门槛的候选。空结果不代表世界没有变化。"}</div>`;
+    return;
+  }
+  $("#world-change-items").innerHTML = candidates.map((candidate) => {
+    const familyId = (lifecyclePayload?.lifecycle || []).find((entry) => entry.candidate_key === candidate.candidate_key)?.signal_id;
+    const state = familyId ? lifecycle[familyId]?.current_state : null;
+    const channels = Object.entries(candidate.channels || {}).map(([channel, value]) => {
+      const evidenceCount = (value.evidence || []).length;
+      const supportCount = (value.supporting_evidence || []).length;
+      const contradictionCount = (value.contradicting_evidence || []).length;
+      return `<li><strong>${escapeHtml(worldChannelLabels[channel] || channel)}</strong><span>${escapeHtml(value.counts?.qualifying ?? evidenceCount)} 条资格证据 · ${escapeHtml(value.counts?.supporting ?? supportCount)} 条 support · ${escapeHtml(value.counts?.contradicting ?? contradictionCount)} 条反证 · refs ${(value.evidence || []).map((ref) => ref.version_id).join(" · ") || "无"}</span></li>`;
+    }).join("");
+    const contradiction = (candidate.contradicting_evidence || []).map((entry) => entry.version_id || entry.title || "反证").join(" · ") || "无";
+    return `<article class="weak-card world-change-card"><div class="weak-card-top"><span>${escapeHtml(candidate.candidate_status || "candidate")}</span><span>lifecycle=${escapeHtml(state || "未记录")}</span></div><h3>${escapeHtml(candidate.label || "未命名候选")}</h3><p>${escapeHtml(candidate.qualifying_publisher_count || 0)} 个独立 publisher · ${escapeHtml(candidate.channel_count || 0)} 个资格通道；候选仅供回查，非预测。</p><ul class="world-channel-list">${channels}</ul><div class="world-change-boundary"><strong>缺失通道：</strong>${escapeHtml((candidate.missing_channels || []).map((channel) => worldChannelLabels[channel] || channel).join("、") || "无")}</div><div class="world-change-boundary"><strong>反证：</strong>${escapeHtml(contradiction)}</div><details><summary>替代解释与下一步核验</summary><p><strong>替代解释：</strong>${escapeHtml((candidate.alternative_explanations || []).join("；") || "未提供")}</p><p><strong>下一步：</strong>${escapeHtml((candidate.next_verification || []).join("；") || "未提供")}</p></details></article>`;
+  }).join("");
+}
+
+function renderMultilingualConcepts(payload) {
+  const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
+  const status = payload?.status || (candidates.length ? "evaluated" : "empty");
+  $("#multilingual-status-label").textContent = status === "evaluated" ? `${candidates.length} 个真实候选` : status === "empty" ? "empty · 未伪造" : status;
+  if (!candidates.length) {
+    $("#multilingual-items").innerHTML = '<div class="empty-state">没有 provider-backed 多语言概念候选；保持 empty，不生成伪造映射。</div>';
+    return;
+  }
+  $("#multilingual-items").innerHTML = candidates.map((candidate) => `<article class="weak-card"><div class="weak-card-top"><span>${escapeHtml(candidate.candidate_status || "concept participation")}</span><span>${escapeHtml(candidate.target_language || "未提供")}</span></div><h3>${escapeHtml(candidate.target_canonical_label || candidate.canonical_concept_key || "未命名概念")}</h3><p>仅概念参与，不是事件或预测；provider 映射版本：${escapeHtml(candidate.member_version_ids || [])}</p><div class="world-change-boundary">语言 ${escapeHtml((candidate.languages || []).join(" / "))} · publisher ${escapeHtml((candidate.publishers || []).join(" / "))}</div></article>`).join("");
+}
+
 function renderRadar(payload) {
   const snapshot = payload.snapshot;
   const cards = payload.cards || [];
@@ -205,6 +267,7 @@ function renderRadar(payload) {
   $("#source-count").textContent = sources.filter((source) => source.enabled).length;
   $("#trend-count").textContent = trends.length;
   renderCoverage(payload.coverage || {});
+  renderArchive(payload.archive || {});
   renderExploration(payload.exploration || {});
   renderSources(sources);
   renderEventCandidates(eventCandidates);
@@ -245,6 +308,19 @@ async function loadWeakSignals() {
   catch (error) { $("#weak-status-label").textContent = "读取失败"; $("#weak-run-meta").textContent = error.message; $("#weak-items").innerHTML = `<div class="error-state">无法读取弱信号候选：${escapeHtml(error.message)}</div>`; }
 }
 
+async function loadWorldChangeSurfaces() {
+  try {
+    const [world, lifecycle, concepts] = await Promise.all([fetchJson("/api/world-changes"), fetchJson("/api/signals/lifecycle"), fetchJson("/api/multilingual-concepts")]);
+    renderWorldChanges(world, lifecycle);
+    renderMultilingualConcepts(concepts);
+  } catch (error) {
+    $("#world-change-status-label").textContent = "读取失败";
+    $("#world-change-items").innerHTML = `<div class="error-state">无法读取世界变化候选：${escapeHtml(error.message)}</div>`;
+    $("#multilingual-status-label").textContent = "读取失败";
+    $("#multilingual-items").innerHTML = `<div class="error-state">无法读取多语言概念候选：${escapeHtml(error.message)}</div>`;
+  }
+}
+
 async function loadRadar() {
   const button = $("#refresh-button");
   button.disabled = true;
@@ -257,7 +333,7 @@ async function loadRadar() {
   } catch (error) {
     $("#health-label").textContent = "离线";
     $("#health-dot").classList.add("error");
-    ["#trends", "#event-candidates", "#exploration-items", "#cards", "#source-roster"].forEach((selector) => { const node = $(selector); if (node) node.innerHTML = `<div class="error-state">无法读取本地 API：${escapeHtml(error.message)}</div>`; });
+  ["#trends", "#event-candidates", "#exploration-items", "#cards", "#source-roster", "#archive-policies"].forEach((selector) => { const node = $(selector); if (node) node.innerHTML = `<div class="error-state">无法读取本地 API：${escapeHtml(error.message)}</div>`; });
   } finally { button.disabled = false; }
 }
 
@@ -288,10 +364,11 @@ async function submitConversation(event) {
 }
 
 function tick() { $("#clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
-$("#refresh-button").addEventListener("click", () => { loadRadar(); loadReports(); loadWeakSignals(); });
+$("#refresh-button").addEventListener("click", () => { loadRadar(); loadReports(); loadWeakSignals(); loadWorldChangeSurfaces(); });
 $("#conversation-form").addEventListener("submit", submitConversation);
 tick();
 setInterval(tick, 1000);
 loadRadar();
 loadReports();
 loadWeakSignals();
+loadWorldChangeSurfaces();

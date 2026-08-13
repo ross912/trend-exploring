@@ -72,7 +72,7 @@ module RSSIngest
         "body_hash" => body_hash,
         "feed_url" => source.fetch("url"),
         "storage_status" => source.fetch("storage_status", "metadata_only"),
-        "rights_scope" => source.fetch("rights_scope", "metadata_short_summary_link")
+        "rights_scope" => source.fetch("rights_scope", "excerpt_only")
       })
     rescue URI::InvalidURIError, SocketError, Timeout::Error, Net::OpenTimeout, Net::ReadTimeout => error
       raise Error, "source fetch failed for #{source.fetch('id')}: #{error.message}"
@@ -100,6 +100,15 @@ module RSSIngest
       raise Error, "analysis_policy is invalid: #{analysis_policy}" unless %w[signal_eligible exploration_only].include?(analysis_policy)
       topics = source.fetch("query_topics", [])
       raise Error, "query_topics must be an array" unless topics.is_a?(Array)
+      rights_scope = source.fetch("rights_scope", "excerpt_only").to_s
+      raise Error, "rights_scope is invalid" unless %w[full_archive excerpt_only link_only].include?(rights_scope)
+      if rights_scope == "full_archive"
+        permission_basis = source.fetch("archive_permission_basis", "").to_s
+        verified_at = source.fetch("archive_permission_verified_at", "").to_s
+        raise Error, "full_archive requires an approved permission basis" unless %w[publisher_permission open_license public_domain robots_and_terms_reviewed].include?(permission_basis)
+        raise Error, "full_archive requires permission verification time" if verified_at.empty?
+        Time.iso8601(verified_at)
+      end
 
       if basis == "locale_headlines"
         raise Error, "locale_headlines must be a discovery source" unless source_kind == "discovery"
@@ -123,7 +132,7 @@ module RSSIngest
         raise Error, "editorial_feed cannot be exploration_only" if analysis_policy == "exploration_only"
       end
       true
-    rescue KeyError, TypeError => error
+    rescue KeyError, TypeError, ArgumentError => error
       raise Error, "source contract is incomplete: #{error.message}"
     end
 
@@ -205,7 +214,7 @@ module RSSIngest
           "capture_body_hash" => capture.fetch("body_hash", ""),
           "capture_storage_status" => capture.fetch("storage_status", "metadata_only"),
           "capture_source_url" => capture.fetch("feed_url", source.fetch("url")),
-          "rights_scope" => capture.fetch("rights_scope", source.fetch("rights_scope", "metadata_short_summary_link")),
+          "rights_scope" => capture.fetch("rights_scope", source.fetch("rights_scope", "excerpt_only")),
           "language" => source.fetch("language", "zh-CN"),
           "region" => source.fetch("region", "未标注"),
           "publisher_region" => source.fetch("publisher_region", source.fetch("region", "未标注")),

@@ -25,6 +25,8 @@
         <a href="#live-radar">来源雷达</a>
         <a href="#exploration">探索前沿</a>
         <a href="#weak-signals">弱信号候选</a>
+        <a href="#world-changes">世界变化候选</a>
+        <a href="#multilingual-concepts">多语言概念</a>
         <a href="#conversation">与资料对话</a>
       </nav>
 
@@ -80,11 +82,22 @@
             <div><p class="eyebrow">已发布快照 · 非连续流</p><h2 id="radar-heading">当前来源雷达</h2></div>
             <span class="section-count" id="card-count">0 条新闻</span>
           </div>
-          <p class="section-boundary">这里展示当前已发布 snapshot：编辑 RSS、预设主题入口与它们的证据边界分开。archive 当前只保存元数据、短摘要和原文链接，不是新闻全文副本。入口标签不是事件地域，词频线索不等于世界变化结论。</p>
+          <p class="section-boundary">这里展示当前已发布 snapshot：编辑 RSS、预设主题入口与它们的证据边界分开。只有明确标记 full_archive 且有许可依据的来源才保存正文并生成独立中文译文；当前配置仍是 excerpt_only，因此只保存元数据、短摘要和原文链接。入口标签不是事件地域，词频线索不等于世界变化结论。</p>
           <div class="signal-layout">
             <div class="signal-rail" aria-hidden="true"><span class="rail-dot active"></span><span class="rail-line"></span><span class="rail-dot"></span><span class="rail-line short"></span><span class="rail-dot"></span></div>
             <div class="cards" id="cards" aria-live="polite"><div class="loading-state">正在读取原文入口…</div></div>
           </div>
+        </section>
+
+        <section class="coverage-section archive-section" aria-labelledby="archive-heading">
+          <div class="coverage-copy">
+            <p class="eyebrow">原文保存与中文翻译</p>
+            <h2 id="archive-heading">保存到哪一层？</h2>
+            <p>每个来源都明确区分元数据/短摘要与已获许可的正文全文。没有核验许可时不会抓取文章页；这不是抓取失败。原语言内容永远保留，中文只作为独立机器译文。</p>
+            <div class="coverage-summary" id="archive-summary" aria-label="原文与翻译摘要"></div>
+            <p class="coverage-note" id="archive-note">正在读取保存权限与处理进度…</p>
+          </div>
+          <div class="source-roster" id="archive-policies" aria-live="polite"><div class="loading-state">正在读取来源保存级别…</div></div>
         </section>
 
         <section class="coverage-section" aria-labelledby="coverage-heading">
@@ -131,6 +144,25 @@
           <p class="section-boundary">弱信号区只展示词组的重复、来源扩张、语言/locale 参与或讨论下降候选。基线不足时显示 warming_up；候选不是预测、趋势确认或重要性排序。</p>
           <div class="weak-run-meta" id="weak-run-meta"></div>
           <div class="weak-grid" id="weak-items" aria-live="polite"><div class="loading-state">正在读取弱信号检测结果…</div></div>
+        </section>
+
+        <section class="weak-section world-change-section" id="world-changes" aria-labelledby="world-change-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">五通道证据 · 非预测</p><h2 id="world-change-heading">世界变化候选</h2></div>
+            <span class="section-count" id="world-change-status-label">等待检测器</span>
+          </div>
+          <p class="section-boundary">这是规则化候选，不是预测、总分或置信度。每个候选保留 technical capability、capital commitment、policy action、real-world adoption、public discussion 五个通道，以及 version_id、反证、缺口、替代解释和下一步核验。</p>
+          <div class="weak-run-meta" id="world-change-run-meta"></div>
+          <div class="weak-grid world-change-grid" id="world-change-items" aria-live="polite"><div class="loading-state">正在读取世界变化候选…</div></div>
+        </section>
+
+        <section class="weak-section multilingual-section" id="multilingual-concepts" aria-labelledby="multilingual-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">provider-backed · 仅概念参与</p><h2 id="multilingual-heading">多语言概念候选</h2></div>
+            <span class="section-count" id="multilingual-status-label">等待 API</span>
+          </div>
+          <p class="section-boundary">仅展示已有 provider 映射的真实候选；没有 provider 时保持 empty，不生成 translation_equivalent，也不把概念参与当作事件或预测。</p>
+          <div class="weak-grid multilingual-grid" id="multilingual-items" aria-live="polite"><div class="loading-state">正在读取多语言概念候选…</div></div>
         </section>
 
         <section class="conversation-section" id="conversation" aria-labelledby="conversation-heading">

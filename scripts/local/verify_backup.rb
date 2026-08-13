@@ -13,7 +13,10 @@ TABLES = {
     "local_source_item_version" => "SELECT version_id, item_key, capture_id, content_hash, created_at::text FROM local_source_item_version ORDER BY version_id",
     "local_radar_snapshot" => "SELECT snapshot_id, revision, comparison_watermark, snapshot_status, created_at::text FROM local_radar_snapshot ORDER BY snapshot_id",
     "local_report_edition" => "SELECT edition_id, slot_id, data_cutoff::text, payload_hash, item_count FROM local_report_edition ORDER BY edition_id",
-    "weak_signal_run" => "SELECT run_id, as_of::text, input_hash, detector_version, status, payload_hash FROM weak_signal_run ORDER BY run_id"
+    "weak_signal_run" => "SELECT run_id, as_of::text, input_hash, detector_version, status, payload_hash FROM weak_signal_run ORDER BY run_id",
+    "local_article_archive" => "SELECT archive_id, source_version_id, body_hash, body_chars, archived_at::text FROM local_article_archive ORDER BY archive_id",
+    "local_article_translation_run" => "SELECT run_id, archive_id, state, source_body_hash, prompt_tokens, completion_tokens FROM local_article_translation_run ORDER BY run_id",
+    "local_metadata_translation_run" => "SELECT run_id, source_version_id, item_key, state, source_content_hash, prompt_tokens, completion_tokens FROM local_metadata_translation_run ORDER BY run_id"
   },
   "personal" => {
     "memory_entry" => "SELECT memory_entry_id, subject_key, memory_kind, text, recorded_at::text, supersedes_entry_id, status, evidence_version_ids::text, source FROM memory_entry ORDER BY memory_entry_id"
@@ -52,8 +55,10 @@ def psql!(options, database, sql)
   stdout
 end
 
-def table_stats(options, database, role)
-  TABLES.fetch(role).each_with_object({}) do |(table, sql), result|
+def table_stats(options, database, role, selected_tables = nil)
+  definitions = TABLES.fetch(role)
+  definitions = definitions.select { |table, _sql| Array(selected_tables).include?(table) } if selected_tables
+  definitions.each_with_object({}) do |(table, sql), result|
     present = psql!(options, database, "SELECT to_regclass(#{shell_sql_literal(table)}) IS NOT NULL").strip == "t"
     raise "#{role} database #{database} is missing table #{table}" unless present
     result[table] = { "count" => psql!(options, database, "SELECT COUNT(*) FROM #{shell_ident(table)}").strip.to_i,
@@ -88,7 +93,10 @@ else
   manifest = JSON.parse(File.read(options.fetch(:manifest)))
   raise "unsupported manifest version" unless manifest.fetch("manifest_version") == 1
   raise "dump hash mismatch" unless options[:dump_dir].to_s.empty? || dump_stats(options[:dump_dir], manifest) == manifest.fetch("dump_stats")
-  actual = { "global" => table_stats(options, options.fetch(:global_database), "global"), "personal" => table_stats(options, options.fetch(:personal_database), "personal") }
+  actual = {
+    "global" => table_stats(options, options.fetch(:global_database), "global", manifest.fetch("table_stats").fetch("global").keys),
+    "personal" => table_stats(options, options.fetch(:personal_database), "personal", manifest.fetch("table_stats").fetch("personal").keys)
+  }
   raise "restored table counts/hashes mismatch" unless actual == manifest.fetch("table_stats")
   puts JSON.pretty_generate({ "status" => "verified", "manifest" => options.fetch(:manifest), "table_stats" => actual })
 end

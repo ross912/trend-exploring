@@ -7,7 +7,10 @@ require_relative "../../lib/translation_provider"
 require_relative "../../lib/translation_runner"
 
 store = LocalRadarStore.new
-provider = TranslationProvider::OpenAICompatible.new
-result = TranslationRunner.new(store: store, provider: provider).run(limit: Integer(ENV.fetch("LOCAL_TRANSLATION_LIMIT", "20")))
+provider = TranslationProvider::DeepSeek.new
+result = TranslationRunner.new(store: store, provider: provider).run(
+  limit: Integer(ENV.fetch("LOCAL_TRANSLATION_LIMIT", "20")),
+  daily_character_limit: Integer(ENV.fetch("LOCAL_DEEPSEEK_DAILY_CHARACTER_LIMIT", "200000"))
+)
 puts JSON.pretty_generate(result)
 exit 0

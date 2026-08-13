@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
-require "net/http"
-require "uri"
+require_relative "deepseek_client"
 
 # Thin OpenAI-compatible chat provider.  The provider is optional: callers can
 # inject a fake object in tests, while production remains deterministic when
@@ -20,55 +19,33 @@ class ConversationProvider
     "user_memory" => %w[cited_version_ids kind memory_entry_ids text]
   }.freeze
 
-  attr_reader :api_key, :base_url, :model
+  attr_reader :client
 
-  def initialize(api_key: ENV["CONVERSATION_API_KEY"] || ENV["OPENAI_API_KEY"],
-                 base_url: ENV.fetch("CONVERSATION_API_BASE_URL", "https://api.openai.com/v1"),
-                 model: ENV.fetch("CONVERSATION_MODEL", "gpt-4o-mini"),
-                 open_timeout: 10, read_timeout: 60)
-    @api_key = api_key.to_s.strip
-    @base_url = base_url.to_s.sub(%r{/\z}, "")
-    @model = model.to_s
-    @open_timeout = open_timeout
-    @read_timeout = read_timeout
+  def initialize(client: nil, api_key: nil,
+                 base_url: ENV.fetch("DEEPSEEK_BASE_URL", DeepSeekClient::DEFAULT_BASE_URL),
+                 model: ENV.fetch("DEEPSEEK_MODEL", DeepSeekClient::DEFAULT_MODEL),
+                 open_timeout: 10, read_timeout: 120)
+    @client = client || DeepSeekClient.new(api_key: api_key, base_url: base_url, model: model,
+                                           open_timeout: open_timeout, read_timeout: read_timeout)
   end
 
   def available?
-    !@api_key.empty?
+    client.available?
   end
+
+  def model; client.model; end
+  def base_url; client.base_url; end
 
   def generate(question:, global_evidence:, personal_memory:, analysis_context: [])
     raise Error, "conversation provider credentials are missing" unless available?
     prompt = build_prompt(question: question, global_evidence: global_evidence,
                           personal_memory: personal_memory, analysis_context: analysis_context)
-    request = Net::HTTP::Post.new(uri.request_uri)
-    request["Authorization"] = "Bearer #{@api_key}"
-    request["Content-Type"] = "application/json"
-    request.body = JSON.generate(
-      "model" => @model,
-      "temperature" => 0,
-      "response_format" => { "type" => "json_object" },
-      "messages" => [
-        { "role" => "system", "content" => system_prompt },
-        { "role" => "user", "content" => prompt }
-      ]
-    )
-    response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
-                               open_timeout: @open_timeout, read_timeout: @read_timeout) do |http|
-      http.request(request)
-    end
-    unless response.is_a?(Net::HTTPSuccess)
-      raise Error, "conversation provider HTTP #{response.code}: #{response.body.to_s[0, 500]}"
-    end
-    payload = JSON.parse(response.body)
-    content = payload.dig("choices", 0, "message", "content")
-    raise Error, "conversation provider response has no JSON content" unless content
-    parsed = content.is_a?(String) ? JSON.parse(content) : content
+    parsed = client.chat_json(system: system_prompt, user: prompt, thinking: true,
+                              reasoning_effort: "high",
+                              max_tokens: Integer(ENV.fetch("DEEPSEEK_CONVERSATION_MAX_OUTPUT_TOKENS", "8192"))).fetch("content")
     self.class.validate_answer!(parsed, global_evidence: global_evidence, personal_memory: personal_memory)
-  rescue JSON::ParserError => error
-    raise Error, "conversation provider returned invalid JSON: #{error.message}"
-  rescue SocketError, Timeout::Error, SystemCallError => error
-    raise Error, "conversation provider request failed: #{error.message}"
+  rescue DeepSeekClient::Error => error
+    raise Error, error.message
   end
 
   def self.validate_answer!(answer, global_evidence:, personal_memory:)
@@ -124,14 +101,10 @@ class ConversationProvider
 
   def system_prompt
     <<~PROMPT
-      You answer using only the supplied evidence. Return one JSON object with exactly
-      answer_sections and follow_up_questions. Each section has kind, text,
-      cited_version_ids. Kinds are fact, source_claim, inference, user_memory,
-      insufficient_evidence. Fact/source_claim/inference must cite one or more supplied
-      global version IDs. user_memory must additionally include memory_entry_ids and may
-      cite only supplied personal memory IDs. Never invent IDs. Separate facts, source
-      claims, inferences, and user memory explicitly. If evidence is insufficient use
-      insufficient_evidence. Do not include markdown or extra keys.
+      只使用提供的证据，用简体中文回答。返回且只返回包含 answer_sections 与 follow_up_questions 的 JSON 对象。
+      每个 section 包含 kind、text、cited_version_ids；kind 只能是 fact、source_claim、inference、user_memory、insufficient_evidence。
+      fact/source_claim/inference 必须引用一个或多个已提供的全球 version_id。user_memory 还必须包含 memory_entry_ids，且只能引用已提供的个人记忆。
+      不得创造 ID。明确分开事实、来源主张、推断和个人记忆；证据不足时使用 insufficient_evidence。不要输出 Markdown 或额外字段。
     PROMPT
   end
 
@@ -144,7 +117,4 @@ class ConversationProvider
     )
   end
 
-  def uri
-    @uri ||= URI.parse("#{@base_url}/chat/completions")
-  end
 end

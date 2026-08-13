@@ -428,6 +428,133 @@ ALTER TABLE local_radar_exploration_item ADD COLUMN IF NOT EXISTS resolution tex
 ALTER TABLE local_radar_exploration_item ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;
 ALTER TABLE local_radar_exploration_item ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 
+-- Detector-before exploration is persisted as its own immutable manifest and
+-- terminal decision tables.  The existing local_radar_exploration_item table
+-- remains the presentation placement; these relations preserve the full
+-- eligibility denominator and the selected/not-selected decision universe.
+CREATE TABLE IF NOT EXISTS local_pre_detection_exploration_manifest (
+  manifest_id text PRIMARY KEY,
+  -- The parent key is attached after the empty-draft key rebuild below.
+  -- Keeping CREATE independent lets this migration repair a pre-existing
+  -- empty draft without PostgreSQL refusing to drop the parent index.
+  batch_id text NOT NULL,
+  scope_id text NOT NULL CHECK (btrim(scope_id) <> ''),
+  manifest_version text NOT NULL CHECK (btrim(manifest_version) <> ''),
+  seed text NOT NULL CHECK (btrim(seed) <> ''),
+  policy_version text NOT NULL CHECK (btrim(policy_version) <> ''),
+  selection_limit integer NOT NULL CHECK (selection_limit > 0),
+  locale_limit integer NOT NULL CHECK (locale_limit > 0),
+  publisher_limit integer NOT NULL CHECK (publisher_limit > 0),
+  eligibility_count integer NOT NULL CHECK (eligibility_count >= 0),
+  eligible_count integer NOT NULL CHECK (eligible_count >= 0),
+  ineligible_count integer NOT NULL CHECK (ineligible_count >= 0),
+  selection_decision_count integer NOT NULL CHECK (selection_decision_count >= 0),
+  selected_count integer NOT NULL CHECK (selected_count >= 0),
+  eligibility_set_hash text NOT NULL CHECK (btrim(eligibility_set_hash) <> ''),
+  selected_set_hash text NOT NULL CHECK (btrim(selected_set_hash) <> ''),
+  selected_order_hash text NOT NULL CHECK (btrim(selected_order_hash) <> ''),
+  status text NOT NULL DEFAULT 'frozen' CHECK (status = 'frozen'),
+  delivery_status text NOT NULL DEFAULT 'unmeasured' CHECK (delivery_status = 'unmeasured'),
+  not_a_signal boolean NOT NULL DEFAULT true CHECK (not_a_signal),
+  personalization text NOT NULL DEFAULT 'none' CHECK (personalization = 'none'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (batch_id, scope_id, seed, policy_version),
+  CHECK (eligible_count + ineligible_count = eligibility_count),
+  CHECK (selected_count <= selection_decision_count)
+);
+
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS manifest_id text;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS batch_id text;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS scope_id text NOT NULL DEFAULT 'locale_frontier';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS manifest_version text NOT NULL DEFAULT 'pre_detection_random_exploration_v1';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS seed text NOT NULL DEFAULT 'legacy-seed';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS policy_version text NOT NULL DEFAULT 'pre_detection_random_exploration_v1';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS selection_limit integer NOT NULL DEFAULT 12;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS locale_limit integer NOT NULL DEFAULT 2;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS publisher_limit integer NOT NULL DEFAULT 1;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS eligibility_count integer NOT NULL DEFAULT 0;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS eligible_count integer NOT NULL DEFAULT 0;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS ineligible_count integer NOT NULL DEFAULT 0;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS selection_decision_count integer NOT NULL DEFAULT 0;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS selected_count integer NOT NULL DEFAULT 0;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS eligibility_set_hash text NOT NULL DEFAULT '';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS selected_set_hash text NOT NULL DEFAULT '';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS selected_order_hash text NOT NULL DEFAULT '';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'frozen';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS delivery_status text NOT NULL DEFAULT 'unmeasured';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS not_a_signal boolean NOT NULL DEFAULT true;
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS personalization text NOT NULL DEFAULT 'none';
+ALTER TABLE local_pre_detection_exploration_manifest ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
+CREATE TABLE IF NOT EXISTS local_pre_detection_exploration_eligibility_unit (
+  eligibility_unit_id text PRIMARY KEY,
+  manifest_id text NOT NULL REFERENCES local_pre_detection_exploration_manifest(manifest_id),
+  version_id text NOT NULL REFERENCES local_source_item_version(version_id),
+  item_hash text NOT NULL CHECK (btrim(item_hash) <> ''),
+  input_index integer NOT NULL CHECK (input_index >= 0),
+  policy_version text NOT NULL CHECK (btrim(policy_version) <> ''),
+  eligibility_predicate text NOT NULL CHECK (btrim(eligibility_predicate) <> ''),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (eligibility_unit_id, manifest_id),
+  UNIQUE (manifest_id, version_id, item_hash, input_index)
+);
+
+CREATE TABLE IF NOT EXISTS local_pre_detection_exploration_eligibility_decision (
+  eligibility_decision_id text PRIMARY KEY,
+  eligibility_unit_id text NOT NULL,
+  manifest_id text NOT NULL,
+  outcome text NOT NULL CHECK (outcome IN ('eligible', 'ineligible', 'failed')),
+  reason_code text NOT NULL CHECK (btrim(reason_code) <> ''),
+  terminal boolean NOT NULL DEFAULT true CHECK (terminal),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (eligibility_unit_id),
+  FOREIGN KEY (eligibility_unit_id, manifest_id)
+    REFERENCES local_pre_detection_exploration_eligibility_unit(eligibility_unit_id, manifest_id)
+);
+
+CREATE TABLE IF NOT EXISTS local_pre_detection_exploration_unit (
+  exploration_unit_id text PRIMARY KEY,
+  manifest_id text NOT NULL,
+  eligibility_unit_id text NOT NULL,
+  version_id text NOT NULL REFERENCES local_source_item_version(version_id),
+  random_key text NOT NULL CHECK (btrim(random_key) <> ''),
+  detector_outcome text NOT NULL DEFAULT 'not_run' CHECK (btrim(detector_outcome) <> ''),
+  input_index integer NOT NULL CHECK (input_index >= 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (exploration_unit_id, manifest_id),
+  UNIQUE (manifest_id, eligibility_unit_id),
+  FOREIGN KEY (eligibility_unit_id, manifest_id)
+    REFERENCES local_pre_detection_exploration_eligibility_unit(eligibility_unit_id, manifest_id)
+);
+
+CREATE TABLE IF NOT EXISTS local_pre_detection_exploration_decision (
+  exploration_decision_id text PRIMARY KEY,
+  exploration_unit_id text NOT NULL,
+  manifest_id text NOT NULL,
+  outcome text NOT NULL CHECK (outcome IN ('selected', 'not_selected', 'failed')),
+  reason_code text NOT NULL CHECK (btrim(reason_code) <> ''),
+  sort_order integer NOT NULL CHECK (sort_order >= 0),
+  selection_order integer,
+  not_a_signal boolean NOT NULL DEFAULT true CHECK (not_a_signal),
+  delivery_status text NOT NULL DEFAULT 'unmeasured' CHECK (delivery_status = 'unmeasured'),
+  terminal boolean NOT NULL DEFAULT true CHECK (terminal),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (exploration_unit_id),
+  UNIQUE (manifest_id, sort_order),
+  FOREIGN KEY (exploration_unit_id, manifest_id)
+    REFERENCES local_pre_detection_exploration_unit(exploration_unit_id, manifest_id),
+  CHECK ((outcome = 'selected') = (selection_order IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS local_pre_detection_exploration_selected_order_key
+  ON local_pre_detection_exploration_decision (manifest_id, selection_order)
+ WHERE selection_order IS NOT NULL;
+
+ALTER TABLE local_radar_exploration_item ADD COLUMN IF NOT EXISTS selection_manifest_id text;
+ALTER TABLE local_radar_exploration_item ADD COLUMN IF NOT EXISTS exploration_decision_id text;
+ALTER TABLE local_radar_exploration_item ADD COLUMN IF NOT EXISTS not_a_signal boolean NOT NULL DEFAULT true;
+ALTER TABLE local_radar_exploration_item ADD COLUMN IF NOT EXISTS delivery_status text NOT NULL DEFAULT 'unmeasured';
+
 -- Empty draft tables may carry incompatible capture/status checks.  Remove
 -- only those checks while there are no rows to reinterpret; non-empty drafts
 -- were rejected by the preflight above.
@@ -452,6 +579,18 @@ BEGIN
     END LOOP;
   END IF;
   IF to_regclass('local_collection_batch') IS NOT NULL AND (SELECT COUNT(*) FROM local_collection_batch) = 0 THEN
+    -- The detector-before manifest FK is attached after this empty-draft
+    -- repair block.  Drop it first when rerunning against an empty parent.
+    IF to_regclass('local_pre_detection_exploration_manifest') IS NOT NULL THEN
+      FOR constraint_name IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'local_pre_detection_exploration_manifest'::regclass
+          AND confrelid = 'local_collection_batch'::regclass
+      LOOP
+        EXECUTE format('ALTER TABLE local_pre_detection_exploration_manifest DROP CONSTRAINT %I', constraint_name);
+      END LOOP;
+    END IF;
     FOR constraint_name IN SELECT conname FROM pg_constraint WHERE conrelid = 'local_collection_batch'::regclass AND contype = 'c' LOOP
       EXECUTE format('ALTER TABLE local_collection_batch DROP CONSTRAINT %I', constraint_name);
     END LOOP;
@@ -635,6 +774,54 @@ BEGIN
     WHERE s.snapshot_id IS NULL OR b.batch_id IS NULL OR v.version_id IS NULL
   ) THEN
     RAISE EXCEPTION 'exploration item lineage missing; refusing migration';
+  END IF;
+END $$;
+
+-- All detector-before records are append-only.  A retry may re-submit the
+-- same immutable payload, but an existing terminal row can never be edited or
+-- deleted through the normal relation API.
+CREATE OR REPLACE FUNCTION local_pre_detection_append_only_guard()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
+END;
+$$;
+
+DO $$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'local_pre_detection_exploration_manifest',
+    'local_pre_detection_exploration_eligibility_unit',
+    'local_pre_detection_exploration_eligibility_decision',
+    'local_pre_detection_exploration_unit',
+    'local_pre_detection_exploration_decision'
+  ] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', table_name || '_append_only_trigger', table_name);
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION local_pre_detection_append_only_guard()', table_name || '_append_only_trigger', table_name);
+  END LOOP;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'local_pre_detection_exploration_manifest'::regclass AND conname = 'local_pre_detection_manifest_batch_fkey') THEN
+    ALTER TABLE local_pre_detection_exploration_manifest ADD CONSTRAINT local_pre_detection_manifest_batch_fkey FOREIGN KEY (batch_id) REFERENCES local_collection_batch(batch_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'local_pre_detection_exploration_eligibility_decision'::regclass AND conname = 'local_pre_detection_eligibility_decision_manifest_fkey') THEN
+    ALTER TABLE local_pre_detection_exploration_eligibility_decision ADD CONSTRAINT local_pre_detection_eligibility_decision_manifest_fkey FOREIGN KEY (manifest_id) REFERENCES local_pre_detection_exploration_manifest(manifest_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'local_pre_detection_exploration_unit'::regclass AND conname = 'local_pre_detection_unit_manifest_fkey') THEN
+    ALTER TABLE local_pre_detection_exploration_unit ADD CONSTRAINT local_pre_detection_unit_manifest_fkey FOREIGN KEY (manifest_id) REFERENCES local_pre_detection_exploration_manifest(manifest_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'local_pre_detection_exploration_decision'::regclass AND conname = 'local_pre_detection_decision_manifest_fkey') THEN
+    ALTER TABLE local_pre_detection_exploration_decision ADD CONSTRAINT local_pre_detection_decision_manifest_fkey FOREIGN KEY (manifest_id) REFERENCES local_pre_detection_exploration_manifest(manifest_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'local_radar_exploration_item'::regclass AND conname = 'local_radar_exploration_item_delivery_status_check') THEN
+    ALTER TABLE local_radar_exploration_item ADD CONSTRAINT local_radar_exploration_item_delivery_status_check CHECK (delivery_status = 'unmeasured');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'local_radar_exploration_item'::regclass AND conname = 'local_radar_exploration_item_not_a_signal_check') THEN
+    ALTER TABLE local_radar_exploration_item ADD CONSTRAINT local_radar_exploration_item_not_a_signal_check CHECK (not_a_signal);
   END IF;
 END $$;
 

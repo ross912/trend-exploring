@@ -195,6 +195,15 @@ h2 { margin-bottom: 0; font-family: var(--display); font-size: clamp(2rem, 3.6vw
 .weak-card details { margin-top: 11px; border-top: 1px solid var(--line); padding-top: 8px; }
 .weak-card summary { cursor: pointer; color: var(--teal); font-family: var(--mono); font-size: .55rem; }
 .weak-card code { display: block; margin-top: 6px; color: var(--ink-soft); font-size: .54rem; overflow-wrap: anywhere; }
+.world-change-section, .multilingual-section { border-top: 1px solid var(--ink); padding-top: 54px; }
+.world-change-grid, .multilingual-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.world-change-card { min-height: 0; }
+.world-channel-list { margin: 14px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.world-channel-list li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 0; font-family: var(--mono); font-size: .56rem; }
+.world-channel-list li span { color: var(--ink-soft); text-align: right; }
+.world-change-boundary { margin-top: 9px; color: var(--ink-soft); font-family: var(--mono); font-size: .56rem; line-height: 1.5; }
+.world-change-card details { margin-top: 11px; border-top: 1px solid var(--line); padding-top: 8px; color: var(--ink-soft); font-size: .7rem; line-height: 1.5; }
+.world-change-card details summary { cursor: pointer; color: var(--teal); font-family: var(--mono); font-size: .56rem; }
 .conversation-section { display: grid; grid-template-columns: minmax(240px, .68fr) minmax(0, 1.32fr); gap: 6vw; border-top: 1px solid var(--ink); padding-bottom: 60px; }
 .conversation-intro h2 { max-width: 430px; margin-bottom: 13px; }
 .conversation-intro p:last-child { max-width: 460px; color: var(--ink-soft); font-size: .78rem; line-height: 1.6; }
@@ -227,7 +236,7 @@ h2 { margin-bottom: 0; font-family: var(--display); font-size: clamp(2rem, 3.6vw
 .error-state { border-color: rgba(227,108,77,.6); color: var(--copper); }
 @media (max-width: 780px) {
   .desk-nav { gap: 14px; }
-  .report-grid, .weak-grid { grid-template-columns: 1fr; }
+  .report-grid, .weak-grid, .world-change-grid, .multilingual-grid { grid-template-columns: 1fr; }
   .report-card { min-height: 0; }
   .conversation-section { grid-template-columns: 1fr; gap: 24px; }
   .conversation-result { grid-column: auto; margin-top: 0; }

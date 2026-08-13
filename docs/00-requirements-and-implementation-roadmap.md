@@ -161,6 +161,8 @@ flowchart LR
 
 对话采用两阶段检索。当前问题先在个人域拆成 `private_query_context` 与去标识、剥离立场的临时 `neutral_query`；全球检索不得接收历史聊天、用户 ID、个人记忆、直接标识符、秘密或个性缓存，并分别检索支持、反驳、替代解释和数据不足。完整 query plan 与证据 IDs 留在个人域，全球服务只保留短期无身份执行状态。第二阶段才读取个人记忆，用于解释、对照和指出观点变化。用户可以随时查看未经个人化的基础回答。
 
+本地 vertical slice 的 `QueryNeutralizer`（`query_neutralizer_v1`）把原始问题留在个人域，只向全球检索发送排序稳定的公共主题/实体/时间词；第一人称兴趣、偏好、立场、明显 PII、秘密或无法保留公共检索语义的输入均 fail closed 为 `privacy_blocked`。该中和步骤不读取用户画像、点击或历史记忆，且必须通过相反立场/措辞、私有 canary 不出域和全球 evidence ID/order 一致性测试。
+
 对话回答必须区分：
 
 - 原始资料确认的事实；

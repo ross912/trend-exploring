@@ -5,7 +5,7 @@ require_relative "../lib/report_summary_runner"
 
 class ReportSummaryRunnerTest < Minitest::Test
   class FakeProvider
-    attr_reader :calls
+    attr_reader :calls, :last_input
 
     def initialize(result:, available: true)
       @result = result
@@ -20,6 +20,7 @@ class ReportSummaryRunnerTest < Minitest::Test
 
     def summarize(input:)
       @calls += 1
+      @last_input = input
       @result
     end
   end
@@ -93,5 +94,20 @@ class ReportSummaryRunnerTest < Minitest::Test
     result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "bad")
     assert_equal "failed", result.fetch("status")
     assert_nil result.fetch("artifact")
+  end
+
+
+  def test_large_edition_keeps_raw_input_hash_but_bounds_provider_projection
+    placements = 200.times.map do |index|
+      { "version_id" => "version-#{index}", "content_hash" => "hash-#{index}", "title" => "Title #{index}",
+        "summary" => "Summary #{index}", "publisher" => "Publisher #{index % 20}", "language" => "en", "sort_order" => index }
+    end
+    provider = FakeProvider.new(result: { "overview" => unit(citations: ["version-0"]), "key_changes" => [], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new(placements: placements), provider: provider).run(edition_id: "edition-1", idempotency_key: "bounded")
+    assert_equal "succeeded", result.fetch("status")
+    assert_operator provider.last_input.fetch("placements").length, :<=, ReportSummaryRunner::MAX_PROVIDER_ITEMS
+    assert_match(/\AE\d{3}\z/, provider.last_input.dig("placements", 0, "version_id"))
+    assert_equal 200, provider.last_input.dig("projection_boundary", "raw_item_count")
+    assert_equal "deterministic_publisher_round_robin_v1", provider.last_input.dig("projection_boundary", "selection_method")
   end
 end

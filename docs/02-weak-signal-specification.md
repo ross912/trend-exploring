@@ -2090,6 +2090,10 @@ v0.1 至少需要下列逻辑表或等价对象：
 
 ## 20. 无法完全消除的限制
 
+### 20.1 多语言概念关联边界
+
+跨语言材料可以建立“概念参与”候选，但不能仅凭译文把事件或主张合并。每条映射必须保留 immutable source version、content hash、源语言、目标规范标签、关系类型（`exact_alias`、`translation_equivalent`、`related_not_equivalent` 或 `unknown`），以及 provider/model/prompt/input/output hash。只有至少两种语言、至少两家已识别 publisher 的证据才可形成跨语言参与候选；`query_conditioned` 与 `exploration_only` 资格必须分别保留。候选的 merge policy 固定为 `participation_only`，不产生事件或主张合并许可。
+
 以下限制不能通过更复杂的评分彻底解决，产品必须长期公开：
 
 1. **世界不可穷尽**：私密交流、未数字化活动、封闭平台、审查与付费墙会形成永久盲区，“全球”只能表示已声明覆盖矩阵内的全球采样；

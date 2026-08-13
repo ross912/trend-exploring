@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS local_radar_card (
   translation_status text NOT NULL DEFAULT 'not_needed',
   translation_artifact_id text NOT NULL DEFAULT '',
   translated_at timestamptz,
+  source_item_key text,
+  source_version_id text,
+  source_content_hash text NOT NULL DEFAULT '',
   sort_order integer NOT NULL CHECK (sort_order >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (snapshot_id, sort_order)
@@ -53,6 +56,9 @@ ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS original_summary text NOT 
 ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS translation_status text NOT NULL DEFAULT 'not_needed';
 ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS translation_artifact_id text NOT NULL DEFAULT '';
 ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS translated_at timestamptz;
+ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS source_item_key text;
+ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS source_version_id text;
+ALTER TABLE local_radar_card ADD COLUMN IF NOT EXISTS source_content_hash text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS local_source_item (
   item_key text PRIMARY KEY,
@@ -107,7 +113,7 @@ CREATE TABLE IF NOT EXISTS local_source_capture (
   source_id text NOT NULL,
   source_url text NOT NULL,
   source_kind text NOT NULL DEFAULT 'configured' CHECK (source_kind IN ('configured', 'discovery')),
-  rights_scope text NOT NULL DEFAULT 'metadata_short_summary_link',
+  rights_scope text NOT NULL DEFAULT 'excerpt_only',
   captured_at timestamptz NOT NULL,
   http_status integer NOT NULL CHECK (http_status BETWEEN 100 AND 599),
   content_type text NOT NULL DEFAULT '',
@@ -128,7 +134,10 @@ CREATE INDEX IF NOT EXISTS local_source_capture_source_time_idx
 
 CREATE TABLE IF NOT EXISTS local_source_item_version (
   version_id text PRIMARY KEY,
-  item_key text NOT NULL REFERENCES local_source_item(item_key) ON DELETE CASCADE,
+  -- The current item projection may be refreshed, but deleting it must never
+  -- erase the immutable version history.  Keep the FK restrictive; the
+  -- append-only guards below provide the explicit write boundary.
+  item_key text NOT NULL REFERENCES local_source_item(item_key) ON DELETE RESTRICT,
   capture_id text NOT NULL REFERENCES local_source_capture(capture_id),
   source_id text NOT NULL,
   source_name text NOT NULL DEFAULT '',
@@ -182,6 +191,100 @@ BEGIN
     RAISE EXCEPTION 'local_source_item_version item/capture duplicate; refusing migration';
   END IF;
 END $$;
+
+-- An older 011 database created the item/version FK with ON DELETE CASCADE.
+-- Upgrade only the known shape; an absent or ambiguous FK is a fail-closed
+-- migration error rather than an implicit reinterpretation of history.
+DO $$
+DECLARE
+  fk_count integer;
+  fk_name text;
+  fk_delete_action "char";
+  parent_item_attnum smallint;
+  child_item_attnum smallint;
+  fk_attnums smallint[];
+BEGIN
+  SELECT attnum INTO parent_item_attnum
+    FROM pg_attribute
+   WHERE attrelid = 'local_source_item'::regclass
+     AND attname = 'item_key'
+     AND NOT attisdropped;
+  SELECT attnum INTO child_item_attnum
+    FROM pg_attribute
+   WHERE attrelid = 'local_source_item_version'::regclass
+     AND attname = 'item_key'
+     AND NOT attisdropped;
+  SELECT COUNT(*) INTO fk_count
+    FROM pg_constraint c
+   WHERE c.conrelid = 'local_source_item_version'::regclass
+     AND c.confrelid = 'local_source_item'::regclass
+     AND c.contype = 'f'
+     AND c.conkey = ARRAY[child_item_attnum]::smallint[]
+     AND c.confkey = ARRAY[parent_item_attnum]::smallint[];
+  SELECT c.conname, c.confdeltype, c.conkey
+    INTO fk_name, fk_delete_action, fk_attnums
+    FROM pg_constraint c
+   WHERE c.conrelid = 'local_source_item_version'::regclass
+     AND c.confrelid = 'local_source_item'::regclass
+     AND c.contype = 'f'
+     AND c.conkey = ARRAY[child_item_attnum]::smallint[]
+     AND c.confkey = ARRAY[parent_item_attnum]::smallint[]
+   LIMIT 1;
+  IF parent_item_attnum IS NULL OR child_item_attnum IS NULL OR fk_count <> 1 OR fk_attnums IS DISTINCT FROM ARRAY[child_item_attnum]::smallint[]
+     OR fk_delete_action NOT IN ('a', 'r', 'c') THEN
+    RAISE EXCEPTION 'local_source_item_version item FK shape is unsupported; refusing raw archive protection upgrade';
+  END IF;
+  IF fk_delete_action = 'c' THEN
+    EXECUTE format('ALTER TABLE local_source_item_version DROP CONSTRAINT %I', fk_name);
+    EXECUTE 'ALTER TABLE local_source_item_version ADD CONSTRAINT local_source_item_version_item_key_fkey FOREIGN KEY (item_key) REFERENCES local_source_item(item_key) ON DELETE RESTRICT';
+  END IF;
+END $$;
+
+-- Capture and version rows are immutable observations.  The current
+-- local_source_item row is intentionally *not* update-protected because the
+-- ingest path refreshes that projection; only its DELETE/TRUNCATE paths are
+-- blocked so a projection refresh cannot cascade into history loss.
+CREATE OR REPLACE FUNCTION local_raw_archive_append_only_guard()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION '% is append-only; use a compliance tombstone/revocation event instead of %',
+    TG_TABLE_NAME, lower(TG_OP);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION local_source_item_delete_guard()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'local_source_item is a mutable projection but DELETE is forbidden; raw history is append-only';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS local_source_capture_append_only_trigger ON local_source_capture;
+CREATE TRIGGER local_source_capture_append_only_trigger
+BEFORE UPDATE OR DELETE ON local_source_capture
+FOR EACH ROW EXECUTE FUNCTION local_raw_archive_append_only_guard();
+DROP TRIGGER IF EXISTS local_source_capture_no_truncate_trigger ON local_source_capture;
+CREATE TRIGGER local_source_capture_no_truncate_trigger
+BEFORE TRUNCATE ON local_source_capture
+FOR EACH STATEMENT EXECUTE FUNCTION local_raw_archive_append_only_guard();
+
+DROP TRIGGER IF EXISTS local_source_item_version_append_only_trigger ON local_source_item_version;
+CREATE TRIGGER local_source_item_version_append_only_trigger
+BEFORE UPDATE OR DELETE ON local_source_item_version
+FOR EACH ROW EXECUTE FUNCTION local_raw_archive_append_only_guard();
+DROP TRIGGER IF EXISTS local_source_item_version_no_truncate_trigger ON local_source_item_version;
+CREATE TRIGGER local_source_item_version_no_truncate_trigger
+BEFORE TRUNCATE ON local_source_item_version
+FOR EACH STATEMENT EXECUTE FUNCTION local_raw_archive_append_only_guard();
+
+DROP TRIGGER IF EXISTS local_source_item_delete_guard_trigger ON local_source_item;
+CREATE TRIGGER local_source_item_delete_guard_trigger
+BEFORE DELETE ON local_source_item
+FOR EACH ROW EXECUTE FUNCTION local_source_item_delete_guard();
+DROP TRIGGER IF EXISTS local_source_item_no_truncate_trigger ON local_source_item;
+CREATE TRIGGER local_source_item_no_truncate_trigger
+BEFORE TRUNCATE ON local_source_item
+FOR EACH STATEMENT EXECUTE FUNCTION local_source_item_delete_guard();
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -587,6 +690,7 @@ CREATE INDEX IF NOT EXISTS local_event_candidate_snapshot_order_idx
 
 CREATE TABLE IF NOT EXISTS local_translation_artifact (
   artifact_id text PRIMARY KEY,
+  source_version_id text,
   item_key text NOT NULL REFERENCES local_source_item(item_key) ON DELETE CASCADE,
   source_language text NOT NULL,
   target_language text NOT NULL,
@@ -601,6 +705,8 @@ CREATE TABLE IF NOT EXISTS local_translation_artifact (
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (item_key, target_language, original_content_hash, provider, model)
 );
+
+ALTER TABLE local_translation_artifact ADD COLUMN IF NOT EXISTS source_version_id text;
 
 CREATE INDEX IF NOT EXISTS local_translation_artifact_item_idx
   ON local_translation_artifact (item_key, target_language, created_at DESC);

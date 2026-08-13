@@ -9,8 +9,10 @@ require_relative "report_summary_provider"
 # artifact rows are appended.
 class ReportSummaryRunner
   class Error < StandardError; end
+  MAX_PROVIDER_ITEMS = 30
+  MAX_PROVIDER_CHARACTERS = 25_000
 
-  def initialize(ledger:, provider: ReportSummaryProvider::OpenAICompatible.new)
+  def initialize(ledger:, provider: ReportSummaryProvider::DeepSeek.new)
     @ledger = ledger
     @provider = provider
   end
@@ -38,7 +40,9 @@ class ReportSummaryRunner
       return terminal_blocked(run, "summary provider credentials are not configured")
     end
 
-    raw = @provider.summarize(input: context)
+    provider_context, citation_aliases = bounded_provider_context(context)
+    raw = @provider.summarize(input: provider_context)
+    raw = expand_citation_aliases(raw, citation_aliases)
     normalized = validate_output(raw, allowed_version_ids: context.fetch("placements").map { |item| item.fetch("version_id") })
     output_hash = Digest::SHA256.hexdigest(JSON.generate(normalized))
     artifact = {
@@ -64,6 +68,54 @@ class ReportSummaryRunner
 
   private
 
+  # The raw edition remains complete. Only the replaceable AI projection is
+  # bounded: deterministic round-robin across publishers, preserving report
+  # order within each publisher, then capped by an explicit character budget.
+  def bounded_provider_context(context)
+    placements = context.fetch("placements")
+    groups = placements.group_by { |row| row.fetch("publisher", "").to_s.empty? ? row.fetch("version_id") : row.fetch("publisher") }
+    ordered_groups = groups.keys.sort.map { |key| groups.fetch(key).sort_by { |row| [row.fetch("sort_order", 0).to_i, row.fetch("version_id")] } }
+    selected = []
+    loop do
+      added = false
+      ordered_groups.each do |group|
+        next if group.empty? || selected.length >= MAX_PROVIDER_ITEMS
+        selected << group.shift
+        added = true
+      end
+      break unless added && selected.length < MAX_PROVIDER_ITEMS
+    end
+    used = 0
+    bounded = selected.sort_by { |row| [row.fetch("sort_order", 0).to_i, row.fetch("version_id")] }.take_while do |row|
+      used += row.fetch("title", "").to_s.length + row.fetch("summary", "").to_s.length + row.fetch("publisher", "").to_s.length + 200
+      used <= MAX_PROVIDER_CHARACTERS
+    end
+    bounded = selected.first(1) if bounded.empty? && !selected.empty?
+    aliases = {}
+    provider_rows = bounded.each_with_index.map do |row, index|
+      short_id = format("E%03d", index + 1)
+      aliases[short_id] = row.fetch("version_id")
+      row.merge("version_id" => short_id)
+    end
+    provider_context = context.merge("placements" => provider_rows, "projection_boundary" => {
+      "raw_item_count" => placements.length, "provider_item_count" => bounded.length,
+      "selection_method" => "deterministic_publisher_round_robin_v1",
+      "max_provider_items" => MAX_PROVIDER_ITEMS, "max_provider_characters" => MAX_PROVIDER_CHARACTERS
+    })
+    [provider_context, aliases]
+  end
+
+  def expand_citation_aliases(payload, aliases)
+    return payload unless payload.is_a?(Hash)
+    copy = JSON.parse(JSON.generate(payload))
+    units = [copy["overview"], *Array(copy["key_changes"]), *Array(copy["uncertainties"])]
+    units.each do |unit|
+      next unless unit.is_a?(Hash) && unit["cited_version_ids"].is_a?(Array)
+      unit["cited_version_ids"] = unit["cited_version_ids"].map { |id| aliases.fetch(id.to_s, id) }
+    end
+    copy
+  end
+
   def replay(run)
     if run.fetch("state") == "succeeded"
       artifact = @ledger.summary_artifact_for_run(run_id: run.fetch("run_id"))
@@ -75,7 +127,7 @@ class ReportSummaryRunner
   def provider_prompt_version
     return @provider.prompt_version.to_s if @provider.respond_to?(:prompt_version)
 
-    ReportSummaryProvider::OpenAICompatible::PROMPT_VERSION
+    ReportSummaryProvider::DeepSeek::PROMPT_VERSION
   end
 
   def terminal_blocked(run, reason)

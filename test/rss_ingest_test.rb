@@ -151,7 +151,7 @@ class RSSIngestTest < Minitest::Test
     refute_empty sources
     sources.each do |source|
       assert_equal "https", URI.parse(source.fetch("url")).scheme
-      assert_equal "metadata_short_summary_link", source.fetch("rights_scope")
+      assert_equal "excerpt_only", source.fetch("rights_scope")
       assert_operator source.fetch("max_summary_chars"), :<=, 320
       assert_includes %w[zh-CN en], source.fetch("language")
       refute_empty source.fetch("region")

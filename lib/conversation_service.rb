@@ -3,6 +3,7 @@
 require "json"
 require_relative "conversation_retriever"
 require_relative "conversation_provider"
+require_relative "query_neutralizer"
 
 # Two-stage conversation orchestration:
 #   1. retrieve public/global evidence with a neutral query;
@@ -42,14 +43,15 @@ class ConversationService
 
   def answer(question:, user_id: nil, subject_key: nil, limit: nil)
     raw_question = question.to_s
-    neutral_query = normalize_neutral_query(raw_question)
     global_limit = limit ? bounded_limit(limit) : bounded_limit(@global_limit)
     personal_limit = limit ? bounded_limit(limit) : bounded_limit(@personal_limit)
 
-    if sensitive_query?(raw_question)
+    begin
+      neutral_query = normalize_neutral_query(raw_question)
+    rescue Error => error
       return base_result(answer_status: "privacy_blocked", neutral_query: nil,
                          global_evidence: [], personal_memory: [],
-                         reason: "sensitive_query_not_sent_to_global")
+                         reason: error.message)
     end
 
     # Intentionally pass only the neutral string and a numeric limit.  No
@@ -85,15 +87,18 @@ class ConversationService
   alias call answer
 
   def self.neutral_query(question)
-    question.to_s.strip[0, MAX_QUESTION_LENGTH]
+    QueryNeutralizer.neutralize(question, max_length: MAX_QUESTION_LENGTH)
   end
 
   private
 
   def normalize_neutral_query(question)
-    text = self.class.neutral_query(question)
-    raise Error, "question is empty" if text.empty?
-    text
+    self.class.neutral_query(question)
+  rescue QueryNeutralizer::Error => error
+    # The caller must not send raw user wording when no safe public query can
+    # be derived.  Keep the error generic so a private canary never enters a
+    # global log or response payload.
+    raise Error, "global retrieval blocked: #{error.code}"
   end
 
   def bounded_limit(value)

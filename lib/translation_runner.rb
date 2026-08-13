@@ -10,19 +10,25 @@ class TranslationRunner
     @target_language = target_language
   end
 
-  def run(limit: 20)
-    candidates = @store.translation_candidates(limit: limit)
+  def run(limit: 20, daily_character_limit: 200_000)
+    queued = @store.respond_to?(:ensure_metadata_translation_runs!)
+    @store.ensure_metadata_translation_runs! if queued
+    candidates = queued ? @store.metadata_translation_candidates(limit: limit, daily_character_limit: daily_character_limit) : @store.translation_candidates(limit: limit)
     return summary("not_needed", candidates.length, 0, 0, 0) if candidates.empty?
-    return summary("external_blocked", 0, 0, candidates.length, candidates.length) unless @provider.available?
+    unless @provider.available?
+      candidates.each { |item| @store.block_metadata_translation_for_credentials!(run_id: item.fetch("translation_run_id"), reason: "DeepSeek API credentials are not configured") } if queued
+      return summary("external_blocked", 0, 0, candidates.length, candidates.length)
+    end
 
     translated = 0
     failed = 0
     candidates.each do |item|
       begin
-        result = @provider.translate(title: item.fetch("title"), summary: item.fetch("summary"), source_language: item.fetch("language"), target_language: @target_language)
+        @store.start_metadata_translation!(run_id: item.fetch("translation_run_id")) if queued
+        result = @provider.translate(title: item.fetch("title"), summary: item.fetch("summary"), body: "", image_captions: [], source_language: item.fetch("language"), target_language: @target_language)
         artifact = {
           "artifact_id" => artifact_id(item, result),
-          "item_key" => item.fetch("item_key"),
+          "source_version_id" => item.fetch("version_id"), "item_key" => item.fetch("item_key"),
           "source_language" => item.fetch("language"),
           "target_language" => @target_language,
           "original_content_hash" => item.fetch("content_hash"),
@@ -35,13 +41,15 @@ class TranslationRunner
           "error_reason" => ""
         }
         @store.save_translation_artifact!(artifact: artifact)
+        @store.finish_metadata_translation!(run_id: item.fetch("translation_run_id"), result: result) if queued
         translated += 1
       rescue TranslationProvider::Error, LocalRadarStore::Error => error
+        @store.fail_metadata_translation!(run_id: item.fetch("translation_run_id"), reason: error.message) if queued
         failed += 1
         warn "translation failed #{item.fetch('item_key')}: #{error.message}"
       end
     end
-    summary(failed.zero? ? "passed" : "fixture_failed", translated, failed, 0, candidates.length)
+    summary(failed.zero? ? "passed" : "degraded", translated, failed, 0, candidates.length)
   end
 
   private

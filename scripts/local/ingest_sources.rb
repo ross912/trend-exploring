@@ -29,6 +29,7 @@ store = LocalRadarStore.new
 # topic-conditioned registry rows out of this disposable database. With no
 # LOCAL_SOURCE_IDS filter, preserve the normal all-enabled source matrix.
 store.register_sources!(sources: sources)
+store.register_archive_policies!(sources: sources)
 
 selected_locale_sources = locale_sources.select do |source|
   source.fetch("enabled", true) && (selected_ids.nil? || selected_ids.include?(source.fetch("id")))
@@ -122,11 +123,11 @@ if items.empty?
   abort "all source fetches failed"
 end
 translation_result = { "status" => "not_requested", "translated_count" => 0, "failed_count" => 0, "blocked_count" => 0 }
-if ENV.fetch("LOCAL_TRANSLATE_LIVE", "0") == "1"
-  translation_result = TranslationRunner.new(store: store, provider: TranslationProvider::OpenAICompatible.new).run(limit: Integer(ENV.fetch("LOCAL_TRANSLATION_LIMIT", "20")))
+if ENV.fetch("LOCAL_TRANSLATE_LIVE", "1") == "1"
+  translation_result = TranslationRunner.new(store: store, provider: TranslationProvider::DeepSeek.new).run(limit: Integer(ENV.fetch("LOCAL_TRANSLATION_LIMIT", "20")))
 end
 signal_batch_items = items.select { |item| item.fetch("analysis_policy", "signal_eligible").to_s == "signal_eligible" }
-prior_signal_radar = signal_batch_items.empty? ? store.current_radar : nil
+prior_signal_radar = signal_batch_items.empty? ? store.stored_signal_projection : nil
 latest = store.latest_source_items(limit: Integer(ENV.fetch("LOCAL_RADAR_CARD_LIMIT", "8")), published_only: true, analysis_policy: "signal_eligible")
 analysis_items = store.latest_source_items(limit: Integer(ENV.fetch("LOCAL_TREND_ITEM_LIMIT", "500")), published_only: true, analysis_policy: "signal_eligible")
 event_analysis_items = store.event_analysis_items(limit: Integer(ENV.fetch("LOCAL_EVENT_ITEM_LIMIT", ENV.fetch("LOCAL_TREND_ITEM_LIMIT", "500"))), analysis_policy: "signal_eligible")
@@ -164,6 +165,9 @@ cards = latest.each_with_index.map do |item, index|
     "translation_status" => item.fetch("translation_status"),
     "translation_artifact_id" => item.fetch("translation_artifact_id", ""),
     "translated_at" => item.fetch("translated_at").to_s.empty? ? nil : item.fetch("translated_at"),
+    "source_item_key" => item.fetch("item_key"),
+    "source_version_id" => item.fetch("version_id"),
+    "source_content_hash" => item.fetch("content_hash"),
     "sort_order" => index
   }
 end

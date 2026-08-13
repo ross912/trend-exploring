@@ -67,6 +67,14 @@ module LocalRuntime
     ENV.fetch("LOCAL_BACKUP_DIR", File.join(state_dir, "backups"))
   end
 
+  def secrets_dir
+    ENV.fetch("LOCAL_SECRETS_DIR", File.join(state_dir, "secrets"))
+  end
+
+  def deepseek_secret_file
+    ENV.fetch("DEEPSEEK_API_KEY_FILE", File.join(secrets_dir, "deepseek_api_key"))
+  end
+
   def env_hash
     {
       "LOCAL_STATE_DIR" => state_dir,

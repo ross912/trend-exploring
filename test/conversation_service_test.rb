@@ -138,8 +138,89 @@ class ConversationServiceTest < Minitest::Test
     result = ConversationService.new(global_retriever: global, personal_retriever: personal,
                                      provider: NoCredentialProvider.new).answer(question: "  global question  ", user_id: "private-user")
     assert_equal "not_generated", result.fetch("answer_status")
-    assert_equal [["global question", 20]], global.calls
-    assert_equal [["global question", "private-user", 20]], personal.calls
+    assert_equal [["global", 20]], global.calls
+    assert_equal [["global", "private-user", 20]], personal.calls
+  end
+
+  def test_opposite_personal_stance_and_framing_produce_identical_global_query_and_evidence
+    global = Class.new(SpyGlobal) do
+      def search(query, limit:)
+        @calls << [query, limit]
+        [{ "version_id" => "v-#{query}" }]
+      end
+    end
+    first_global = global.new
+    second_global = global.new
+    first = ConversationService.new(global_retriever: first_global, personal_retriever: FakePersonal.new,
+                                    provider: NoCredentialProvider.new).answer(
+                                      question: "I only care about AI startups; what do you think?",
+                                      user_id: "profile-a")
+    second = ConversationService.new(global_retriever: second_global, personal_retriever: FakePersonal.new,
+                                     provider: NoCredentialProvider.new).answer(
+                                       question: "I oppose AI startups. In my opinion, please tell me the latest AI startups update.",
+                                       user_id: "profile-b")
+    assert_equal "ai startups", first.fetch("neutral_query")
+    assert_equal first.fetch("neutral_query"), second.fetch("neutral_query")
+    assert_equal first.fetch("global_evidence").map { |row| row.fetch("version_id") }, second.fetch("global_evidence").map { |row| row.fetch("version_id") }
+    assert_equal first_global.calls, second_global.calls
+  end
+
+  def test_private_canary_is_never_sent_to_global_or_personal_retriever
+    global = SpyGlobal.new(evidence)
+    personal = FakePersonal.new(memory)
+    result = ConversationService.new(global_retriever: global, personal_retriever: personal,
+                                     provider: NoCredentialProvider.new).answer(
+                                       question: "I care about climate; private canary-7f3a9c2e, what happened?",
+                                       user_id: "user-secret")
+    assert_equal "privacy_blocked", result.fetch("answer_status")
+    assert_empty global.calls
+    assert_empty personal.calls
+    refute_includes JSON.generate(result), "canary-7f3a9c2e"
+  end
+
+  def test_chinese_private_canaries_are_blocked_before_global_or_personal_retrieval
+    [
+      "我的病历号 ABC123456 最近有什么变化？",
+      "身份证号 11010519491231002X 的办理政策",
+      "联系电话 13812345678 的公共健康政策",
+      "我的家庭住址 上海市浦东新区世纪大道100号附近",
+      "未公开公司 星河计划的融资进展"
+    ].each do |question|
+      global = SpyGlobal.new(evidence)
+      personal = FakePersonal.new(memory)
+      result = ConversationService.new(global_retriever: global, personal_retriever: personal,
+                                       provider: NoCredentialProvider.new).answer(
+                                         question: question, user_id: "用户-隐私-canary")
+      assert_equal "privacy_blocked", result.fetch("answer_status"), question
+      assert_empty global.calls, question
+      assert_empty personal.calls, question
+      refute_includes JSON.generate(result), "ABC123456"
+      refute_includes JSON.generate(result), "11010519491231002X"
+      refute_includes JSON.generate(result), "13812345678"
+      refute_includes JSON.generate(result), "世纪大道100号"
+      refute_includes JSON.generate(result), "星河计划"
+    end
+  end
+
+  def test_public_place_and_topic_are_not_false_positive_blocked
+    global = SpyGlobal.new(evidence)
+    personal = FakePersonal.new(memory)
+    result = ConversationService.new(global_retriever: global, personal_retriever: personal,
+                                     provider: NoCredentialProvider.new).answer(
+                                       question: "上海 AI 政策最近如何？", user_id: "public-user")
+    assert_equal "not_generated", result.fetch("answer_status")
+    assert_equal [["ai 上海 政策最近", 20]], global.calls
+    assert_equal [["ai 上海 政策最近", "public-user", 20]], personal.calls
+  end
+
+  def test_question_without_public_terms_fails_closed
+    global = SpyGlobal.new(evidence)
+    personal = FakePersonal.new(memory)
+    result = ConversationService.new(global_retriever: global, personal_retriever: personal,
+                                     provider: NoCredentialProvider.new).answer(question: "what do you think?", user_id: "u")
+    assert_equal "privacy_blocked", result.fetch("answer_status")
+    assert_empty global.calls
+    assert_empty personal.calls
   end
 
   def test_valid_provider_answer_is_returned
@@ -147,7 +228,7 @@ class ConversationServiceTest < Minitest::Test
                "follow_up_questions" => [] }
     service = ConversationService.new(global_retriever: SpyGlobal.new(evidence), personal_retriever: FakePersonal.new(memory),
                                       provider: FakeProvider.new(answer: answer))
-    result = service.answer(question: "question")
+    result = service.answer(question: "global evidence")
     assert_equal "generated", result.fetch("answer_status")
     assert_equal answer, result.fetch("answer")
   end
@@ -157,13 +238,13 @@ class ConversationServiceTest < Minitest::Test
                 "follow_up_questions" => [] }
     service = ConversationService.new(global_retriever: SpyGlobal.new(evidence), personal_retriever: FakePersonal.new,
                                       provider: FakeProvider.new(answer: unknown))
-    result = service.answer(question: "question")
+    result = service.answer(question: "global evidence")
     assert_equal "failed", result.fetch("answer_status")
     assert_match(/unknown|citation/, result.fetch("error"))
 
     extra = { "answer_sections" => [], "follow_up_questions" => [], "extra" => true }
     result = ConversationService.new(global_retriever: SpyGlobal.new(evidence), personal_retriever: FakePersonal.new,
-                                     provider: FakeProvider.new(answer: extra)).answer(question: "question")
+                                     provider: FakeProvider.new(answer: extra)).answer(question: "global evidence")
     assert_equal "failed", result.fetch("answer_status")
     assert_match(/unknown keys/, result.fetch("error"))
   end
@@ -171,7 +252,7 @@ class ConversationServiceTest < Minitest::Test
   def test_provider_failure_keeps_raw_evidence
     service = ConversationService.new(global_retriever: SpyGlobal.new(evidence), personal_retriever: FakePersonal.new(memory),
                                       provider: FakeProvider.new(error: RuntimeError.new("fixture provider failed")))
-    result = service.answer(question: "question")
+    result = service.answer(question: "global evidence")
     assert_equal "failed", result.fetch("answer_status")
     assert_equal "v1", result.fetch("global_evidence").fetch(0).fetch("version_id")
     assert_equal "m1", result.fetch("personal_memory").fetch(0).fetch("memory_entry_id")
@@ -201,7 +282,7 @@ class ConversationServiceTest < Minitest::Test
       end
     end.new(answer: answer)
     result = ConversationService.new(global_retriever: global, personal_retriever: FakePersonal.new,
-                                     provider: provider).answer(question: "question")
+                                     provider: provider).answer(question: "global evidence")
     assert_equal "generated", result.fetch("answer_status")
     assert_equal "context", provider.received.fetch(:analysis_context).fetch(0).fetch("units").fetch(0).fetch("text")
   end

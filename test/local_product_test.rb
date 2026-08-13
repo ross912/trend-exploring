@@ -51,6 +51,10 @@ class LocalProductTest < Minitest::Test
     assert_includes html, "词频线索"
     assert_includes html, "事件候选"
     assert_includes html, "确定性文本锚门槛"
+    assert_includes html, "世界变化候选"
+    assert_includes html, "多语言概念候选"
+    assert_includes html, "五通道证据"
+    assert_includes html, "非预测"
     assert_includes css, ".signal-card"
     assert_includes css, ".card-meta"
     assert_includes css, ".translation-badge"
@@ -65,6 +69,15 @@ class LocalProductTest < Minitest::Test
     assert_includes js, "当前仅两种内容语言"
     assert_includes js, "event_candidates"
     assert_includes js, "query evidence"
+    assert_includes js, "/api/world-changes"
+    assert_includes js, "evidence_boundary"
+    assert_includes js, "公开 refs 上限"
+    assert_includes js, "/api/signals/lifecycle"
+    assert_includes js, "/api/multilingual-concepts"
+    assert_includes js, "contradicting_evidence"
+    assert_includes js, "missing_channels"
+    assert_includes js, "alternative_explanations"
+    assert_includes js, "next_verification"
     assert_includes readme_top, "单用户本地产品"
     %w[全球变化台 多地区 可验证趋势 可解释趋势 什么正在变化 条趋势 独立来源 独立出版方 事件短语 已翻译 覆盖地区].each do |forbidden|
       refute_includes html, forbidden
@@ -650,7 +663,7 @@ class LocalProductTest < Minitest::Test
       "capture_body_hash" => "body-#{capture_id}",
       "capture_storage_status" => "metadata_only",
       "capture_source_url" => "https://example.test/feed.xml",
-      "rights_scope" => "metadata_short_summary_link"
+      "rights_scope" => "excerpt_only"
     }
   end
 end

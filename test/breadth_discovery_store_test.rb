@@ -82,6 +82,51 @@ class BreadthDiscoveryStoreTest < Minitest::Test
     assert_equal 12, @store.collection_batch(batch_id: batch_id).fetch("selected_count")
   end
 
+  def test_seeded_manifest_is_frozen_before_membership_and_read_model_is_explicit
+    sources = [locale_source("en-US", "manifest-en"), locale_source("es-419", "manifest-es")]
+    @store.register_sources!(sources: sources)
+    items = sources.each_with_index.map do |source, index|
+      locale_item(source: source, item_key: "manifest-item-#{index}", capture_id: "manifest-capture-#{index}", publisher_id: "manifest-publisher-#{index}.example").merge(
+        "published_at" => format("2026-08-09T0#{index + 1}:00:00Z")
+      )
+    end
+    @store.ingest_source_items!(items: items)
+    batch_id = "manifest-batch"
+    @store.create_collection_batch!(batch_id: batch_id, registry_hash: @store.registry_contract_hash(sources: sources), planned_source_count: sources.length, sources: sources)
+    sources.each_with_index do |source, index|
+      @store.record_source_fetch_attempt!(batch_id: batch_id, source_id: source.fetch("id"), outcome: "succeeded_with_items", item_count: 1, capture_id: "manifest-capture-#{index}", http_status: 200, source_config_hash: @store.registry_contract_hash(sources: [source]))
+    end
+
+    selected = @store.selected_versions_for_batch(batch_id: batch_id)
+    assert_equal selected.length, selected.count { |item| item.fetch("allocation_lane") == "random_exploration" }
+    assert selected.all? { |item| item.fetch("delivery_status") == "unmeasured" && item.fetch("not_a_signal") }
+    seed = @store.selection_seed(batch_id: batch_id)
+    candidates = @store.batch_candidate_versions(batch_id: batch_id)
+    no_candidate = candidates.to_h { |item| [item.fetch("version_id"), "no-candidate"] }
+    reordered_manifest = BreadthDiscoverySelector.new(limit: 12, seed: seed).selection_manifest(items: candidates.reverse, scope_id: "locale_frontier", seed: seed, detector_results: no_candidate)
+    assert_equal selected.map { |item| item.fetch("version_id") }, reordered_manifest.fetch("selected_version_ids")
+    assert reordered_manifest.fetch("selected_items").all? { |item| item.fetch("detector_outcome") == "no-candidate" }
+
+    @store.freeze_collection_selection!(batch_id: batch_id, version_ids: selected.map { |item| item.fetch("version_id") })
+    manifest = @store.send(:query, "SELECT manifest_id, seed, eligibility_count, eligible_count, ineligible_count, selection_decision_count, selected_count, delivery_status, not_a_signal FROM local_pre_detection_exploration_manifest WHERE batch_id = '#{batch_id}'").fetch(0).split("\t", -1)
+    assert_equal seed, manifest.fetch(1)
+    assert_equal %w[2 2 0 2 2 unmeasured t], manifest[2, 7]
+
+    baseline = { "snapshot_id" => "manifest-baseline", "surface_id" => "public-radar", "revision" => 1, "comparison_watermark" => "2026-08-09T00:00:00Z", "method_epoch" => "test", "rights_epoch" => 1, "render_plan_hash" => "manifest-baseline" }
+    @store.publish_snapshot!(snapshot: baseline, cards: [card])
+    memberships = selected.each_with_index.map { |item, index| { "version_id" => item.fetch("version_id"), "sort_order" => index } }
+    result = @store.publish_snapshot!(snapshot: baseline.merge("snapshot_id" => "manifest-snapshot", "revision" => 2, "render_plan_hash" => "manifest-snapshot", "signal_projection_status" => "reused_previous", "signal_source_snapshot_id" => baseline.fetch("snapshot_id")), cards: [card.merge("card_id" => "manifest-card")], batch_id: batch_id, exploration_items: memberships)
+    latest = result.dig("exploration", "latest_batch")
+    assert_equal manifest.fetch(0), latest.fetch("selection_manifest_id")
+    assert_equal seed, latest.fetch("selection_seed")
+    assert_equal 2, latest.fetch("eligibility_count")
+    assert_equal 2, latest.fetch("eligible_count")
+    assert_equal 0, latest.fetch("ineligible_count")
+    assert_equal "unmeasured", latest.fetch("delivery_status")
+    assert_equal true, latest.fetch("not_a_signal")
+    assert result.fetch("exploration").fetch("items").all? { |item| item.fetch("selection_manifest_id") == manifest.fetch(0) && item.fetch("delivery_status") == "unmeasured" && item.fetch("not_a_signal") }
+  end
+
   def test_legacy_editorial_item_empty_market_basis_uses_registry_default
     source = signal_source("legacy-editorial-default")
     @store.register_sources!(sources: [source])
@@ -109,7 +154,7 @@ class BreadthDiscoveryStoreTest < Minitest::Test
       "capture_id" => "rss-editorial-capture", "captured_at" => "2026-08-09T01:00:00Z",
       "http_status" => 200, "content_type" => "application/rss+xml", "content_bytes" => xml.bytesize,
       "body_hash" => "rss-editorial-body", "feed_url" => source.fetch("url"),
-      "storage_status" => "metadata_only", "rights_scope" => "metadata_short_summary_link"
+      "storage_status" => "metadata_only", "rights_scope" => "excerpt_only"
     }).fetch(0)
 
     assert_equal "", item.fetch("market_label_basis")
@@ -123,7 +168,7 @@ class BreadthDiscoveryStoreTest < Minitest::Test
     @store.register_sources!(sources: [source])
     item = locale_item(source: source, item_key: "item-1", capture_id: "capture-1", publisher_id: "publisher.example")
     @store.ingest_source_items!(items: [item])
-    assert_empty @store.translation_candidates(limit: 20)
+    assert_equal ["item-1"], @store.translation_candidates(limit: 20).map { |item| item.fetch("item_key") }
     assert_empty @store.latest_source_items(limit: 20, analysis_policy: "signal_eligible")
     assert_empty @store.event_analysis_items(limit: 20, analysis_policy: "signal_eligible")
     hash = @store.registry_contract_hash(sources: [source])
@@ -327,7 +372,8 @@ class BreadthDiscoveryStoreTest < Minitest::Test
     assert_equal 1, coverage.fetch("locale_discovery_observed_publisher_domain_count")
     assert_equal 1, coverage.fetch("locale_discovery_unresolved_item_count")
     assert_equal 1, @store.translation_summary.fetch("english_items")
-    assert_equal ["signal-item"], @store.translation_candidates(limit: 20).map { |item| item.fetch("item_key") }
+    assert_equal %w[locale-resolved locale-unresolved signal-item].sort,
+                 @store.translation_candidates(limit: 20).map { |item| item.fetch("item_key") }.sort
     publisher_ids = @store.discovered_publishers.map { |publisher| publisher.fetch("publisher_id") }
     assert_includes publisher_ids, "signal.example"
     refute_includes publisher_ids, "locale.example"

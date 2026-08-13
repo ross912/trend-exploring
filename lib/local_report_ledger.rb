@@ -361,12 +361,13 @@ class LocalReportLedger
     normalized_state = state.to_s
     raise Error, "summary terminal state must be failed or blocked" unless %w[failed blocked].include?(normalized_state)
     raise Error, "summary failure reason is required" if reason.to_s.strip.empty?
+    safe_reason = reason.to_s.gsub(/[\r\n\t]+/, " ").gsub(/\s+/, " ").strip[0, 2000]
     transaction do
       rows = transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)} FOR UPDATE")
       raise Error, "summary run not found: #{run_id}" if rows.empty?
       run = normalize_summary_run(row_to_hash(rows.fetch(0), SUMMARY_RUN_KEYS))
       if run.fetch("state") == "running"
-        transaction_query("UPDATE local_report_summary_run SET state = #{literal(normalized_state)}, finished_at = now(), error_reason = #{literal(reason.to_s[0, 2000])} WHERE run_id = #{literal(run_id)}")
+        transaction_query("UPDATE local_report_summary_run SET state = #{literal(normalized_state)}, finished_at = now(), error_reason = #{literal(safe_reason)} WHERE run_id = #{literal(run_id)}")
         run = normalize_summary_run(row_to_hash(transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)}").fetch(0), SUMMARY_RUN_KEYS))
       elsif run.fetch("state") != normalized_state
         raise Error, "summary run is already terminal: #{run.fetch('state')}"
@@ -492,13 +493,26 @@ class LocalReportLedger
       SELECT p.placement_id, p.sort_order, p.placement_kind, p.reason_codes::text,
              a.arrival_id, a.version_id, a.item_key, a.capture_id, a.content_hash,
              a.information_arrival_at::text, a.nominal_slot_id, a.arrival_kind,
-             v.source_id, v.source_name, v.language, v.title, v.summary,
+             v.source_id, v.source_name, v.language,
+             CASE WHEN t.status='translated' THEN t.translated_title ELSE v.title END,
+             CASE WHEN t.status='translated' THEN t.translated_summary ELSE v.summary END,
              v.source_url, v.published_at::text, v.fetched_at::text, v.captured_at::text,
              v.publisher_name, v.publisher_url, v.publisher_id,
-             v.publisher_identity_status, v.source_kind
+             v.publisher_identity_status, v.source_kind,
+             v.title, v.summary,
+             CASE WHEN v.language LIKE 'zh%' THEN 'not_needed'
+                  WHEN t.status='translated' THEN 'translated' ELSE 'untranslated' END,
+             COALESCE(t.artifact_id,''), COALESCE(t.created_at::text,'')
         FROM local_report_item_placement p
         JOIN local_reportable_arrival a ON a.arrival_id = p.arrival_id
         JOIN local_source_item_version v ON v.version_id = a.version_id
+        LEFT JOIN LATERAL (
+          SELECT artifact_id, translated_title, translated_summary, status, created_at
+            FROM local_translation_artifact
+           WHERE item_key=v.item_key AND original_content_hash=v.content_hash
+             AND target_language='zh-CN' AND status='translated'
+           ORDER BY created_at DESC LIMIT 1
+        ) t ON TRUE
        WHERE p.edition_id = #{literal(edition.fetch('edition_id'))}
        ORDER BY p.sort_order ASC
     SQL
@@ -524,7 +538,7 @@ class LocalReportLedger
   ARRIVAL_KEYS = %w[arrival_id version_id item_key capture_id content_hash information_arrival_at nominal_slot_id arrival_kind created_at updated_at].freeze
   ATTEMPT_KEYS = %w[attempt_id slot_id idempotency_key payload_hash state started_at finished_at failure_reason created_at updated_at].freeze
   EDITION_KEYS = %w[edition_id slot_id attempt_id nominal_window_start nominal_window_end configured_data_cutoff processing_frontier selection_completeness_frontier data_cutoff comparison_watermark publication_committed_at edition_status reason_codes summary_status payload_hash item_count created_at updated_at].freeze
-  PLACED_ITEM_KEYS = %w[placement_id sort_order placement_kind reason_codes arrival_id version_id item_key capture_id content_hash information_arrival_at nominal_slot_id arrival_kind source_id source_name language title summary source_url published_at fetched_at captured_at publisher_name publisher_url publisher_id publisher_identity_status source_kind].freeze
+  PLACED_ITEM_KEYS = %w[placement_id sort_order placement_kind reason_codes arrival_id version_id item_key capture_id content_hash information_arrival_at nominal_slot_id arrival_kind source_id source_name language title summary source_url published_at fetched_at captured_at publisher_name publisher_url publisher_id publisher_identity_status source_kind original_title original_summary translation_status translation_artifact_id translated_at].freeze
   SUMMARY_RUN_KEYS = %w[run_id edition_id idempotency_key input_hash provider model prompt_version state started_at finished_at error_reason created_at updated_at].freeze
   SUMMARY_ARTIFACT_KEYS = %w[artifact_id run_id edition_id input_hash provider model prompt_version overview key_changes uncertainties output_hash created_at].freeze
   TIMESTAMP_KEYS = %w[window_start window_end scheduled_at configured_data_cutoff created_at updated_at information_arrival_at started_at finished_at nominal_window_start nominal_window_end processing_frontier selection_completeness_frontier data_cutoff publication_committed_at published_at fetched_at captured_at comparison_watermark].freeze
@@ -804,7 +818,7 @@ class LocalReportLedger
   end
 
   def summary_run_columns
-    "run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, state, started_at::text, finished_at::text, error_reason, created_at::text, updated_at::text"
+    "run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, state, started_at::text, finished_at::text, regexp_replace(error_reason, E'[\\n\\r\\t]+', ' ', 'g'), created_at::text, updated_at::text"
   end
 
   def summary_artifact_columns

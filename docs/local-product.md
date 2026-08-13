@@ -4,9 +4,19 @@
 
 ## 启动
 
+### DeepSeek V4 Pro
+
+翻译、日报总结和资料对话共享 `deepseek-v4-pro`，默认 Base URL 为 `https://api.deepseek.com`。不要把密钥写进仓库或命令历史；在交互终端运行：
+
+```bash
+bash scripts/local/configure_deepseek.sh
+```
+
+脚本会把密钥写入 `~/Library/Application Support/TrendExploring/secrets/deepseek_api_key`，目录权限 `700`、文件权限 `600`。LaunchAgent 运行副本不包含 secrets，客户端直接读取该文件；备份脚本只导出数据库，不复制 secrets。也可在一次性进程里使用 `DEEPSEEK_API_KEY`。没有凭据时采集继续运行，正文/元数据翻译进入 `credential_blocked`，日报 summary 保留 blocked，对话返回原始 evidence 而不生成答案。
+
 `run_product.sh` 会在用户持久目录创建并启动本地 PostgreSQL 15 instance。macOS 默认目录是 `~/Library/Application Support/TrendExploring`，数据库、Unix socket、运行时和备份都在该目录下，默认端口为 `55433`。脚本随后执行非破坏性 schema migration 并启动 API。启动不会清空已有 archive、snapshot、日报或分析结果。只有显式设置 `LOCAL_RESET_DEMO=1` 才允许重置默认本地库；`LOCAL_SEED_DEMO=1` 只会在没有 snapshot 时写入演示 snapshot。也可以手动运行 `scripts/local/start_postgres.sh`，或用 `LOCAL_STATE_DIR`、`PG_BIN`、`LOCAL_PSQL`、`LOCAL_PGHOST`、`LOCAL_PGPORT`、`LOCAL_PGDATABASE`、`LOCAL_PGUSER` 覆盖运行位置和连接参数。
 
-默认启动会从 `config/sources.json` 做一次手动/启动时的 RSS/Atom 批采集，并发布一个新的批次 snapshot。它不是持续连接的实时流；signal watermark 只由本批 `signal_eligible` 条目的采集时间推进，locale-only 批次沿用前序 watermark，并在 snapshot 标记 `reused_previous`；探索前沿另有独立 batch attempts 与成功/空/失败分母。当前配置有 13 个编辑 RSS、6 个预设主题查询和 8 个 Google News locale headlines 入口；locale 入口的每批成功有条目/成功为空/失败都计入分母。locale 探索前沿是 topic-unconditioned、aggregator-mediated、exploration-only 的归档/浏览切片，不进入趋势、事件候选、卡片或翻译；市场标签不是事件地域，事件地域状态明确为未验证。这里不声称全球覆盖、开放世界发现或独立媒体组织覆盖；英文及其他未支持分析语言明确标注为原文，机器译文也不代表人工核验。若当前网络不可用，可使用 `LOCAL_INGEST_LIVE=0 bash scripts/local/run_product.sh` 只启动已有本地数据。
+默认启动会从 `config/sources.json` 做一次手动/启动时的 RSS/Atom 批采集；在发布新的批次 snapshot 前，先按限额处理非中文元数据译文，使当批卡片可以直接读取已完成的中文投影。原语言 title/summary 与不可变版本始终保留，翻译失败只标记待翻译/失败，不伪装成中文。它不是持续连接的实时流；signal watermark 只由本批 `signal_eligible` 条目的采集时间推进，locale-only 批次沿用前序 watermark，并在 snapshot 标记 `reused_previous`；探索前沿另有独立 batch attempts 与成功/空/失败分母。当前配置有 13 个编辑 RSS、6 个预设主题查询和 8 个 Google News locale headlines 入口；locale 入口的每批成功有条目/成功为空/失败都计入分母。locale 探索前沿是 topic-unconditioned、aggregator-mediated、exploration-only 的归档/浏览切片；非中文元数据进入同一版本绑定翻译队列，但这些材料不进入趋势、事件候选或 signal 卡片。市场标签不是事件地域，事件地域状态明确为未验证。这里不声称全球覆盖、开放世界发现或独立媒体组织覆盖；机器译文明确标注且不代表人工核验。若当前网络不可用，可使用 `LOCAL_INGEST_LIVE=0 bash scripts/local/run_product.sh` 只启动已有本地数据。
 
 混合 signal+locale 批次先提交一个 `fresh_batch` signal snapshot，再以相同 watermark/method/rights 及重键后的 signal surface 提交下一 revision 的 `reused_previous` exploration snapshot；locale batch 没有 selection 时只关闭 attempts，不额外制造空 membership revision。
 
@@ -48,6 +58,9 @@ bash scripts/local/run_product.sh
 - `GET /api/reports/latest?kind=morning|evening`：日报事实账本 latest edition 或 `scheduled`/`not_run`/`failed`；内容为 raw listings，并在存在时附加可追溯 summary。没有 provider 凭据时明确为 blocked/not generated。
 - `POST /api/radar/publish`：默认关闭并返回 403；只在本机显式设置 `LOCAL_ENABLE_PUBLISH_API=1` 后开放完整 snapshot + cards + trends 原子发布入口。可选传入 `event_candidates` 和已冻结 batch 的 exploration membership，服务端会回查 version/capture/source contract/attempt。
 - `GET /api/weak-signals`：返回最新弱信号规则运行；基线不足时保留 `warming_up`，不伪造候选。
+- `GET /api/world-changes`：返回固定 `run_id/as_of` 的五通道世界变化候选；逐通道公开有界 lineage refs（资格/support/反证最多 3/2/2 条，仅含 `version_id/title/source_url/publisher/channel/role`），并通过 `truncated/evidence_boundary` 明示正文不出接口；内部追加式账本仍保留完整证据。响应标记 `not_a_prediction=true`。
+- `GET /api/signals/lifecycle`：只读 operational lifecycle state/trigger/evidence；`retrospective_reanalysis` 单列，不能冒充当时发现。
+- `GET /api/multilingual-concepts`：只读 provider-backed 多语言概念参与候选；无真实 provider 映射时返回 `empty`，不伪造 `translation_equivalent`。
 - `POST /api/conversation/query`：只接受 JSON；先做敏感信息阻断，再只读检索全局 archive 与物理隔离的个人记忆。没有 provider 凭据时返回 evidence/memory 而不伪造回答。
 
 服务启动后可用另一终端运行 HTTP smoke：
@@ -56,7 +69,7 @@ bash scripts/local/run_product.sh
 ruby scripts/local/smoke_radar.rb
 ```
 
-持续运行的最小运维闭环是：07:55/18:55 预采集，08:05/19:05 在严格 15 分钟容差窗口生成对应日报、运行弱信号与 summary；周期可用 `--now` 做时钟测试，重复执行使用固定幂等键，不提前发布。它是定时批处理，不是连续实时流。采集失败会发布 `degraded/DEGRADED_COVERAGE` 日报，不覆盖旧 published head。macOS 可用 `bash scripts/local/install_launch_agent.sh` 安装幂等的采集、周期和本地 UI server LaunchAgents，`uninstall_launch_agent.sh` 卸载；周期 wrapper 会先启动 PostgreSQL、迁移全局/个人库，再执行周期。
+持续运行的最小运维闭环是：07:55/18:55 预采集，08:05/19:05 生成对应日报、运行弱信号、世界变化候选与 summary；世界变化使用独立固定 run id，失败只降级该面板，不影响 raw 日报。若 macOS 休眠或 launchd 延迟，周期会在下一个日报边界前补发当前仍为 `scheduled` 的时段。截止时间仍固定为 08:00/19:00，不会提前发布或把补发时刻后的材料混入旧时段；重复执行使用固定幂等键，只产生一个 edition。周期可用 `--now` 做时钟测试。它是定时批处理，不是连续实时流。采集失败会发布 `degraded/DEGRADED_COVERAGE` 日报，不覆盖旧 published head。macOS 可用 `bash scripts/local/install_launch_agent.sh` 安装幂等的采集、周期和本地 UI server LaunchAgents，`uninstall_launch_agent.sh` 卸载；周期 wrapper 会先启动 PostgreSQL、迁移全局/个人库，再执行周期。
 
 运行状态：`ruby scripts/local/status_local.rb` 输出 server、global/personal DB、迁移、latest ingest、日报槽位和 weak-signal 状态 JSON。备份：`bash scripts/local/backup_local.sh [目录]` 同时导出全局和个人库并写 manifest/count/hash；恢复只创建带时间戳的 disposable DB，`LOCAL_RESTORE_CLEANUP=1` 可在验证后清理，绝不覆盖运行库。
 
@@ -66,7 +79,10 @@ ruby scripts/local/smoke_radar.rb
 - 后端通过 `psql` CLI 访问数据库，不把密码、URL 或云凭据写入仓库。
 - 前端只读取 public snapshot，不读取个人记忆；页面明确显示 snapshot、watermark、rights epoch 和 evidence boundary。
 - 采集器只保存 RSS/Atom 元数据、短摘要和原文链接；每个来源配置 `rights_scope` 与摘要长度上限，不把全文复制到本地产品。`metadata_only` capture 只保存 feed 的请求/响应元数据与 body hash，不是正文原件，也不能从本地存储还原 feed body 或全文。
+- `rights_scope` 采用 `full_archive` / `excerpt_only` / `link_only`。`full_archive` 还必须提供 `archive_permission_basis`（出版方许可、开放许可、公版或已审核 robots/条款）及 `archive_permission_verified_at`；否则抓取器在网络请求前拒绝。它不绕过登录、付费墙、验证码、JavaScript gate 或访问拒绝。当前配置全部是 `excerpt_only`，因此新表和流水线已经具备，但不会擅自抓取这些站点正文。
+- 合法归档的正文按具体 `source_version_id` 追加保存，包含原始正文、图注、提取器版本、最终 URL 和正文哈希；中文译文在独立 artifact 中保存，记录 DeepSeek 模型、提示版本、用量和原文正文哈希，永不覆盖原文。默认每次正文归档20条、全文翻译5条，每日最多20万输入字符，失败最多自动尝试3次；可用 `LOCAL_ARTICLE_ARCHIVE_LIMIT`、`LOCAL_FULLTEXT_TRANSLATION_LIMIT`、`LOCAL_DEEPSEEK_DAILY_CHARACTER_LIMIT` 调整。
 - 只有 HTTP 成功且解析出有效条目的 feed 响应才追加 capture 与其实际写入的 item versions；失败或空响应不会推进 signal watermark，但会在来源矩阵与 locale batch attempts 中保留状态。同一 capture 重放幂等，不同 capture 即使内容相同也会保留观察历史。
+- `local_source_capture` 与 `local_source_item_version` 由 PostgreSQL 触发器强制 append-only（禁止 UPDATE/DELETE/TRUNCATE）；`local_source_item` 仍是可由采集器刷新的 current projection，但 DELETE/TRUNCATE 被阻断，且 item→version 外键为 `ON DELETE RESTRICT`，不会级联抹掉历史。017 迁移对缺失或歧义的旧 FK fail closed；合规删除/撤销事件尚未实现，不能把“不可删除”误读为已完成法律删除义务。
 - 编辑 RSS 使用配置中的稳定出版方身份；同一出版方的多个 feed 共享一个 `publisher_id`。Google News 入口是带 `query_conditioned=true` 的主题查询，只从条目 `<source url>` 观察规范化域名；缺失或非法 URL 保留为 unresolved，不按名称猜组织。
 - 趋势分析只使用有发布时间的真实采集条目，比较 48 小时观察窗与最近 12 小时窗口；至少 2 次提及且至少覆盖 2 个去重来源标识（配置出版方或观察域名）才能进入趋势列表。输出中的 `regions` 是入口标签，不是事件地域；趋势是非事件聚类的词频线索，不代表世界变化结论。单条新闻或单一来源重复发布不会被提升为趋势。
 - 事件候选是新增的高精度、低召回前置层：只读启用 registry 中条目的原始 title/summary，要求发布时间、已解析 `publisher_id`、同语言、36 小时内和确定性锚点相似；使用规则实体样式（数字/单位、英文连续 trigram、多词大写名称、中文长 shingle/引号短语），不是 NER、模型、embedding 或翻译。`publisher_id` 只用于去重与资格，不证明组织独立。至少两个不同且已解析的非 query 出版方才有资格；query evidence 可附加但不计资格；不跨语言，不判断事件重要性、新颖性、影响或弱信号，候选不会跨 snapshot 延续生命周期。

@@ -52,15 +52,30 @@ class LocalRadarStore
     snapshot = row_to_hash(snapshot_rows.fetch(0), snapshot_keys)
     snapshot["signal_source_snapshot_id"] = nil if snapshot.fetch("signal_source_snapshot_id").to_s.empty?
     cards = query(<<~SQL).map do |row|
-      SELECT card_id, signal_type, title, summary, metric_label, metric_value,
-             source_count, stance, action_stage, evidence_label, source_name, source_url,
-             source_language, source_region, original_title, original_summary,
-             translation_status, translation_artifact_id, translated_at::text, sort_order
-        FROM local_radar_card
-       WHERE snapshot_id = #{literal(snapshot.fetch("snapshot_id"))}
-       ORDER BY sort_order ASC
+      SELECT c.card_id, c.signal_type,
+             CASE WHEN t.status='translated' THEN t.translated_title ELSE c.title END,
+             CASE WHEN t.status='translated' THEN t.translated_summary ELSE c.summary END,
+             c.metric_label, c.metric_value, c.source_count, c.stance, c.action_stage,
+             c.evidence_label, c.source_name, c.source_url, c.source_language, c.source_region,
+             COALESCE(NULLIF(c.original_title,''), c.title), COALESCE(NULLIF(c.original_summary,''), c.summary),
+             CASE WHEN c.source_language LIKE 'zh%' THEN 'not_needed'
+                  WHEN t.status='translated' THEN 'translated'
+                  WHEN c.translation_status='failed' THEN 'failed' ELSE 'untranslated' END,
+             COALESCE(t.artifact_id, c.translation_artifact_id),
+             COALESCE(t.created_at, c.translated_at)::text, c.sort_order,
+             c.source_item_key, c.source_version_id, c.source_content_hash
+        FROM local_radar_card c
+        LEFT JOIN LATERAL (
+          SELECT artifact_id, translated_title, translated_summary, status, created_at
+            FROM local_translation_artifact
+           WHERE item_key=c.source_item_key AND original_content_hash=c.source_content_hash
+             AND target_language='zh-CN' AND status='translated'
+           ORDER BY created_at DESC LIMIT 1
+        ) t ON TRUE
+       WHERE c.snapshot_id = #{literal(snapshot.fetch("snapshot_id"))}
+       ORDER BY c.sort_order ASC
     SQL
-      row_to_hash(row, %w[card_id signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region original_title original_summary translation_status translation_artifact_id translated_at sort_order])
+      row_to_hash(row, %w[card_id signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region original_title original_summary translation_status translation_artifact_id translated_at sort_order source_item_key source_version_id source_content_hash])
     end
     trends = query(<<~SQL).map do |row|
       SELECT trend_id, topic_key, topic, topic_language, topic_kind, semantic_status, topic_label, topic_explanation, signal_state, summary,
@@ -95,6 +110,24 @@ class LocalRadarStore
       candidate
     end
     { "snapshot" => snapshot, "cards" => cards, "trends" => trends, "event_candidates" => event_candidates, "sources" => source_summary, "discovered_publishers" => discovered_publishers, "translation" => translation_summary, "archive" => archive_summary, "coverage" => coverage, "exploration" => exploration_summary }
+  end
+
+  # Internal immutable signal surface for lineage-preserving republishes. The
+  # public current_radar method may add late translation projections; callers
+  # that claim reused_previous must copy the stored snapshot facts instead.
+  def stored_signal_projection(snapshot_id: nil)
+    id = snapshot_id.to_s
+    if id.empty?
+      rows = query("SELECT snapshot_id FROM local_radar_snapshot WHERE snapshot_status='published' ORDER BY revision DESC LIMIT 1")
+      return { "snapshot" => nil, "cards" => [], "trends" => [], "event_candidates" => [] } if rows.empty?
+      id = rows.fetch(0)
+    end
+    snapshot_rows = query("SELECT snapshot_id, surface_id, revision, comparison_watermark, method_epoch, rights_epoch, render_plan_hash, snapshot_status, created_at::text, signal_projection_status, signal_source_snapshot_id FROM local_radar_snapshot WHERE snapshot_id=#{literal(id)} AND snapshot_status='published'")
+    raise Error, "stored signal snapshot is missing" if snapshot_rows.empty?
+    snapshot = row_to_hash(snapshot_rows.fetch(0), %w[snapshot_id surface_id revision comparison_watermark method_epoch rights_epoch render_plan_hash snapshot_status created_at signal_projection_status signal_source_snapshot_id])
+    cards = query("SELECT card_id, signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage, evidence_label, source_name, source_url, source_language, source_region, original_title, original_summary, translation_status, translation_artifact_id, translated_at::text, sort_order, source_item_key, source_version_id, source_content_hash FROM local_radar_card WHERE snapshot_id=#{literal(id)} ORDER BY sort_order").map { |row| row_to_hash(row, %w[card_id signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region original_title original_summary translation_status translation_artifact_id translated_at sort_order source_item_key source_version_id source_content_hash]) }
+    public_view = current_radar
+    { "snapshot" => snapshot, "cards" => cards, "trends" => public_view.fetch("trends"), "event_candidates" => public_view.fetch("event_candidates") }
   end
 
   def source_summary
@@ -256,16 +289,39 @@ class LocalRadarStore
   end
 
   def archive_summary
+    fulltext = relation_exists?("local_article_archive")
     values = query(<<~SQL).fetch(0).split("\t")
       SELECT (SELECT COUNT(*) FROM local_source_capture),
              (SELECT COUNT(*) FROM local_source_item_version),
              (SELECT COUNT(DISTINCT item_key) FROM local_source_item_version),
-             (SELECT COUNT(*) FROM local_source_capture WHERE storage_status = 'metadata_only')
+             (SELECT COUNT(*) FROM local_source_capture WHERE storage_status = 'metadata_only'),
+             #{fulltext ? "(SELECT COUNT(*) FROM local_article_archive)" : "0"},
+             #{fulltext ? "(SELECT COUNT(*) FROM local_article_translation_artifact)" : "0"},
+             #{fulltext ? "(SELECT COUNT(*) FROM local_source_archive_policy WHERE rights_scope='full_archive')" : "0"}
     SQL
-    { "capture_count" => values.fetch(0).to_i, "item_version_count" => values.fetch(1).to_i,
-      "versioned_item_count" => values.fetch(2).to_i, "metadata_only_capture_count" => values.fetch(3).to_i }
+    summary = { "capture_count" => values.fetch(0).to_i, "item_version_count" => values.fetch(1).to_i,
+      "versioned_item_count" => values.fetch(2).to_i, "metadata_only_capture_count" => values.fetch(3).to_i,
+      "fulltext_archive_count" => values.fetch(4).to_i, "fulltext_translation_count" => values.fetch(5).to_i,
+      "full_archive_source_count" => values.fetch(6).to_i }
+    return summary.merge("source_policies" => [], "archive_attempts" => {}, "translation_queue" => {}) unless fulltext
+
+    policies = query(<<~SQL).map do |row|
+      SELECT DISTINCT ON (p.source_id) p.source_id, r.source_name, p.rights_scope,
+             p.permission_basis, COALESCE(p.permission_verified_at::text,''), p.effective_at::text
+        FROM local_source_archive_policy p
+        LEFT JOIN local_source_registry r ON r.source_id=p.source_id
+       ORDER BY p.source_id, p.effective_at DESC, p.policy_id DESC
+    SQL
+      row_to_hash(row, %w[source_id source_name rights_scope permission_basis permission_verified_at effective_at])
+    end
+    attempt_counts = query("SELECT outcome, COUNT(*) FROM local_article_archive_attempt GROUP BY outcome ORDER BY outcome").to_h { |row| key, count = row.split("\t", -1); [key, count.to_i] }
+    queue_counts = query("SELECT state, COUNT(*) FROM local_article_translation_run GROUP BY state ORDER BY state").to_h { |row| key, count = row.split("\t", -1); [key, count.to_i] }
+    summary.merge("source_policies" => policies, "archive_attempts" => attempt_counts, "translation_queue" => queue_counts,
+                  "boundary" => "full text is fetched only for verified full_archive sources; original metadata and links remain available for excerpt_only sources")
   rescue LocalRadarStore::Error
-    { "capture_count" => 0, "item_version_count" => 0, "versioned_item_count" => 0, "metadata_only_capture_count" => 0 }
+    { "capture_count" => 0, "item_version_count" => 0, "versioned_item_count" => 0, "metadata_only_capture_count" => 0,
+      "fulltext_archive_count" => 0, "fulltext_translation_count" => 0, "full_archive_source_count" => 0,
+      "source_policies" => [], "archive_attempts" => {}, "translation_queue" => {} }
   end
 
   # Additive read model for the exploration lane.  It intentionally reads the
@@ -285,6 +341,16 @@ class LocalRadarStore
     return legacy_exploration_summary if batch_rows.empty?
 
     batch = row_to_hash(batch_rows.fetch(0), %w[batch_id started_at completed_at registry_hash selected_count planned_source_count selected_set_hash selected_order_hash status])
+    manifest_row = query(<<~SQL).first
+      SELECT manifest_id, manifest_version, scope_id, seed, policy_version,
+             eligibility_count, eligible_count, ineligible_count,
+             selection_decision_count, selected_count, delivery_status,
+             not_a_signal::text, personalization, status
+        FROM local_pre_detection_exploration_manifest
+       WHERE batch_id = #{literal(batch.fetch("batch_id"))}
+       ORDER BY created_at DESC, manifest_id ASC
+       LIMIT 1
+    SQL
     attempts = query(<<~SQL).fetch(0).split("\t", -1)
       SELECT COUNT(*) FILTER (WHERE outcome = 'succeeded_with_items'),
              COUNT(*) FILTER (WHERE outcome = 'succeeded_empty'),
@@ -320,7 +386,7 @@ class LocalRadarStore
                    else
                      "published"
                    end
-    {
+    summary = {
       "latest_batch" => {
         "batch_id" => batch.fetch("batch_id"),
         "status" => batch.fetch("status"),
@@ -344,6 +410,28 @@ class LocalRadarStore
       "items" => items,
       "boundary" => exploration_boundary
     }
+    unless manifest_row.nil?
+      manifest = row_to_hash(manifest_row, %w[manifest_id manifest_version scope_id seed policy_version eligibility_count eligible_count ineligible_count selection_decision_count selected_count delivery_status not_a_signal personalization status])
+      %w[eligibility_count eligible_count ineligible_count selection_decision_count selected_count].each { |key| manifest[key] = manifest.fetch(key).to_i }
+      manifest["not_a_signal"] = truthy_value?(manifest.fetch("not_a_signal"))
+      summary["latest_batch"].merge!(
+        "selection_manifest_id" => manifest.fetch("manifest_id"),
+        "selection_manifest_version" => manifest.fetch("manifest_version"),
+        "selection_scope_id" => manifest.fetch("scope_id"),
+        "selection_seed" => manifest.fetch("seed"),
+        "selection_policy_version" => manifest.fetch("policy_version"),
+        "eligibility_count" => manifest.fetch("eligibility_count"),
+        "eligible_count" => manifest.fetch("eligible_count"),
+        "ineligible_count" => manifest.fetch("ineligible_count"),
+        "selection_decision_count" => manifest.fetch("selection_decision_count"),
+        "selected_count" => manifest.fetch("selected_count"),
+        "delivery_status" => manifest.fetch("delivery_status"),
+        "not_a_signal" => manifest.fetch("not_a_signal"),
+        "personalization" => manifest.fetch("personalization"),
+        "selection_status" => manifest.fetch("status")
+      )
+    end
+    summary
   end
 
   alias latest_exploration exploration_summary
@@ -354,6 +442,8 @@ class LocalRadarStore
     query(<<~SQL).map do |row|
       SELECT e.exploration_item_id, e.snapshot_id, e.batch_id, e.version_id,
              e.lane, e.reason, e.resolution, e.sort_order,
+             e.selection_manifest_id, e.exploration_decision_id,
+             e.not_a_signal::text, e.delivery_status,
              v.item_key, v.source_id, v.source_name, v.language, v.title,
              v.summary, v.source_url, v.published_at::text, v.fetched_at::text,
              v.captured_at::text, v.content_hash, v.publisher_id,
@@ -361,21 +451,34 @@ class LocalRadarStore
              v.source_kind, v.discovery_basis, v.query_conditioned::text,
              v.analysis_policy, v.aggregator_id, v.locale_tag, v.market_label,
              v.market_label_basis, v.query_topics::text,
+             COALESCE(t.translated_title,''), COALESCE(t.translated_summary,''),
+             CASE WHEN v.language LIKE 'zh%' THEN 'not_needed'
+                  WHEN t.status='translated' THEN 'translated' ELSE 'untranslated' END,
+             COALESCE(t.artifact_id,''), COALESCE(t.created_at::text,''),
              c.capture_id, c.source_url, c.source_kind, c.rights_scope,
              c.http_status::text, c.content_type, c.content_bytes::text,
              c.body_hash, c.storage_status, c.storage_uri
         FROM local_radar_exploration_item e
         JOIN local_source_item_version v ON v.version_id = e.version_id
+        LEFT JOIN LATERAL (
+          SELECT artifact_id, translated_title, translated_summary, status, created_at
+            FROM local_translation_artifact
+           WHERE source_version_id=v.version_id AND target_language='zh-CN' AND status='translated'
+           ORDER BY created_at DESC LIMIT 1
+        ) t ON TRUE
         JOIN local_source_capture c ON c.capture_id = v.capture_id
        WHERE e.snapshot_id = #{literal(snapshot_id)}
        ORDER BY e.sort_order ASC
     SQL
-      item = row_to_hash(row, %w[exploration_item_id snapshot_id batch_id version_id lane reason resolution sort_order item_key source_id source_name language title summary source_url published_at fetched_at captured_at content_hash publisher_id publisher_name publisher_url publisher_identity_status source_kind discovery_basis query_conditioned analysis_policy aggregator_id locale_tag market_label market_label_basis query_topics capture_id capture_source_url capture_source_kind rights_scope capture_http_status capture_content_type capture_content_bytes capture_body_hash capture_storage_status capture_storage_uri])
+      item = row_to_hash(row, %w[exploration_item_id snapshot_id batch_id version_id lane reason resolution sort_order selection_manifest_id exploration_decision_id not_a_signal delivery_status item_key source_id source_name language title summary source_url published_at fetched_at captured_at content_hash publisher_id publisher_name publisher_url publisher_identity_status source_kind discovery_basis query_conditioned analysis_policy aggregator_id locale_tag market_label market_label_basis query_topics translated_title translated_summary translation_status translation_artifact_id translated_at capture_id capture_source_url capture_source_kind rights_scope capture_http_status capture_content_type capture_content_bytes capture_body_hash capture_storage_status storage_uri])
       %w[sort_order capture_http_status capture_content_bytes].each { |key| item[key] = item.fetch(key).to_i }
       item["query_conditioned"] = truthy_value?(item.fetch("query_conditioned"))
+      item["not_a_signal"] = truthy_value?(item.fetch("not_a_signal"))
       item["query_topics"] = parse_json_array(item.fetch("query_topics"))
+      item["display_title"] = item.fetch("translation_status") == "translated" ? item.fetch("translated_title") : item.fetch("title")
+      item["display_summary"] = item.fetch("translation_status") == "translated" ? item.fetch("translated_summary") : item.fetch("summary")
       item["raw_listing"] = {
-        "title" => item.fetch("title"), "summary" => item.fetch("summary"),
+        "title" => item.fetch("display_title"), "summary" => item.fetch("display_summary"),
         "original_title" => item.fetch("title"), "original_summary" => item.fetch("summary"),
         "source_url" => item.fetch("source_url"), "published_at" => item.fetch("published_at"),
         "language" => item.fetch("language")
@@ -566,6 +669,30 @@ class LocalRadarStore
     raise Error, "source registry update is incomplete: #{error.message}"
   end
 
+  def register_archive_policies!(sources:)
+    return false unless relation_exists?("local_source_archive_policy")
+    transaction do
+      Array(sources).each do |source|
+        rights_scope = source.fetch("rights_scope", "excerpt_only").to_s
+        permission_basis = rights_scope == "full_archive" ? source.fetch("archive_permission_basis").to_s : ""
+        permission_verified_at = rights_scope == "full_archive" ? source.fetch("archive_permission_verified_at").to_s : ""
+        source_config_hash = Digest::SHA256.hexdigest(JSON.generate(source.sort.to_h))
+        policy_id = Digest::SHA256.hexdigest([source.fetch("id"), source_config_hash, rights_scope].join("\0"))
+        execute(<<~SQL)
+          INSERT INTO local_source_archive_policy
+            (policy_id, source_id, rights_scope, permission_basis, permission_verified_at, source_config_hash)
+          VALUES (#{literal(policy_id)}, #{literal(source.fetch("id"))}, #{literal(rights_scope)},
+                  #{literal(permission_basis)}, #{permission_verified_at.empty? ? "NULL" : literal(permission_verified_at)},
+                  #{literal(source_config_hash)})
+          ON CONFLICT (source_id, source_config_hash) DO NOTHING
+        SQL
+      end
+    end
+    true
+  rescue KeyError, ArgumentError, TypeError => error
+    raise Error, "source archive policy is incomplete: #{error.message}"
+  end
+
   def record_source_fetch!(source_id:, item_count:, error: nil)
     execute(<<~SQL)
       UPDATE local_source_registry
@@ -743,7 +870,8 @@ class LocalRadarStore
     batch = collection_batch(batch_id: batch_id)
     raise Error, "collection batch is missing" unless batch
     assert_batch_attempts_complete!(batch_id: batch_id)
-    canonical_ids = selected_versions_for_batch(batch_id: batch_id).map { |version| version.fetch("version_id") }
+    manifest = selection_manifest_for_batch(batch_id: batch_id)
+    canonical_ids = manifest.fetch("selected_version_ids")
     raise Error, "selection does not match canonical selector order" unless ids == canonical_ids
     raise Error, "selection exceeds frozen planned count" if batch.fetch("planned_source_count").to_i.positive? && ids.length > batch.fetch("planned_source_count").to_i * 12
     hash = selected_set_hash(version_ids: ids)
@@ -752,7 +880,10 @@ class LocalRadarStore
       raise Error, "frozen collection selection differs" unless batch.fetch("selected_count").to_i == ids.length && batch.fetch("selected_set_hash") == hash && batch.fetch("selected_order_hash") == order_hash
       return batch
     end
-    updated = execute("UPDATE local_collection_batch SET selected_count = #{ids.length}, selected_set_hash = #{literal(hash)}, selected_order_hash = #{literal(order_hash)}, status = 'frozen' WHERE batch_id = #{literal(batch_id)} AND status = 'running' RETURNING batch_id")
+    updated = transaction do
+      persist_selection_manifest!(batch_id: batch_id, manifest: manifest)
+      execute("UPDATE local_collection_batch SET selected_count = #{ids.length}, selected_set_hash = #{literal(hash)}, selected_order_hash = #{literal(order_hash)}, status = 'frozen' WHERE batch_id = #{literal(batch_id)} AND status = 'running' RETURNING batch_id")
+    end
     if updated.empty?
       current = collection_batch(batch_id: batch_id)
       raise Error, "frozen collection selection differs" unless current.fetch("selected_count").to_i == ids.length && current.fetch("selected_set_hash") == hash && current.fetch("selected_order_hash") == order_hash
@@ -786,7 +917,102 @@ class LocalRadarStore
   end
 
   def selected_versions_for_batch(batch_id:, limit: 12)
-    BreadthDiscoverySelector.new(limit: limit).select(items: batch_candidate_versions(batch_id: batch_id))
+    selection_manifest_for_batch(batch_id: batch_id, limit: limit).fetch("selected_items")
+  end
+
+  # Public, batch-scoped seed. It intentionally depends only on frozen batch
+  # identity and registry contract, never on a user, click, or personal state.
+  def selection_seed(batch_id:, registry_hash: nil)
+    batch = collection_batch(batch_id: batch_id)
+    frozen_registry_hash = registry_hash || batch&.fetch("registry_hash", "")
+    raise Error, "collection batch is missing" if frozen_registry_hash.to_s.empty?
+
+    "breadth-pre-detection-v1/#{batch_id}/#{frozen_registry_hash}"
+  end
+
+  def selection_manifest_for_batch(batch_id:, limit: 12, detector_results: {})
+    raise Error, "breadth schema is not installed" unless breadth_schema_available?
+    batch = collection_batch(batch_id: batch_id)
+    raise Error, "collection batch is missing" unless batch
+    seed = selection_seed(batch_id: batch_id, registry_hash: batch.fetch("registry_hash"))
+    BreadthDiscoverySelector.new(limit: limit, seed: seed).selection_manifest(
+      items: batch_candidate_versions(batch_id: batch_id), scope_id: "locale_frontier",
+      seed: seed, detector_results: detector_results
+    )
+  end
+
+  # Persist the complete detector-before universe before the batch CAS moves
+  # to frozen.  Every row is inserted once and then guarded by append-only
+  # triggers in 012; retries may replay identical payloads but cannot edit a
+  # terminal decision.
+  def persist_selection_manifest!(batch_id:, manifest:)
+    execute(<<~SQL)
+      INSERT INTO local_pre_detection_exploration_manifest
+        (manifest_id, batch_id, scope_id, manifest_version, seed, policy_version,
+         selection_limit, locale_limit, publisher_limit, eligibility_count,
+         eligible_count, ineligible_count, selection_decision_count, selected_count,
+         eligibility_set_hash, selected_set_hash, selected_order_hash, status,
+         delivery_status, not_a_signal, personalization)
+      VALUES (#{literal(manifest.fetch("manifest_id"))}, #{literal(batch_id)},
+              #{literal(manifest.fetch("scope_id"))}, #{literal(manifest.fetch("manifest_version"))},
+              #{literal(manifest.fetch("seed"))}, #{literal(manifest.fetch("policy_version"))},
+              #{Integer(manifest.fetch("limit"))}, #{Integer(manifest.fetch("locale_limit"))},
+              #{Integer(manifest.fetch("publisher_limit"))}, #{Integer(manifest.fetch("eligibility_count"))},
+              #{Integer(manifest.fetch("eligible_count"))}, #{Integer(manifest.fetch("ineligible_count"))},
+              #{Integer(manifest.fetch("selection_decision_count"))}, #{Integer(manifest.fetch("selected_count"))},
+              #{literal(manifest.fetch("eligibility_set_hash"))}, #{literal(manifest.fetch("selected_set_hash"))},
+              #{literal(manifest.fetch("selected_order_hash"))}, #{literal(manifest.fetch("status"))},
+              #{literal(manifest.fetch("delivery_status"))}, TRUE, #{literal(manifest.fetch("personalization"))})
+      ON CONFLICT (manifest_id) DO NOTHING
+    SQL
+    manifest.fetch("eligibility_units").each do |unit|
+      execute(<<~SQL)
+        INSERT INTO local_pre_detection_exploration_eligibility_unit
+          (eligibility_unit_id, manifest_id, version_id, item_hash, input_index, policy_version, eligibility_predicate)
+        VALUES (#{literal(unit.fetch("eligibility_unit_id"))}, #{literal(manifest.fetch("manifest_id"))},
+                #{literal(unit.fetch("version_id"))}, #{literal(unit.fetch("item_hash"))},
+                #{Integer(unit.fetch("input_index"))}, #{literal(unit.fetch("policy_version"))},
+                #{literal(unit.fetch("eligibility_predicate"))})
+        ON CONFLICT (eligibility_unit_id) DO NOTHING
+      SQL
+    end
+    manifest.fetch("eligibility_decisions").each do |decision|
+      execute(<<~SQL)
+        INSERT INTO local_pre_detection_exploration_eligibility_decision
+          (eligibility_decision_id, eligibility_unit_id, manifest_id, outcome, reason_code, terminal)
+        VALUES (#{literal(decision.fetch("eligibility_decision_id"))}, #{literal(decision.fetch("eligibility_unit_id"))},
+                #{literal(manifest.fetch("manifest_id"))}, #{literal(decision.fetch("outcome"))},
+                #{literal(decision.fetch("reason_code"))}, TRUE)
+        ON CONFLICT (eligibility_decision_id) DO NOTHING
+      SQL
+    end
+    manifest.fetch("exploration_units").each do |unit|
+      execute(<<~SQL)
+        INSERT INTO local_pre_detection_exploration_unit
+          (exploration_unit_id, manifest_id, eligibility_unit_id, version_id, random_key, detector_outcome, input_index)
+        VALUES (#{literal(unit.fetch("exploration_unit_id"))}, #{literal(manifest.fetch("manifest_id"))},
+                #{literal(unit.fetch("eligibility_unit_id"))}, #{literal(unit.fetch("version_id"))},
+                #{literal(unit.fetch("random_key"))}, #{literal(unit.fetch("detector_outcome"))},
+                #{Integer(unit.fetch("input_index"))})
+        ON CONFLICT (exploration_unit_id) DO NOTHING
+      SQL
+    end
+    manifest.fetch("exploration_decisions").each do |decision|
+      selection_order = decision.fetch("selection_order")
+      execute(<<~SQL)
+        INSERT INTO local_pre_detection_exploration_decision
+          (exploration_decision_id, exploration_unit_id, manifest_id, outcome, reason_code,
+           sort_order, selection_order, not_a_signal, delivery_status, terminal)
+        VALUES (#{literal(decision.fetch("exploration_decision_id"))}, #{literal(decision.fetch("exploration_unit_id"))},
+                #{literal(manifest.fetch("manifest_id"))}, #{literal(decision.fetch("outcome"))},
+                #{literal(decision.fetch("reason_code"))}, #{Integer(decision.fetch("sort_order"))},
+                #{selection_order.nil? ? "NULL" : Integer(selection_order)}, TRUE, 'unmeasured', TRUE)
+        ON CONFLICT (exploration_decision_id) DO NOTHING
+      SQL
+    end
+    true
+  rescue KeyError, ArgumentError, TypeError => error
+    raise Error, "selection manifest is incomplete: #{error.message}"
   end
 
   def finalize_collection_batch!(batch_id:, status: "published")
@@ -828,7 +1054,7 @@ class LocalRadarStore
         contract = normalize_item_contract(item, source_kind: source_kind)
         validate_item_registry_contract!(source_id: source_id, contract: contract) if breadth_schema_available?
         capture_source_url = item.fetch("capture_source_url", item.fetch("source_url"))
-        rights_scope = item.fetch("rights_scope", "metadata_short_summary_link")
+        rights_scope = item.fetch("rights_scope", "excerpt_only")
         capture_http_status = Integer(item.fetch("capture_http_status", 200))
         capture_content_type = item.fetch("capture_content_type", "")
         capture_content_bytes = Integer(item.fetch("capture_content_bytes", 0))
@@ -939,6 +1165,7 @@ class LocalRadarStore
     query(<<~SQL).map do |row|
       SELECT i.item_key, i.source_id, i.source_name, i.language, i.region, i.publisher_name, i.publisher_url,
              i.publisher_id, i.publisher_identity_status, i.source_kind, i.capture_id, i.title, i.summary, i.source_url, i.published_at::text, i.fetched_at::text, i.captured_at::text, i.content_hash,
+             cv.version_id,
              #{breadth ? "i.discovery_basis, i.analysis_policy, i.aggregator_id, i.locale_tag, i.market_label, i.market_label_basis, i.query_topics::text," : ""}
              COALESCE(t.translated_title, ''), COALESCE(t.translated_summary, ''),
              CASE WHEN i.language LIKE 'zh%' THEN 'not_needed'
@@ -947,6 +1174,11 @@ class LocalRadarStore
                   ELSE 'untranslated' END,
              COALESCE(t.artifact_id, ''), COALESCE(t.provider, ''), COALESCE(t.model, ''), COALESCE(t.created_at::text, '')
         FROM local_source_item i
+        LEFT JOIN LATERAL (
+          SELECT version_id FROM local_source_item_version
+           WHERE item_key=i.item_key AND capture_id=i.capture_id
+           ORDER BY created_at DESC, version_id ASC LIMIT 1
+        ) cv ON TRUE
         LEFT JOIN LATERAL (
           SELECT artifact_id, translated_title, translated_summary, status, provider, model, created_at
             FROM local_translation_artifact
@@ -958,7 +1190,7 @@ class LocalRadarStore
        ORDER BY i.published_at DESC NULLS LAST, i.fetched_at DESC, i.item_key ASC
        LIMIT #{Integer(limit)}
     SQL
-      keys = %w[item_key source_id source_name language region publisher_name publisher_url publisher_id publisher_identity_status source_kind capture_id title summary source_url published_at fetched_at capture_captured_at content_hash]
+      keys = %w[item_key source_id source_name language region publisher_name publisher_url publisher_id publisher_identity_status source_kind capture_id title summary source_url published_at fetched_at capture_captured_at content_hash version_id]
       keys += %w[discovery_basis analysis_policy aggregator_id locale_tag market_label market_label_basis query_topics] if breadth
       keys += %w[translated_title translated_summary translation_status translation_artifact_id translation_provider translation_model translated_at]
       item = row_to_hash(row, keys)
@@ -1039,48 +1271,288 @@ class LocalRadarStore
   end
 
   def translation_candidates(limit: 20)
-    policy_clause = breadth_schema_available? ? " AND i.analysis_policy = 'signal_eligible'" : ""
     query(<<~SQL).map do |row|
-      SELECT i.item_key, i.source_id, i.source_name, i.language, i.region, i.publisher_name, i.publisher_url,
-             i.source_kind, i.title, i.summary, i.source_url, i.published_at::text, i.fetched_at::text, i.content_hash
-        FROM local_source_item i
-       WHERE i.language NOT LIKE 'zh%'#{policy_clause}
+      SELECT v.version_id, v.item_key, v.source_id, v.source_name, v.language, v.region, v.publisher_name, v.publisher_url,
+             v.source_kind, v.title, v.summary, v.source_url, v.published_at::text, v.fetched_at::text, v.content_hash
+        FROM local_source_item_version v
+       WHERE v.language NOT LIKE 'zh%'
          AND NOT EXISTS (
            SELECT 1 FROM local_translation_artifact t
-            WHERE t.item_key = i.item_key AND t.target_language = 'zh-CN'
-              AND t.original_content_hash = i.content_hash AND t.status = 'translated'
+            WHERE t.item_key = v.item_key AND t.target_language = 'zh-CN'
+              AND t.original_content_hash = v.content_hash AND t.status = 'translated'
          )
-       ORDER BY i.published_at DESC NULLS LAST, i.fetched_at DESC, i.item_key ASC
+         AND v.version_id = (
+           SELECT v2.version_id FROM local_source_item_version v2
+            WHERE v2.item_key=v.item_key AND v2.content_hash=v.content_hash
+            ORDER BY v2.created_at ASC, v2.version_id ASC LIMIT 1
+         )
+       ORDER BY v.created_at DESC, v.version_id ASC
        LIMIT #{Integer(limit)}
     SQL
-      row_to_hash(row, %w[item_key source_id source_name language region publisher_name publisher_url source_kind title summary source_url published_at fetched_at content_hash])
+      row_to_hash(row, %w[version_id item_key source_id source_name language region publisher_name publisher_url source_kind title summary source_url published_at fetched_at content_hash])
     end
   end
 
+  def ensure_metadata_translation_runs!(provider: "deepseek", model: "deepseek-v4-pro",
+                                        prompt_version: "metadata-translation-v1")
+    return 0 unless relation_exists?("local_metadata_translation_run")
+    candidates = query(<<~SQL)
+      SELECT v.version_id, v.item_key, v.content_hash, char_length(v.title) + char_length(v.summary)
+        FROM local_source_item_version v
+       WHERE v.language NOT LIKE 'zh%'
+         AND v.version_id = (
+           SELECT v2.version_id FROM local_source_item_version v2
+            WHERE v2.item_key=v.item_key AND v2.content_hash=v.content_hash
+            ORDER BY v2.created_at ASC, v2.version_id ASC LIMIT 1
+         )
+       ORDER BY v.created_at DESC, v.version_id ASC
+    SQL
+    inserted = 0
+    candidates.each do |row|
+      version_id, item_key, content_hash, input_chars = row.split("\t", -1)
+      run_id = Digest::SHA256.hexdigest([version_id, prompt_version, model].join("\0"))
+      inserted += execute(<<~SQL).length
+        INSERT INTO local_metadata_translation_run
+          (run_id, source_version_id, item_key, source_content_hash, target_language,
+           provider, model, prompt_version, state, input_chars)
+        VALUES (#{literal(run_id)}, #{literal(version_id)}, #{literal(item_key)}, #{literal(content_hash)},
+                'zh-CN', #{literal(provider)}, #{literal(model)}, #{literal(prompt_version)},
+                'pending', #{Integer(input_chars)})
+        ON CONFLICT (item_key, source_content_hash, target_language, provider, model, prompt_version) DO NOTHING
+        RETURNING run_id
+      SQL
+    end
+    inserted
+  end
+
+  def metadata_translation_candidates(limit: 20, daily_character_limit: 200_000)
+    return translation_candidates(limit: limit) unless relation_exists?("local_metadata_translation_run")
+    used = query("SELECT COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed')").fetch(0).to_i
+    remaining = [Integer(daily_character_limit) - used, 0].max
+    return [] if remaining.zero?
+    items = query(<<~SQL).map do |row|
+      SELECT r.run_id, v.version_id, v.item_key, v.source_id, v.source_name, v.language,
+             v.region, v.publisher_name, v.publisher_url, v.source_kind, v.title, v.summary,
+             v.source_url, v.published_at::text, v.fetched_at::text, v.content_hash, r.input_chars
+        FROM local_metadata_translation_run r
+        JOIN local_source_item_version v ON v.version_id=r.source_version_id
+       WHERE r.state IN ('pending','failed','credential_blocked','budget_blocked')
+         AND r.attempt_count < 3
+         AND NOT EXISTS (
+           SELECT 1 FROM local_translation_artifact t WHERE t.item_key=r.item_key
+             AND t.original_content_hash=r.source_content_hash AND t.target_language='zh-CN'
+             AND t.provider=r.provider AND t.model=r.model AND t.status='translated'
+         )
+       ORDER BY v.created_at DESC, r.run_id ASC
+       LIMIT #{Integer(limit)}
+    SQL
+      row_to_hash(row, %w[translation_run_id version_id item_key source_id source_name language region publisher_name publisher_url source_kind title summary source_url published_at fetched_at content_hash input_chars]).tap { |item| item["input_chars"] = item.fetch("input_chars").to_i }
+    end
+    total = 0
+    items.take_while { |item| total += item.fetch("input_chars"); total <= remaining }
+  end
+
+  def start_metadata_translation!(run_id:)
+    rows = execute("UPDATE local_metadata_translation_run SET state='running',attempt_count=attempt_count+1,started_at=now(),finished_at=NULL,error_reason='',updated_at=now() WHERE run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked') RETURNING run_id")
+    raise Error, "metadata translation run is not claimable" if rows.empty?
+    true
+  end
+
+  def block_metadata_translation_for_credentials!(run_id:, reason:)
+    rows = execute("UPDATE local_metadata_translation_run SET state='credential_blocked',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked') RETURNING run_id")
+    raise Error, "metadata translation run cannot be credential-blocked" if rows.empty?
+    true
+  end
+
+  def finish_metadata_translation!(run_id:, result:)
+    usage = result.fetch("usage", {})
+    execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'")
+    true
+  end
+
+  def fail_metadata_translation!(run_id:, reason:)
+    execute("UPDATE local_metadata_translation_run SET state='failed',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'")
+    true
+  end
+
   def save_translation_artifact!(artifact:)
-    required = %w[artifact_id item_key source_language target_language original_content_hash provider model translated_title translated_summary validation_status status]
+    required = %w[artifact_id source_version_id item_key source_language target_language original_content_hash provider model translated_title translated_summary validation_status status]
     missing = required.reject { |key| artifact.key?(key) && !artifact.fetch(key).to_s.empty? }
     raise Error, "translation artifact fields missing: #{missing.join(',')}" unless missing.empty?
     execute(<<~SQL)
       INSERT INTO local_translation_artifact
-        (artifact_id, item_key, source_language, target_language, original_content_hash, provider, model,
+        (artifact_id, source_version_id, item_key, source_language, target_language, original_content_hash, provider, model,
          translated_title, translated_summary, validation_status, status, error_reason, created_at)
-      VALUES (#{literal(artifact.fetch("artifact_id"))}, #{literal(artifact.fetch("item_key"))}, #{literal(artifact.fetch("source_language"))},
+      VALUES (#{literal(artifact.fetch("artifact_id"))}, #{literal(artifact.fetch("source_version_id"))}, #{literal(artifact.fetch("item_key"))}, #{literal(artifact.fetch("source_language"))},
               #{literal(artifact.fetch("target_language"))}, #{literal(artifact.fetch("original_content_hash"))}, #{literal(artifact.fetch("provider"))},
               #{literal(artifact.fetch("model"))}, #{literal(artifact.fetch("translated_title"))}, #{literal(artifact.fetch("translated_summary"))},
               #{literal(artifact.fetch("validation_status"))}, #{literal(artifact.fetch("status"))}, #{literal(artifact.fetch("error_reason", ""))}, now())
-      ON CONFLICT (item_key, target_language, original_content_hash, provider, model) DO UPDATE SET
-        artifact_id = EXCLUDED.artifact_id,
-        translated_title = EXCLUDED.translated_title,
-        translated_summary = EXCLUDED.translated_summary,
-        validation_status = EXCLUDED.validation_status,
-        status = EXCLUDED.status,
-        error_reason = EXCLUDED.error_reason,
-        created_at = now()
+      ON CONFLICT (item_key, target_language, original_content_hash, provider, model) DO NOTHING
     SQL
+    rows = query("SELECT artifact_id, source_version_id, translated_title, translated_summary, validation_status, status, error_reason FROM local_translation_artifact WHERE item_key=#{literal(artifact.fetch("item_key"))} AND target_language=#{literal(artifact.fetch("target_language"))} AND original_content_hash=#{literal(artifact.fetch("original_content_hash"))} AND provider=#{literal(artifact.fetch("provider"))} AND model=#{literal(artifact.fetch("model"))}")
+    raise Error, "translation artifact was not persisted" if rows.empty?
+    actual = rows.fetch(0).split("\t", -1)
+    expected = %w[artifact_id source_version_id translated_title translated_summary validation_status status].map { |key| artifact.fetch(key).to_s } + [artifact.fetch("error_reason", "").to_s]
+    raise Error, "translation artifact immutable payload differs" unless actual == expected
     artifact
   rescue KeyError, ArgumentError, TypeError => error
     raise Error, "translation artifact save is incomplete: #{error.message}"
+  end
+
+  def article_archive_candidates(limit: 20, include_terminal: false)
+    return [] unless relation_exists?("local_article_archive_attempt")
+    terminal_clause = include_terminal ? "" : " AND a.source_version_id IS NULL"
+    query(<<~SQL).map do |row|
+      SELECT v.version_id, v.item_key, v.source_id, v.source_name, v.language,
+             v.title, v.summary, v.source_url, v.content_hash, v.published_at::text,
+             c.rights_scope,
+             CASE WHEN c.rights_scope = 'full_archive' THEN 'full_archive'
+                  WHEN c.rights_scope IN ('excerpt_only', 'metadata_short_summary_link') THEN 'excerpt_only'
+                  ELSE 'link_only' END
+        FROM local_source_item_version v
+        JOIN local_source_capture c ON c.capture_id = v.capture_id
+        LEFT JOIN local_article_archive_attempt a ON a.source_version_id = v.version_id
+          AND a.rights_scope = CASE WHEN c.rights_scope = 'full_archive' THEN 'full_archive'
+                                    WHEN c.rights_scope IN ('excerpt_only', 'metadata_short_summary_link') THEN 'excerpt_only'
+                                    ELSE 'link_only' END
+       WHERE 1 = 1#{terminal_clause}
+       ORDER BY v.created_at DESC, v.version_id ASC
+       LIMIT #{Integer(limit)}
+    SQL
+      row_to_hash(row, %w[version_id item_key source_id source_name language title summary source_url content_hash published_at rights_scope archive_rights_scope])
+    end
+  end
+
+  def save_article_archive_result!(attempt:, archive: nil)
+    required = %w[attempt_id source_version_id rights_scope outcome fetched_at final_url content_type response_bytes error_reason]
+    missing = required.reject { |key| attempt.key?(key) }
+    raise Error, "article archive attempt fields missing: #{missing.join(',')}" unless missing.empty?
+    transaction do
+      execute(<<~SQL)
+        INSERT INTO local_article_archive_attempt
+          (attempt_id, source_version_id, rights_scope, outcome, http_status, fetched_at,
+           final_url, content_type, response_bytes, error_reason)
+        VALUES (#{literal(attempt.fetch("attempt_id"))}, #{literal(attempt.fetch("source_version_id"))},
+                #{literal(attempt.fetch("rights_scope"))}, #{literal(attempt.fetch("outcome"))},
+                #{attempt.fetch("http_status").nil? ? "NULL" : Integer(attempt.fetch("http_status"))},
+                #{literal(attempt.fetch("fetched_at"))}, #{literal(attempt.fetch("final_url"))},
+                #{literal(attempt.fetch("content_type"))}, #{Integer(attempt.fetch("response_bytes"))},
+                #{literal(attempt.fetch("error_reason"))})
+        ON CONFLICT (source_version_id, rights_scope) DO NOTHING
+      SQL
+      if archive
+        archive_required = %w[archive_id attempt_id source_version_id source_url final_url source_language title body_text image_captions extraction_method extractor_version body_hash body_chars archived_at]
+        archive_missing = archive_required.reject { |key| archive.key?(key) }
+        raise Error, "article archive fields missing: #{archive_missing.join(',')}" unless archive_missing.empty?
+        execute(<<~SQL)
+          INSERT INTO local_article_archive
+            (archive_id, attempt_id, source_version_id, source_url, final_url, source_language,
+             title, body_text, image_captions, extraction_method, extractor_version,
+             body_hash, body_chars, archived_at)
+          VALUES (#{literal(archive.fetch("archive_id"))}, #{literal(archive.fetch("attempt_id"))},
+                  #{literal(archive.fetch("source_version_id"))}, #{literal(archive.fetch("source_url"))},
+                  #{literal(archive.fetch("final_url"))}, #{literal(archive.fetch("source_language"))},
+                  #{literal(archive.fetch("title"))}, #{literal(archive.fetch("body_text"))},
+                  #{literal(JSON.generate(archive.fetch("image_captions")))}::jsonb,
+                  #{literal(archive.fetch("extraction_method"))}, #{literal(archive.fetch("extractor_version"))},
+                  #{literal(archive.fetch("body_hash"))}, #{Integer(archive.fetch("body_chars"))},
+                  #{literal(archive.fetch("archived_at"))})
+          ON CONFLICT (source_version_id) DO NOTHING
+        SQL
+      end
+    end
+    archive || attempt
+  rescue KeyError, ArgumentError, TypeError => error
+    raise Error, "article archive save is incomplete: #{error.message}"
+  end
+
+  def ensure_article_translation_runs!(provider: "deepseek", model: "deepseek-v4-pro",
+                                       prompt_version: "full-article-translation-v1")
+    return 0 unless relation_exists?("local_article_archive")
+    archives = query("SELECT archive_id, body_hash FROM local_article_archive ORDER BY created_at ASC, archive_id ASC")
+    rows = []
+    archives.each do |row|
+      archive_id, body_hash = row.split("\t", -1)
+      run_id = Digest::SHA256.hexdigest([archive_id, prompt_version, model].join("\0"))
+      rows.concat(execute(<<~SQL))
+      INSERT INTO local_article_translation_run
+        (run_id, archive_id, target_language, provider, model, prompt_version,
+         source_body_hash, state, input_chars)
+      SELECT #{literal(run_id)}, a.archive_id, 'zh-CN', #{literal(provider)}, #{literal(model)},
+             #{literal(prompt_version)}, a.body_hash, 'pending', a.body_chars
+        FROM local_article_archive a
+       WHERE a.archive_id = #{literal(archive_id)} AND a.body_hash = #{literal(body_hash)}
+      RETURNING run_id
+    SQL
+    end
+    rows.length
+  end
+
+  def article_translation_candidates(limit: 10, daily_character_limit: 200_000)
+    return [] unless relation_exists?("local_article_translation_run")
+    used = execute("SELECT COALESCE(SUM(input_chars),0) FROM local_article_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed')").fetch(0).to_i
+    remaining = [Integer(daily_character_limit) - used, 0].max
+    return [] if remaining.zero?
+    candidates = query(<<~SQL).map do |row|
+      SELECT r.run_id, r.archive_id, r.source_body_hash, r.input_chars,
+             a.source_version_id, a.source_language, a.title, v.summary,
+             a.body_text, a.image_captions::text
+        FROM local_article_translation_run r
+        JOIN local_article_archive a ON a.archive_id = r.archive_id
+        JOIN local_source_item_version v ON v.version_id = a.source_version_id
+       WHERE r.state IN ('pending', 'failed', 'credential_blocked', 'budget_blocked')
+         AND r.attempt_count < 3
+       ORDER BY r.created_at ASC, r.run_id ASC
+       LIMIT #{Integer(limit)}
+    SQL
+      row_to_hash(row, %w[run_id archive_id source_body_hash input_chars source_version_id source_language title summary body_text image_captions]).tap do |item|
+        item["input_chars"] = item.fetch("input_chars").to_i
+        item["image_captions"] = JSON.parse(item.fetch("image_captions"))
+      end
+    end
+    total = 0
+    candidates.take_while { |item| total += item.fetch("input_chars"); total <= remaining }
+  end
+
+  def start_article_translation!(run_id:)
+    rows = execute("UPDATE local_article_translation_run SET state='running', attempt_count=attempt_count+1, started_at=now(), finished_at=NULL, error_reason='', updated_at=now() WHERE run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked') RETURNING run_id")
+    raise Error, "article translation run is not claimable" if rows.empty?
+    true
+  end
+
+  def finish_article_translation!(run_id:, result:, validation_status:)
+    artifact_id = Digest::SHA256.hexdigest([run_id, result.fetch("translated_body")].join("\0"))
+    output_hash = Digest::SHA256.hexdigest(JSON.generate(result.slice("translated_title", "translated_summary", "translated_body", "translated_image_captions")))
+    transaction do
+      execute(<<~SQL)
+        INSERT INTO local_article_translation_artifact
+          (artifact_id, run_id, archive_id, source_body_hash, target_language, provider, model,
+           prompt_version, translated_title, translated_summary, translated_body,
+           translated_image_captions, output_hash, validation_status)
+        SELECT #{literal(artifact_id)}, r.run_id, r.archive_id, r.source_body_hash, r.target_language,
+               r.provider, r.model, r.prompt_version, #{literal(result.fetch("translated_title"))},
+               #{literal(result.fetch("translated_summary"))}, #{literal(result.fetch("translated_body"))},
+               #{literal(JSON.generate(result.fetch("translated_image_captions")))}::jsonb,
+               #{literal(output_hash)}, #{literal(validation_status)}
+          FROM local_article_translation_run r WHERE r.run_id = #{literal(run_id)}
+        ON CONFLICT (run_id) DO NOTHING
+      SQL
+      usage = result.fetch("usage", {})
+      execute("UPDATE local_article_translation_run SET state='succeeded', prompt_tokens=#{Integer(usage.fetch("prompt_tokens", 0))}, completion_tokens=#{Integer(usage.fetch("completion_tokens", 0))}, finished_at=now(), updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'")
+    end
+    artifact_id
+  end
+
+  def fail_article_translation!(run_id:, state:, reason:)
+    raise Error, "article translation failure state is invalid" unless %w[failed credential_blocked budget_blocked].include?(state.to_s)
+    execute("UPDATE local_article_translation_run SET state=#{literal(state)}, error_reason=#{literal(reason.to_s[0, 1000])}, finished_at=now(), updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'")
+    true
+  end
+
+  def block_article_translation_for_credentials!(run_id:, reason:)
+    rows = execute("UPDATE local_article_translation_run SET state='credential_blocked', error_reason=#{literal(reason.to_s[0, 1000])}, finished_at=now(), updated_at=now() WHERE run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked') RETURNING run_id")
+    raise Error, "article translation run cannot be credential-blocked" if rows.empty?
+    true
   end
 
   def next_revision(surface_id: "public-radar")
@@ -1146,7 +1618,7 @@ class LocalRadarStore
           INSERT INTO local_radar_card
             (card_id, snapshot_id, signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage,
              evidence_label, source_name, source_url, source_language, source_region, original_title, original_summary,
-             translation_status, translation_artifact_id, translated_at, sort_order)
+             translation_status, translation_artifact_id, translated_at, source_item_key, source_version_id, source_content_hash, sort_order)
           VALUES (#{literal(card.fetch("card_id"))}, #{literal(snapshot.fetch("snapshot_id"))}, #{literal(card.fetch("signal_type"))},
                   #{literal(card.fetch("title"))}, #{literal(card.fetch("summary"))}, #{literal(card.fetch("metric_label"))}, #{literal(card.fetch("metric_value"))},
                   #{Integer(card.fetch("source_count"))}, #{literal(card.fetch("stance"))}, #{literal(card.fetch("action_stage"))},
@@ -1154,7 +1626,10 @@ class LocalRadarStore
                   #{literal(card.fetch("source_language", ""))}, #{literal(card.fetch("source_region", ""))},
                   #{literal(card.fetch("original_title", ""))}, #{literal(card.fetch("original_summary", ""))},
                   #{literal(card.fetch("translation_status", "not_needed"))}, #{literal(card.fetch("translation_artifact_id", ""))},
-                  #{card.fetch("translated_at", nil).to_s.empty? ? "NULL" : literal(card.fetch("translated_at"))}, #{Integer(card.fetch("sort_order"))})
+                  #{card.fetch("translated_at", nil).to_s.empty? ? "NULL" : literal(card.fetch("translated_at"))},
+                  #{card.fetch("source_item_key", nil).to_s.empty? ? "NULL" : literal(card.fetch("source_item_key"))},
+                  #{card.fetch("source_version_id", nil).to_s.empty? ? "NULL" : literal(card.fetch("source_version_id"))},
+                  #{literal(card.fetch("source_content_hash", ""))}, #{Integer(card.fetch("sort_order"))})
         SQL
       end
       Array(trends).each do |trend|
@@ -1273,12 +1748,13 @@ class LocalRadarStore
     prior_cards = query(<<~SQL).map do |row|
       SELECT signal_type, title, summary, metric_label, metric_value, source_count, stance, action_stage,
              evidence_label, source_name, source_url, source_language, source_region, original_title,
-             original_summary, translation_status, translation_artifact_id, translated_at::text, sort_order
+             original_summary, translation_status, translation_artifact_id, translated_at::text, sort_order,
+             source_item_key, source_version_id, source_content_hash
         FROM local_radar_card
        WHERE snapshot_id = #{literal(source_snapshot_id)}
        ORDER BY sort_order ASC
     SQL
-      row_to_hash(row, %w[signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region original_title original_summary translation_status translation_artifact_id translated_at sort_order])
+      row_to_hash(row, %w[signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region original_title original_summary translation_status translation_artifact_id translated_at sort_order source_item_key source_version_id source_content_hash])
     end
     prior_trends = query(<<~SQL).map do |row|
       SELECT topic_key, topic, topic_language, topic_kind, semantic_status, topic_label, topic_explanation, signal_state,
@@ -1312,7 +1788,7 @@ class LocalRadarStore
   end
 
   def normalize_signal_cards(rows)
-    keys = %w[signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region original_title original_summary translation_status translation_artifact_id translated_at sort_order]
+    keys = %w[signal_type title summary metric_label metric_value source_count stance action_stage evidence_label source_name source_url source_language source_region original_title original_summary translation_status translation_artifact_id translated_at sort_order source_item_key source_version_id source_content_hash]
     Array(rows).map do |row|
       values = keys.each_with_object({}) { |key, result| result[key] = row.fetch(key, "") }
       values["translation_status"] = "not_needed" if values.fetch("translation_status").to_s.empty?
@@ -1452,6 +1928,27 @@ class LocalRadarStore
     batch_rows = query("SELECT batch_id, selected_count, planned_source_count, selected_set_hash, selected_order_hash, status FROM local_collection_batch WHERE batch_id = #{literal(batch_id)}")
     raise Error, "exploration batch is missing" if batch_rows.empty?
     batch = row_to_hash(batch_rows.fetch(0), %w[batch_id selected_count planned_source_count selected_set_hash selected_order_hash status])
+    manifest_row = query(<<~SQL).first
+      SELECT manifest_id, selected_count, delivery_status, not_a_signal::text
+        FROM local_pre_detection_exploration_manifest
+       WHERE batch_id = #{literal(batch_id)}
+       ORDER BY created_at DESC, manifest_id ASC
+       LIMIT 1
+    SQL
+    raise Error, "exploration selection manifest is missing" if manifest_row.nil?
+    manifest = row_to_hash(manifest_row, %w[manifest_id selected_count delivery_status not_a_signal])
+    raise Error, "exploration selection manifest is not unmeasured" unless manifest.fetch("delivery_status") == "unmeasured" && truthy_value?(manifest.fetch("not_a_signal"))
+    selection_rows = query(<<~SQL)
+      SELECT d.exploration_decision_id, d.outcome, d.selection_order, u.version_id
+        FROM local_pre_detection_exploration_decision d
+        JOIN local_pre_detection_exploration_unit u ON u.exploration_unit_id = d.exploration_unit_id
+       WHERE d.manifest_id = #{literal(manifest.fetch("manifest_id"))}
+       ORDER BY d.selection_order NULLS LAST, d.sort_order ASC
+    SQL
+    selections_by_version = selection_rows.to_h do |row|
+      values = row.split("\t", -1)
+      [values.fetch(3), { "exploration_decision_id" => values.fetch(0), "outcome" => values.fetch(1), "selection_order" => values.fetch(2) }]
+    end
     entries = Array(memberships)
     allowed_membership_keys = %w[exploration_item_id version_id sort_order resolution lane reason]
     # Validate the caller envelope before deriving any hashes.  The frozen
@@ -1557,10 +2054,13 @@ class LocalRadarStore
       resolution = version.fetch("publisher_identity_status") == "unresolved" || version.fetch("publisher_id").empty? ? "unresolved" : "resolved"
       body_resolution = entry.fetch("resolution", resolution).to_s
       raise Error, "exploration membership resolution is forged" unless body_resolution == resolution
+      selection = selections_by_version.fetch(version_id) { raise Error, "exploration membership is outside frozen selection manifest" }
+      raise Error, "exploration membership decision is not selected" unless selection.fetch("outcome") == "selected"
       execute(<<~SQL)
         INSERT INTO local_radar_exploration_item
-          (exploration_item_id, snapshot_id, batch_id, version_id, lane, reason, resolution, sort_order)
-        VALUES (#{literal(entry.fetch("exploration_item_id", "#{snapshot_id}-exploration-#{index}"))}, #{literal(snapshot_id)}, #{literal(batch_id)}, #{literal(version_id)}, 'locale_frontier', 'topic_unconditioned_locale_sample', #{literal(resolution)}, #{index})
+          (exploration_item_id, snapshot_id, batch_id, version_id, lane, reason, resolution, sort_order,
+           selection_manifest_id, exploration_decision_id, not_a_signal, delivery_status)
+        VALUES (#{literal(entry.fetch("exploration_item_id", "#{snapshot_id}-exploration-#{index}"))}, #{literal(snapshot_id)}, #{literal(batch_id)}, #{literal(version_id)}, 'locale_frontier', 'topic_unconditioned_locale_sample', #{literal(resolution)}, #{index}, #{literal(manifest.fetch("manifest_id"))}, #{literal(selection.fetch("exploration_decision_id"))}, TRUE, 'unmeasured')
       SQL
     end
     stored_ids = execute("SELECT version_id FROM local_radar_exploration_item WHERE batch_id = #{literal(batch_id)} AND snapshot_id = #{literal(snapshot_id)} ORDER BY sort_order ASC").map(&:to_s)
@@ -2116,5 +2616,9 @@ class LocalRadarStore
     else
       @breadth_schema_available = true
     end
+  end
+
+  def relation_exists?(name)
+    query("SELECT to_regclass(#{literal(name)}) IS NOT NULL").fetch(0, "f") == "t"
   end
 end

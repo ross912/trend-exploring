@@ -68,6 +68,14 @@ class LocalOperationsTest < Minitest::Test
     assert_equal "published", first.dig("report", "status")
     assert_equal first.dig("report", "edition_id"), second.dig("report", "edition_id")
     assert_equal first.dig("weak_signal", "run_id"), second.dig("weak_signal", "run_id")
+    delayed = JSON.parse(run!("run_scheduled_cycle.rb", "--now", "2026-08-14T08:20:00+08:00", "--skip-ingest"))
+    delayed_replay = JSON.parse(run!("run_scheduled_cycle.rb", "--now", "2026-08-14T18:59:59+08:00", "--skip-ingest"))
+    assert_equal "published", delayed.dig("report", "status")
+    assert_equal delayed.dig("report", "edition_id"), delayed_replay.dig("report", "edition_id")
+    assert_equal "morning", delayed.fetch("scheduled_kind")
+    evening = JSON.parse(run!("run_scheduled_cycle.rb", "--now", "2026-08-14T19:20:00+08:00", "--skip-ingest"))
+    assert_equal "published", evening.dig("report", "status")
+    assert_equal "evening", evening.fetch("scheduled_kind")
     psql = File.join(@pg_bin, "psql")
     listen = Open3.capture3(@env, psql, "-XAt", "-h", @env.fetch("LOCAL_PGSOCKET"), "-p", @port, "-U", @env.fetch("LOCAL_PGUSER"), "-d", "postgres", "-c", "SHOW listen_addresses").first.strip
     assert_equal "", listen

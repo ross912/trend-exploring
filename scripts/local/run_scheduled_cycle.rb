@@ -2,8 +2,9 @@
 # frozen_string_literal: true
 
 # One bounded, idempotent local cycle.  This is deliberately clock-driven:
-# collection may run at any time, but report publication only occurs inside
-# the configured five-minute launch window after 08:00 or 19:00 Asia/Shanghai.
+# collection may run at any time. Report publication never occurs before its
+# 08:00/19:00 boundary, but a delayed launch may catch up until the next
+# boundary. The immutable slot and idempotency key still guarantee one edition.
 require "json"
 require "optparse"
 require "open3"
@@ -16,7 +17,6 @@ require_relative "../../lib/weak_signal_store"
 
 ROOT = File.expand_path("../..", __dir__)
 LOCAL_ZONE = "+08:00"
-RUN_WINDOW_SECONDS = 15 * 60
 
 options = { now: Time.now.getlocal(LOCAL_ZONE), ingest: ENV.fetch("LOCAL_CYCLE_INGEST", "1") == "1" }
 OptionParser.new do |parser|
@@ -39,15 +39,19 @@ def run_command(command, env: {})
   { "status" => status.success? ? "passed" : "failed", "stdout" => stdout, "stderr" => stderr, "exit_code" => status.exitstatus }
 end
 
+def tail_output(value, limit = 4000)
+  text = value.to_s
+  text.length > limit ? text[-limit, limit] : text
+end
+
 def local_date_for(now)
   now.getlocal(LOCAL_ZONE).to_date
 end
 
 def slot_kind_for(now)
   hour = now.getlocal(LOCAL_ZONE).hour
-  minute = now.getlocal(LOCAL_ZONE).min
-  return "morning" if hour == 8 && ((minute * 60) < RUN_WINDOW_SECONDS)
-  return "evening" if hour == 19 && ((minute * 60) < RUN_WINDOW_SECONDS)
+  return "morning" if hour >= 8 && hour < 19
+  return "evening" if hour >= 19
 
   nil
 end
@@ -62,12 +66,12 @@ env = {
 result = {
   "status" => "passed", "cycle_now" => now.iso8601(6), "timezone" => "Asia/Shanghai",
   "scheduled_kind" => kind, "collection" => nil, "report" => nil,
-  "weak_signal" => nil, "summary" => nil
+  "weak_signal" => nil, "world_change" => nil, "summary" => nil
 }
 
 if options.fetch(:ingest)
   collection = run_command([RbConfig.ruby, File.join(ROOT, "scripts/local/ingest_sources.rb")], env: env)
-  result["collection"] = collection.reject { |key, _| key == "stdout" }.merge("output" => collection["stdout"].to_s[-4000, 4000])
+  result["collection"] = collection.reject { |key, _| key == "stdout" }.merge("output" => tail_output(collection["stdout"]))
   unless collection.fetch("status") == "passed"
     result["status"] = "degraded"
     result["collection"]["degraded"] = true
@@ -104,7 +108,7 @@ if kind
     result["report"] = { "status" => "failed", "error" => error.message }
   end
 else
-  result["report"] = { "status" => "not_due", "reason" => "outside 08:00/19:00 launch window" }
+  result["report"] = { "status" => "not_due", "reason" => "no report boundary has elapsed for the local date" }
 end
 
 if kind
@@ -119,14 +123,31 @@ if kind
     result["weak_signal"] = { "status" => "failed", "error" => error.message }
   end
 else
-  result["weak_signal"] = { "status" => "not_due", "reason" => "outside 08:00/19:00 launch window" }
+  result["weak_signal"] = { "status" => "not_due", "reason" => "no report boundary has elapsed for the local date" }
+end
+
+# World-change analysis is deliberately downstream of the weak-signal run. It
+# has its own immutable run id and degrades independently so raw reports still
+# publish when a detector or lifecycle database is unavailable.
+if kind
+  world_as_of = scheduled_at.utc.iso8601(6)
+  world_run_id = "scheduled-world-change-#{kind}-#{date.strftime('%Y%m%d')}"
+  begin
+    world = command_json!([RbConfig.ruby, File.join(ROOT, "scripts/local/detect_world_changes.rb"), "--as-of", world_as_of, "--run-id", world_run_id])
+    result["world_change"] = world
+  rescue StandardError => error
+    result["status"] = "degraded"
+    result["world_change"] = { "status" => "failed", "run_id" => world_run_id, "error" => error.message, "candidate_count" => 0 }
+  end
+else
+  result["world_change"] = { "status" => "not_due", "reason" => "no report boundary has elapsed for the local date" }
 end
 
 if result.dig("report", "status") == "published"
   edition_id = result.dig("report", "edition_id")
   summary = run_command([RbConfig.ruby, File.join(ROOT, "scripts/local/generate_report_summary.rb"), "--edition-id", edition_id,
                          "--idempotency-key", "scheduled-summary-#{edition_id}"], env: env)
-  result["summary"] = summary.reject { |key, _| key == "stdout" }.merge("output" => summary["stdout"].to_s[-4000, 4000])
+  result["summary"] = summary.reject { |key, _| key == "stdout" }.merge("output" => tail_output(summary["stdout"]))
   result["status"] = "degraded" if summary.fetch("status") == "failed"
 else
   result["summary"] = { "status" => "not_run", "reason" => "no edition published in this cycle" }

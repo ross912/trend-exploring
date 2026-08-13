@@ -54,6 +54,50 @@ end
 weak = get_json(base, "/api/weak-signals")
 abort "weak signal status is invalid" unless %w[not_run warming_up evaluated].include?(weak.fetch("status"))
 expect_http(base, "/api/weak-signals", method: "POST", expected: 405)
+world_changes = get_json(base, "/api/world-changes")
+abort "world-change not-a-prediction boundary is missing" unless world_changes.fetch("not_a_prediction") == true
+# A v1 detector run is intentionally hidden by the public precision gate until
+# the detector itself emits the validated version.  `invalidated` is therefore
+# a healthy, auditable safety state—not an API failure.
+abort "world-change status is invalid" unless %w[not_run warming_up evaluated invalidated error].include?(world_changes.fetch("status"))
+abort "world-change response is too large" if JSON.generate(world_changes).bytesize >= 512 * 1024
+unless world_changes.fetch("status") == "error"
+  run = world_changes["run"] || world_changes
+  if world_changes.fetch("status") == "not_run"
+    abort "not_run world-change payload is missing candidates" unless world_changes.key?("run") && world_changes.key?("evidence_boundary")
+  else
+    abort "world-change run shape is invalid" unless %w[run_id as_of detector_version status candidates].all? { |key| run.key?(key) }
+    boundary = world_changes.fetch("evidence_boundary")
+    abort "world-change evidence boundary is missing" unless boundary.fetch("max_candidates").to_i == 20 && boundary.fetch("summary_body_excluded") == true
+    abort "world-change reference boundary is invalid" unless boundary.fetch("per_channel_refs") == { "qualifying" => 3, "supporting" => 2, "contradicting" => 2 }
+    ref_fields = %w[version_id title source_url publisher channel role].sort
+    run.fetch("candidates").each do |candidate|
+      abort "world-change candidate shape is invalid" unless %w[candidate_key candidate_status channels missing_channels contradicting_evidence alternative_explanations next_verification].all? { |key| candidate.key?(key) }
+      abort "world-change candidate is scored/predicted" if candidate.keys.any? { |key| %w[score confidence prediction forecast probability].include?(key) }
+      channels = candidate.fetch("channels")
+      abort "world-change channels are incomplete" unless %w[technical_capability capital_commitment policy_action real_world_adoption public_discussion].all? { |channel| channels.key?(channel) }
+      channels.each_value do |channel|
+        abort "world-change qualifying refs exceed public limit" if channel.fetch("evidence").length > 3
+        abort "world-change support refs exceed public limit" if channel.fetch("supporting_evidence").length > 2
+        abort "world-change contradicting refs exceed public limit" if channel.fetch("contradicting_evidence").length > 2
+        %w[evidence supporting_evidence contradicting_evidence].each do |role|
+          channel.fetch(role).each do |ref|
+            abort "world-change ref fields are not bounded" unless ref.keys.sort == ref_fields
+            abort "world-change ref leaked raw body" if ref.keys.any? { |key| %w[summary body content].include?(key) }
+          end
+        end
+      end
+    end
+  end
+end
+expect_http(base, "/api/world-changes", method: "POST", expected: 405)
+lifecycle = get_json(base, "/api/signals/lifecycle")
+abort "lifecycle boundary is missing" unless lifecycle.fetch("not_a_prediction") == true && lifecycle.key?("lifecycle")
+expect_http(base, "/api/signals/lifecycle", method: "POST", expected: 405)
+concepts = get_json(base, "/api/multilingual-concepts")
+abort "multilingual concept shape is invalid" unless %w[status candidates boundary].all? { |key| concepts.key?(key) }
+abort "multilingual concept status is invalid" unless %w[empty evaluated error].include?(concepts.fetch("status"))
+expect_http(base, "/api/multilingual-concepts", method: "POST", expected: 405)
 conversation = JSON.parse(expect_http(base, "/api/conversation/query", method: "POST", body: { "question" => "what changed" }, expected: 200).body)
 abort "conversation status is missing" unless %w[generated not_generated failed privacy_blocked].include?(conversation.fetch("answer_status"))
 expect_http(base, "/api/conversation/query", method: "GET", expected: 405)
@@ -63,6 +107,10 @@ expect_http(base, "/api/conversation/query", method: "POST", body: { "question" 
 abort "radar trend collection is missing" unless radar.key?("trends")
 abort "radar event candidate collection is missing" unless radar.key?("event_candidates")
 abort "source matrix is missing" unless radar.key?("sources")
+abort "archive status is missing" unless radar.key?("archive")
+%w[source_policies archive_attempts translation_queue full_archive_source_count fulltext_archive_count fulltext_translation_count].each do |key|
+  abort "archive status field is missing: #{key}" unless radar.fetch("archive").key?(key)
+end
 abort "exploration collection is missing" unless radar.key?("exploration")
 exploration = radar.fetch("exploration")
 %w[latest_batch items boundary].each { |key| abort "exploration field is missing: #{key}" unless exploration.key?(key) }

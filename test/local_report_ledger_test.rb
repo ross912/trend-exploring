@@ -63,6 +63,28 @@ class LocalReportLedgerTest < Minitest::Test
     assert_equal "first_seen", item.fetch("arrival_kind")
   end
 
+  def test_late_translation_is_an_additive_report_read_projection
+    slot = slots_for("2026-08-10").fetch("morning")
+    insert_version(item_key: "translated-report", version_id: "translated-report-v1", capture_id: "translated-report-c1", content_hash: "translated-report-h1", created_at: "2026-08-09T23:40:00Z")
+    edition = publish(slot, key: "translated-report-publish")
+    before = @ledger.latest_report(kind: "morning")
+    assert_equal "Fixture title", before.dig("items", 0, "title")
+    assert_equal "untranslated", before.dig("items", 0, "translation_status")
+    psql!(<<~SQL)
+      INSERT INTO local_translation_artifact
+        (artifact_id, source_version_id, item_key, source_language, target_language, original_content_hash,
+         provider, model, translated_title, translated_summary, validation_status, status)
+      VALUES ('report-translation', 'translated-report-v1', 'translated-report', 'en', 'zh-CN',
+              'translated-report-h1', 'deepseek', 'deepseek-v4-pro', '日报中文标题', '日报中文摘要',
+              'mechanical_pass', 'translated')
+    SQL
+    after = @ledger.latest_report(kind: "morning")
+    assert_equal edition.fetch("edition_id"), after.dig("edition", "edition_id")
+    assert_equal "日报中文标题", after.dig("items", 0, "title")
+    assert_equal "Fixture title", after.dig("items", 0, "original_title")
+    assert_equal "translated", after.dig("items", 0, "translation_status")
+  end
+
   def test_same_item_same_hash_is_one_first_seen_and_one_content_update
     slots_for("2026-08-10")
     insert_version(item_key: "item-a", version_id: "version-a1", capture_id: "capture-a1", content_hash: "hash-a",
@@ -318,7 +340,7 @@ class LocalReportLedgerTest < Minitest::Test
       INSERT INTO local_source_capture
         (capture_id, source_id, source_url, source_kind, rights_scope, captured_at, http_status,
          content_type, content_bytes, body_hash, storage_status, storage_uri)
-      VALUES ('#{capture_id}', '#{source_id}', '#{source_url}', 'configured', 'metadata_short_summary_link',
+      VALUES ('#{capture_id}', '#{source_id}', '#{source_url}', 'configured', 'excerpt_only',
               '#{captured_at}', 200, 'application/rss+xml', 10, '#{capture_id}-body', 'metadata_only', '');
       INSERT INTO local_source_item
         (item_key, source_id, source_name, language, region, publisher_name, publisher_url, publisher_id,

@@ -4,9 +4,11 @@
 
 这个项目把公开来源的采集入口、元数据、短摘要和原文链接保存在本地，并以去重来源标识统计哪些词在重复出现；它不把入口标签当作事件地域，也不把域名观察当作组织属性。当前能力用于可追溯的本地核验，不承诺穷尽世界或预测变化。
 
-探索前沿是独立的 locale-conditioned、topic-unconditioned 聚合器中介切片：每批从配置的 Google News locale headlines 入口记录成功/空/失败分母，并按不可变版本选择最多 12 条归档材料。它只支持原文归档与浏览，不进入趋势、事件候选、卡片或翻译；locale-only 发布会在 snapshot 标记 `reused_previous` 并沿用 signal projection，不声称重要、新颖、趋势或早期信号；事件地域仍未验证。
+探索前沿是独立的 locale-conditioned、topic-unconditioned 聚合器中介切片：每批从配置的 Google News locale headlines 入口记录成功/空/失败分母，并按不可变版本选择最多 12 条归档材料。它保留原语言元数据并为非中文生成独立中文显示译文，但不进入趋势、事件候选或 signal 卡片；locale-only 发布会在 snapshot 标记 `reused_previous` 并沿用 signal projection，不声称重要、新颖、趋势或早期信号；事件地域仍未验证。
 
 本地日报账本另有两个 Asia/Shanghai 半开时段（08:00 morning、19:00 evening），先发布不可变 raw listings，再可选地通过 CLI 追加可替换、可追溯的 AI summary projection；summary 不回写 edition/placement/version，不代表全球覆盖或确定性结论。无 API 凭据会明确保留 blocked run，raw 日报仍可读。
+
+翻译、日报总结和资料对话统一使用 DeepSeek 官方 API 的 `deepseek-v4-pro`。翻译关闭思考模式；总结与对话使用高推理强度。密钥只从环境变量或本机权限为 `600` 的 secrets 文件读取，不进入 Git、数据库、日志或备份。正文能力采用来源权利分级：只有明确登记为 `full_archive` 且带许可依据与核验时间的来源才抓取全文；当前27个来源均为 `excerpt_only`，仍只保存标题、短摘要、链接和观察哈希。
 
 运维入口见 [本地产品运行手册](docs/local-product.md)：默认持久化在 macOS 的 `~/Library/Application Support/TrendExploring`，无 PostgreSQL 时安装器会校验固定源码 SHA256 后构建；LaunchAgent 提供 07:55/18:55 预采集、08:05/19:05 日报周期和登录后本地 UI server。`status_local.rb`、`backup_local.sh`、`restore_local.sh` 分别提供状态、全局+个人一致性备份和 disposable DB 恢复验证。
 
@@ -31,6 +33,7 @@
 - AI 分析和信号状态只追加新版本；未知闭合时间由 Supersession/StateEvent 投影，不回写旧结论；
 - 热点规模与认知探索分开计算和展示；
 - 信号使用分项向量与分通道判定，不使用神秘总分；
+- 世界变化候选固定分离 technical capability、capital commitment、policy action、real-world adoption、public discussion 五个通道；输出反证、缺口、替代解释与下一步核验，不是预测；
 - 所有事实和判断均可追溯到具体原始版本；
 - 事实/来源主张使用证据蕴含门禁，AI 推断使用前提支持、反证与替代解释门禁；
 - 候选与 proposition family 双身份冻结，合并/拆分不改变前瞻评价分母；

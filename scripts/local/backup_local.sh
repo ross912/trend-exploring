@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Secrets live under state_dir/secrets and are intentionally never copied by
+# this database-only backup workflow.
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 eval "$(bash "${project_root}/scripts/local/start_postgres.sh" --env)"

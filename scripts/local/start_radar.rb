@@ -7,6 +7,9 @@ require_relative "../../lib/local_radar_store"
 require_relative "../../lib/local_report_ledger"
 require_relative "../../lib/weak_signal_store"
 require_relative "../../lib/conversation_service"
+require_relative "../../lib/world_change_store"
+require_relative "../../lib/multilingual_concept_store"
+require_relative "../../lib/signal_lifecycle_store"
 
 root = File.expand_path("../..", __dir__)
 public_root = File.join(root, "app/public")
@@ -14,6 +17,8 @@ store = LocalRadarStore.new
 report_ledger = LocalReportLedger.new
 weak_signal_store = WeakSignalStore.new
 conversation_service = ConversationService.new
+world_change_store = WorldChangeStore.new
+multilingual_concept_store = MultilingualConceptStore.new
 port = Integer(ENV.fetch("PORT", "3000"))
 
 server = WEBrick::HTTPServer.new(
@@ -47,6 +52,16 @@ server.mount_proc "/api/radar" do |request, response|
     next
   end
   json_response.call(response, store.current_radar)
+rescue LocalRadarStore::Error => error
+  json_response.call(response, { "error" => error.message }, 503)
+end
+
+server.mount_proc "/api/archive/status" do |request, response|
+  if request.request_method != "GET"
+    json_response.call(response, { "error" => "method not allowed" }, 405)
+    next
+  end
+  json_response.call(response, store.archive_summary)
 rescue LocalRadarStore::Error => error
   json_response.call(response, { "error" => error.message }, 503)
 end
@@ -87,6 +102,48 @@ server.mount_proc "/api/weak-signals" do |request, response|
   json_response.call(response, run ? { "status" => run.fetch("status"), "run" => run } : { "status" => "not_run", "run" => nil })
 rescue WeakSignalStore::Error => error
   json_response.call(response, { "error" => error.message }, 503)
+end
+
+server.mount_proc "/api/world-changes" do |request, response|
+  if request.request_method != "GET"
+    json_response.call(response, { "error" => "method not allowed" }, 405)
+    next
+  end
+  run = world_change_store.latest_public
+  json_response.call(response, run ? run.merge("not_a_prediction" => true) : { "status" => "not_run", "run" => nil, "not_a_prediction" => true, "truncated" => false, "evidence_boundary" => world_change_store.public_boundary })
+rescue WorldChangeStore::Error => error
+  json_response.call(response, { "status" => "error", "error" => error.message, "not_a_prediction" => true }, 503)
+end
+
+server.mount_proc "/api/signals/lifecycle" do |request, response|
+  if request.request_method != "GET"
+    json_response.call(response, { "error" => "method not allowed" }, 405)
+    next
+  end
+  run = world_change_store.latest_any
+  lifecycle = Array(run && run["candidates"]).map do |candidate|
+    family_id = SignalLifecycleStore.new.proposition_family_id(family_key: candidate.fetch("candidate_key"))
+    signal_id = SignalLifecycleStore.new.signal_id(proposition_family_id: family_id, signal_key: candidate.fetch("candidate_key"))
+    begin
+      SignalLifecycleStore.new.history(signal_id: signal_id)
+    rescue SignalLifecycleStore::Error
+      { "signal_id" => signal_id, "candidate_key" => candidate.fetch("candidate_key"), "current_state" => nil, "state_events" => [], "trigger_events" => [], "evidence_links" => [], "retrospective_event_count" => 0 }
+    end
+  end
+  json_response.call(response, { "status" => run ? run.fetch("status") : "not_run", "as_of" => run && run["as_of"], "lifecycle" => lifecycle, "not_a_prediction" => true })
+rescue SignalLifecycleStore::Error, WorldChangeStore::Error => error
+  json_response.call(response, { "status" => "error", "error" => error.message, "not_a_prediction" => true }, 503)
+end
+
+server.mount_proc "/api/multilingual-concepts" do |request, response|
+  if request.request_method != "GET"
+    json_response.call(response, { "error" => "method not allowed" }, 405)
+    next
+  end
+  candidates = multilingual_concept_store.read_candidates
+  json_response.call(response, { "status" => candidates.empty? ? "empty" : "evaluated", "candidates" => candidates, "boundary" => "provider-backed concept participation only; not an event or prediction" })
+rescue MultilingualConceptStore::Error => error
+  json_response.call(response, { "status" => "error", "error" => error.message, "candidates" => [] }, 503)
 end
 
 server.mount_proc "/api/conversation/query" do |request, response|

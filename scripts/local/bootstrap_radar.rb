@@ -28,6 +28,11 @@ run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "
 run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/013_local_report_ledger.sql")])
 run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/014_local_report_summary.sql")])
 run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/015_local_weak_signal.sql")]) if File.file?(File.join(root, "schema/postgres/015_local_weak_signal.sql"))
+run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/016_local_fulltext_translation.sql")]) if File.file?(File.join(root, "schema/postgres/016_local_fulltext_translation.sql"))
+run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/017_raw_archive_immutability.sql")]) if File.file?(File.join(root, "schema/postgres/017_raw_archive_immutability.sql"))
+run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/018_multilingual_concepts.sql")]) if File.file?(File.join(root, "schema/postgres/018_multilingual_concepts.sql"))
+run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/019_world_change_candidates.sql")]) if File.file?(File.join(root, "schema/postgres/019_world_change_candidates.sql"))
+run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/020_signal_lifecycle.sql")]) if File.file?(File.join(root, "schema/postgres/020_signal_lifecycle.sql"))
 
 store = LocalRadarStore.new(psql: psql, host: host, port: port, database: database, user: user)
 if ENV.fetch("LOCAL_RESET_DEMO", "0") == "1"

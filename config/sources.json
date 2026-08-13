@@ -14,7 +14,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -31,7 +31,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -48,7 +48,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -65,7 +65,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -82,7 +82,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -99,7 +99,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -116,7 +116,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -133,7 +133,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -150,7 +150,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -167,7 +167,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -184,7 +184,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -201,7 +201,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     },
@@ -218,7 +218,7 @@
       "region_basis": "editorial_scope_label",
       "query_conditioned": false,
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 12
     }
@@ -238,7 +238,7 @@
       "query_conditioned": true,
       "query_topics": ["technology", "AI"],
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 24
     },
@@ -256,7 +256,7 @@
       "query_conditioned": true,
       "query_topics": ["climate", "energy"],
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 24
     },
@@ -274,7 +274,7 @@
       "query_conditioned": true,
       "query_topics": ["科技", "科学"],
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 24
     },
@@ -292,7 +292,7 @@
       "query_conditioned": true,
       "query_topics": ["非洲", "拉丁美洲"],
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 24
     },
@@ -310,7 +310,7 @@
       "query_conditioned": true,
       "query_topics": ["health", "public health"],
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 24
     },
@@ -328,7 +328,7 @@
       "query_conditioned": true,
       "query_topics": ["africa", "latin america"],
       "enabled": true,
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 24
     }
@@ -355,7 +355,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     },
@@ -380,7 +380,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     },
@@ -405,7 +405,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     },
@@ -430,7 +430,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     },
@@ -455,7 +455,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     },
@@ -480,7 +480,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     },
@@ -505,7 +505,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     },
@@ -530,7 +530,7 @@
       "enabled": true,
       "verified_at": "2026-08-09T15:00:57.864033Z",
       "verification_status": "http_200_items_source_href",
-      "rights_scope": "metadata_short_summary_link",
+      "rights_scope": "excerpt_only",
       "max_summary_chars": 320,
       "max_items": 30
     }
