@@ -66,7 +66,7 @@ env = {
 result = {
   "status" => "passed", "cycle_now" => now.iso8601(6), "timezone" => "Asia/Shanghai",
   "scheduled_kind" => kind, "collection" => nil, "report" => nil,
-  "weak_signal" => nil, "world_change" => nil, "summary" => nil
+  "weak_signal" => nil, "world_change" => nil, "concept_mapping" => nil, "summary" => nil
 }
 
 if options.fetch(:ingest)
@@ -141,6 +141,37 @@ if kind
   end
 else
   result["world_change"] = { "status" => "not_due", "reason" => "no report boundary has elapsed for the local date" }
+end
+
+# Concept mapping is a separately bounded provider action.  The scheduled
+# cycle always records its operational state, but defaults to dry_run with no
+# persistence and no paid/provider call.  Paid production requires both the
+# explicit mode and LOCAL_CONCEPT_MAPPING_ALLOW_PAID=1; fixture mode is useful
+# only for tests and never masquerades as a production run.
+if kind
+  concept_mode = ENV.fetch("LOCAL_CONCEPT_MAPPING_MODE", "dry_run")
+  concept_args = [RbConfig.ruby, File.join(ROOT, "scripts/local/map_concepts.rb"), "--mode", concept_mode,
+                  "--limit", ENV.fetch("LOCAL_CONCEPT_MAPPING_LIMIT", "20")]
+  concept_args << "--persist" if ENV.fetch("LOCAL_CONCEPT_MAPPING_PERSIST", "0") == "1"
+  concept_args << "--allow-paid" if ENV.fetch("LOCAL_CONCEPT_MAPPING_ALLOW_PAID", "0") == "1"
+  begin
+    concept = command_json!(concept_args)
+    result["concept_mapping"] = concept
+    # A blocked/not_run concept mapping is an honest bounded outcome and does
+    # not degrade the report/weak-signal cycle. Only an actual runner failure
+    # (e.g. schema/command error) marks the overall cycle degraded.
+    result["status"] = "degraded" if concept.fetch("status", "") == "failed"
+  rescue StandardError => error
+    result["status"] = "degraded"
+    result["concept_mapping"] = { "status" => "failed", "mode" => concept_mode, "persisted" => false,
+                                   "examined_count" => 0, "mapped_count" => 0, "blocked_count" => 0,
+                                   "candidate_count" => 0, "error" => error.message }
+  end
+else
+  result["concept_mapping"] = { "status" => "not_run", "mode" => ENV.fetch("LOCAL_CONCEPT_MAPPING_MODE", "dry_run"),
+                                 "persisted" => false, "examined_count" => 0, "mapped_count" => 0,
+                                 "blocked_count" => 0, "candidate_count" => 0,
+                                 "reason" => "no report boundary has elapsed for the local date" }
 end
 
 if result.dig("report", "status") == "published"

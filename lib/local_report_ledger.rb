@@ -391,18 +391,98 @@ class LocalReportLedger
         transaction_query(<<~SQL)
           INSERT INTO local_report_summary_artifact
             (artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version,
-             overview, key_changes, uncertainties, output_hash)
+             overview, key_changes, uncertainties, output_hash, claim_gate_status, provider_receipt_id)
           VALUES (#{literal(artifact.fetch('artifact_id'))}, #{literal(run_id)}, #{literal(artifact.fetch('edition_id'))},
                   #{literal(artifact.fetch('input_hash'))}, #{literal(artifact.fetch('provider'))}, #{literal(artifact.fetch('model'))},
                   #{literal(artifact.fetch('prompt_version'))}, #{literal(JSON.generate(artifact.fetch('overview')))}::jsonb,
                   #{literal(JSON.generate(artifact.fetch('key_changes')))}::jsonb, #{literal(JSON.generate(artifact.fetch('uncertainties')))}::jsonb,
-                  #{literal(artifact.fetch('output_hash'))})
+                  #{literal(artifact.fetch('output_hash'))}, #{literal(artifact.fetch('claim_gate_status', 'legacy_unverified'))},
+                  #{nullable_literal(artifact.fetch('provider_receipt_id', nil))})
         SQL
         transaction_query("UPDATE local_report_summary_run SET state = 'succeeded', finished_at = now(), error_reason = '' WHERE run_id = #{literal(run_id)}")
         terminal = normalize_summary_run(row_to_hash(transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)}").fetch(0), SUMMARY_RUN_KEYS))
         { "run" => terminal, "artifact" => summary_artifact_for_run_in_transaction(run_id) }
       end
     end
+  end
+
+  # Append one immutable provider exchange receipt for a summary run.  A run
+  # may have at most one receipt; a replay carrying a different exchange or
+  # request/response hash is rejected instead of silently reusing the key.
+  def append_provider_response_receipt!(run_id:, receipt:)
+    raise Error, "provider response receipt must be an object" unless receipt.is_a?(Hash)
+    required = %w[exchange_id provider model prompt_version canonical_request_hash raw_response_hash captured_at status]
+    missing = required.select { |key| receipt.fetch(key, "").to_s.empty? }
+    raise Error, "provider response receipt missing #{missing.join(', ')}" unless missing.empty?
+    raise Error, "provider response receipt status is invalid" unless %w[succeeded failed].include?(receipt.fetch("status").to_s)
+    receipt_id = receipt.fetch("receipt_id", "receipt-#{Digest::SHA256.hexdigest([run_id, receipt.fetch('exchange_id')].join("\u0000"))[0, 32]}").to_s
+    canonical = canonical_provider_receipt(receipt, receipt_id: receipt_id)
+    transaction do
+      run_rows = transaction_query("SELECT run_id, provider, model, prompt_version FROM local_report_summary_run WHERE run_id = #{literal(run_id)} FOR UPDATE")
+      raise Error, "summary run not found: #{run_id}" if run_rows.empty?
+      run = row_to_hash(run_rows.fetch(0), %w[run_id provider model prompt_version])
+      %w[provider model prompt_version].each do |key|
+        raise Error, "provider receipt #{key} differs from summary run" unless run.fetch(key).to_s == receipt.fetch(key).to_s
+      end
+      existing = transaction_query(<<~SQL)
+        SELECT receipt_id, exchange_id, provider, model, prompt_version,
+               canonical_request_hash, raw_response_hash, http_status, request_id,
+               captured_at::text, status, response_available, error_code, error_message
+          FROM provider_response_receipt
+         WHERE run_id = #{literal(run_id)}
+         FOR UPDATE
+      SQL
+      unless existing.empty?
+        row = row_to_hash(existing.fetch(0), canonical.keys)
+        actual = canonical_provider_receipt(row, receipt_id: row.fetch("receipt_id"))
+        raise Error, "provider response receipt replay differs for idempotency key" unless actual == canonical
+        next canonical.fetch("receipt_id")
+      end
+      transaction_query(<<~SQL)
+        INSERT INTO provider_response_receipt
+          (receipt_id, run_id, provider, model, prompt_version, exchange_id,
+           canonical_request_hash, raw_response_hash, http_status, request_id,
+           captured_at, status, response_available, error_code, error_message)
+        VALUES (#{literal(canonical.fetch('receipt_id'))}, #{literal(run_id)}, #{literal(canonical.fetch('provider'))},
+                #{literal(canonical.fetch('model'))}, #{literal(canonical.fetch('prompt_version'))}, #{literal(canonical.fetch('exchange_id'))},
+                #{literal(canonical.fetch('canonical_request_hash'))}, #{literal(canonical.fetch('raw_response_hash'))},
+                #{canonical.fetch('http_status').nil? ? 'NULL' : Integer(canonical.fetch('http_status'))},
+                #{literal(canonical.fetch('request_id'))}, #{literal(canonical.fetch('captured_at'))},
+                #{literal(canonical.fetch('status'))}, #{canonical.fetch('response_available') ? 'TRUE' : 'FALSE'},
+                #{literal(canonical.fetch('error_code'))}, #{literal(canonical.fetch('error_message'))})
+      SQL
+      canonical.fetch("receipt_id")
+    end
+  rescue StandardError => error
+    raise error if error.is_a?(Error)
+    raise Error, error.message
+  end
+
+  def canonical_provider_receipt(receipt, receipt_id:)
+    http_status = receipt.fetch("http_status", nil)
+    http_status = nil if http_status.nil? || http_status.to_s.empty?
+    {
+      "receipt_id" => receipt_id.to_s,
+      "exchange_id" => receipt.fetch("exchange_id").to_s,
+      "provider" => receipt.fetch("provider").to_s,
+      "model" => receipt.fetch("model").to_s,
+      "prompt_version" => receipt.fetch("prompt_version").to_s,
+      "canonical_request_hash" => receipt.fetch("canonical_request_hash").to_s,
+      "raw_response_hash" => receipt.fetch("raw_response_hash").to_s,
+      "http_status" => http_status.nil? ? nil : Integer(http_status),
+      "request_id" => receipt.fetch("request_id", "").to_s,
+      "captured_at" => canonical_receipt_timestamp(receipt.fetch("captured_at")),
+      "status" => receipt.fetch("status").to_s,
+      "response_available" => %w[t true 1].include?(receipt.fetch("response_available", false).to_s.downcase),
+      "error_code" => receipt.fetch("error_code", "").to_s,
+      "error_message" => receipt.fetch("error_message", "").to_s[0, 1000]
+    }
+  end
+
+  def canonical_receipt_timestamp(value)
+    Time.parse(value.to_s).utc.iso8601(6)
+  rescue ArgumentError
+    raise Error, "provider response receipt captured_at is invalid"
   end
 
   def summary_runs_for_edition(edition_id:)
@@ -427,12 +507,13 @@ class LocalReportLedger
       latest = runs.last
       state = latest ? latest.fetch("state") : "not_generated"
       state = "failed" if state == "running"
-      return { "status" => state, "artifact" => nil, "runs" => runs }
+      return { "status" => state, "artifact" => nil, "runs" => runs, "claim_gate_status" => "not_generated" }
     end
     artifact = normalize_summary_artifact(row_to_hash(succeeded.fetch(0), SUMMARY_ARTIFACT_KEYS))
     evidence = summary_evidence_for(edition_id: edition_id, artifact: artifact)
     artifact["evidence"] = evidence
-    { "status" => "succeeded", "artifact" => artifact, "evidence" => evidence, "runs" => runs }
+    { "status" => "succeeded", "artifact" => artifact, "evidence" => evidence, "runs" => runs,
+      "claim_gate_status" => artifact.fetch("claim_gate_status", "legacy_unverified") }
   end
 
   def summary_tables_available?
@@ -446,7 +527,7 @@ class LocalReportLedger
   def safe_latest_summary_for_edition(edition_id:)
     latest_summary_for_edition(edition_id: edition_id)
   rescue StandardError => error
-    { "status" => "failed", "artifact" => nil, "runs" => [], "error" => error.message.to_s[0, 1000] }
+    { "status" => "failed", "artifact" => nil, "runs" => [], "claim_gate_status" => "failed", "error" => error.message.to_s[0, 1000] }
   end
 
   def latest_report(kind:)
@@ -466,7 +547,7 @@ class LocalReportLedger
         JOIN local_report_schedule_slot s ON s.slot_id = e.slot_id
        WHERE s.slot_id = #{literal(slots.empty? ? "__missing__" : row_to_hash(slots.fetch(0), SLOT_KEYS).fetch("slot_id"))}
     SQL
-    summary = { "status" => "not_generated", "artifact" => nil, "runs" => [] }
+    summary = { "status" => "not_generated", "artifact" => nil, "runs" => [], "claim_gate_status" => "not_generated" }
     boundary = {
       "coverage" => "local source archive only; not global coverage",
       "summary_status" => summary.fetch("status"),
@@ -474,14 +555,14 @@ class LocalReportLedger
       "ai_summary_generated" => summary.fetch("status") == "succeeded"
     }
     if slots.empty?
-      return { "status" => "not_run", "kind" => normalized, "edition" => nil, "items" => [], "summary" => { "status" => "not_generated", "artifact" => nil, "runs" => [] }, "boundary" => boundary }
+      return { "status" => "not_run", "kind" => normalized, "edition" => nil, "items" => [], "summary" => { "status" => "not_generated", "artifact" => nil, "runs" => [], "claim_gate_status" => "not_generated" }, "boundary" => boundary }
     end
     slot = canonicalize_timestamps(row_to_hash(slots.fetch(0), SLOT_KEYS))
     if slot.fetch("state") == "failed"
-      return { "status" => "failed", "kind" => normalized, "slot" => slot, "edition" => nil, "items" => [], "summary" => { "status" => "not_generated", "artifact" => nil, "runs" => [] }, "boundary" => boundary }
+      return { "status" => "failed", "kind" => normalized, "slot" => slot, "edition" => nil, "items" => [], "summary" => { "status" => "not_generated", "artifact" => nil, "runs" => [], "claim_gate_status" => "not_generated" }, "boundary" => boundary }
     end
     if editions.empty?
-      return { "status" => "scheduled", "kind" => normalized, "slot" => slot, "edition" => nil, "items" => [], "summary" => { "status" => "not_generated", "artifact" => nil, "runs" => [] }, "boundary" => boundary }
+      return { "status" => "scheduled", "kind" => normalized, "slot" => slot, "edition" => nil, "items" => [], "summary" => { "status" => "not_generated", "artifact" => nil, "runs" => [], "claim_gate_status" => "not_generated" }, "boundary" => boundary }
     end
     raise Error, "published report slot has no edition" unless slot.fetch("state") == "published"
 
@@ -540,7 +621,7 @@ class LocalReportLedger
   EDITION_KEYS = %w[edition_id slot_id attempt_id nominal_window_start nominal_window_end configured_data_cutoff processing_frontier selection_completeness_frontier data_cutoff comparison_watermark publication_committed_at edition_status reason_codes summary_status payload_hash item_count created_at updated_at].freeze
   PLACED_ITEM_KEYS = %w[placement_id sort_order placement_kind reason_codes arrival_id version_id item_key capture_id content_hash information_arrival_at nominal_slot_id arrival_kind source_id source_name language title summary source_url published_at fetched_at captured_at publisher_name publisher_url publisher_id publisher_identity_status source_kind original_title original_summary translation_status translation_artifact_id translated_at].freeze
   SUMMARY_RUN_KEYS = %w[run_id edition_id idempotency_key input_hash provider model prompt_version state started_at finished_at error_reason created_at updated_at].freeze
-  SUMMARY_ARTIFACT_KEYS = %w[artifact_id run_id edition_id input_hash provider model prompt_version overview key_changes uncertainties output_hash created_at].freeze
+  SUMMARY_ARTIFACT_KEYS = %w[artifact_id run_id edition_id input_hash provider model prompt_version overview key_changes uncertainties output_hash claim_gate_status provider_receipt_id created_at].freeze
   TIMESTAMP_KEYS = %w[window_start window_end scheduled_at configured_data_cutoff created_at updated_at information_arrival_at started_at finished_at nominal_window_start nominal_window_end processing_frontier selection_completeness_frontier data_cutoff publication_committed_at published_at fetched_at captured_at comparison_watermark].freeze
 
   def slot_columns
@@ -822,7 +903,7 @@ class LocalReportLedger
   end
 
   def summary_artifact_columns
-    "artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, created_at::text"
+    "artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, created_at::text"
   end
 
   def normalize_summary_run(row)
@@ -832,6 +913,7 @@ class LocalReportLedger
   def normalize_summary_artifact(row)
     normalized = canonicalize_timestamps(row)
     %w[overview key_changes uncertainties].each { |key| normalized[key] = parse_json(normalized.fetch(key)) }
+    normalized["claim_gate_status"] = normalized.fetch("claim_gate_status", "").to_s.empty? ? "legacy_unverified" : normalized.fetch("claim_gate_status")
     normalized
   end
 
@@ -845,7 +927,11 @@ class LocalReportLedger
   def summary_evidence_for(edition_id:, artifact:)
     citation_ids = []
     [artifact.fetch("overview"), *artifact.fetch("key_changes"), *artifact.fetch("uncertainties")].each do |unit|
-      citation_ids.concat(Array(unit.fetch("cited_version_ids")))
+      if unit.is_a?(Hash) && unit.key?("evidence_scopes")
+        citation_ids.concat(Array(unit.fetch("evidence_scopes")).map { |scope| scope.fetch("version_id") })
+      else
+        citation_ids.concat(Array(unit.fetch("cited_version_ids", [])))
+      end
     end
     citation_ids = citation_ids.map(&:to_s).uniq
     return [] if citation_ids.empty?

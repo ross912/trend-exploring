@@ -37,8 +37,9 @@ reports = %w[morning evening].to_h do |kind|
   abort "report kind mismatch" unless report.fetch("kind") == kind
   abort "report status is invalid" unless %w[not_run scheduled published failed].include?(report.fetch("status"))
   summary = report.fetch("summary")
-  abort "report summary shape is invalid" unless %w[status artifact runs].all? { |key| summary.key?(key) }
+  abort "report summary shape is invalid" unless %w[status artifact runs claim_gate_status].all? { |key| summary.key?(key) }
   abort "report summary status is invalid" unless %w[not_generated blocked failed succeeded].include?(summary.fetch("status"))
+  abort "report claim gate status is invalid" unless %w[not_generated verified legacy_unverified failed].include?(summary.fetch("claim_gate_status"))
   if summary.fetch("status") == "succeeded"
     artifact = summary.fetch("artifact")
     abort "summary artifact missing" unless artifact.is_a?(Hash)
@@ -95,12 +96,20 @@ lifecycle = get_json(base, "/api/signals/lifecycle")
 abort "lifecycle boundary is missing" unless lifecycle.fetch("not_a_prediction") == true && lifecycle.key?("lifecycle")
 expect_http(base, "/api/signals/lifecycle", method: "POST", expected: 405)
 concepts = get_json(base, "/api/multilingual-concepts")
-abort "multilingual concept shape is invalid" unless %w[status candidates boundary].all? { |key| concepts.key?(key) }
-abort "multilingual concept status is invalid" unless %w[empty evaluated error].include?(concepts.fetch("status"))
+abort "multilingual concept shape is invalid" unless %w[status candidates boundary denominator run examined_count mapped_count candidate_count].all? { |key| concepts.key?(key) }
+abort "multilingual concept status is invalid" unless %w[not_run evaluated error].include?(concepts.fetch("status"))
+abort "multilingual denominator is invalid" unless %w[eligible_translation_inputs mapped_source_versions candidate_rows].all? { |key| concepts.fetch("denominator").key?(key) }
 expect_http(base, "/api/multilingual-concepts", method: "POST", expected: 405)
 conversation = JSON.parse(expect_http(base, "/api/conversation/query", method: "POST", body: { "question" => "what changed" }, expected: 200).body)
 abort "conversation status is missing" unless %w[generated not_generated failed privacy_blocked].include?(conversation.fetch("answer_status"))
+if conversation["turn_id"]
+  abort "conversation thread id is missing" if conversation["thread_id"].to_s.empty?
+  replay = get_json(base, "/api/conversation/replay/#{conversation.fetch('turn_id')}")
+  abort "conversation replay turn mismatch" unless replay.dig("turn", "turn_id") == conversation.fetch("turn_id")
+  abort "conversation replay thread mismatch" unless replay.dig("turn", "thread_id") == conversation.fetch("thread_id")
+end
 expect_http(base, "/api/conversation/query", method: "GET", expected: 405)
+expect_http(base, "/api/conversation/replay/not%20an%20id", method: "GET", expected: 400)
 expect_http(base, "/api/conversation/query", method: "POST", body: { "question" => "email me at a@example.com" }, expected: 200)
 expect_http(base, "/api/conversation/query", method: "POST", body: { "question" => ("x" * 2001) }, expected: 400)
 expect_http(base, "/api/conversation/query", method: "POST", body: { "question" => "content type check" }, content_type: false, expected: 415)

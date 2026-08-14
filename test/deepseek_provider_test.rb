@@ -56,6 +56,24 @@ class DeepSeekProviderTest < Minitest::Test
     refute_includes result.inspect, "test-secret-never-log"
   end
 
+  def test_non_object_json_response_raises_with_failed_receipt
+    response_body = JSON.generate("model" => "deepseek-v4-pro", "choices" => [{ "message" => { "content" => "[]" } }])
+    transport = lambda { |_uri, _request| FakeHttpResponse.new("200", response_body, { "x-request-id" => "req-invalid" }) }
+    client = DeepSeekClient.new(api_key: "test-secret-never-log", transport: transport)
+
+    error = assert_raises(DeepSeekClient::Error) do
+      client.chat_json(system: "system", user: "user", thinking: false)
+    end
+    assert_equal "invalid_provider_response", error.code
+    receipt = error.receipt
+    assert_equal "failed", receipt.fetch("status")
+    assert_equal true, receipt.fetch("response_available")
+    assert_equal "invalid_provider_response", receipt.fetch("error_code")
+    assert_match(/\A[a-f0-9]{64}\z/, receipt.fetch("canonical_request_hash"))
+    assert_match(/\A[a-f0-9]{64}\z/, receipt.fetch("raw_response_hash"))
+    refute_includes receipt.inspect, "test-secret-never-log"
+  end
+
   def test_translation_disables_thinking_and_translates_body
     content = { "title_zh" => "标题", "summary_zh" => "摘要", "body_zh" => "正文 2026", "image_captions_zh" => ["图注"] }
     client = FakeClient.new(content)

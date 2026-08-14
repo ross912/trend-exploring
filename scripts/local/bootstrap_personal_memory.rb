@@ -28,6 +28,8 @@ exists = run!([psql, "-XAt", "-h", host, "-p", port, "-U", user, "-d", "postgres
 run!([createdb, "-h", host, "-p", port, "-U", user, database]) unless exists
 run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database,
       "-f", File.join(root, "schema/postgres/personal/001_personal_memory.sql")])
+run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database,
+      "-f", File.join(root, "schema/postgres/personal/002_conversation_ledger.sql")])
 store = PersonalMemoryStore.new(psql: psql, host: host, port: port, database: database,
                                 user: user, global_database: global_database)
 puts JSON.generate({ "status" => "ok", "database" => database, "health" => store.health })

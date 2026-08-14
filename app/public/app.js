@@ -156,12 +156,15 @@ function renderNews(cards) {
 
 function reportUnit(unit, evidence) {
   if (!unit || typeof unit !== "object") return "";
-  const ids = Array.isArray(unit.cited_version_ids) ? unit.cited_version_ids : [];
+  const scopes = Array.isArray(unit.evidence_scopes) ? unit.evidence_scopes : [];
+  const ids = scopes.length ? scopes.map((scope) => scope.version_id) : (Array.isArray(unit.cited_version_ids) ? unit.cited_version_ids : []);
   const linked = ids.map((id) => {
     const row = (evidence || []).find((entry) => entry.version_id === id);
     return row ? `<a href="${safeUrl(row.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(row.title || id)}</a>` : `<span>${escapeHtml(id)}</span>`;
   }).join(" · ");
-  return `<li><p>${escapeHtml(unit.text)}</p><small>证据：${linked || "无"}</small></li>`;
+  const typed = unit.kind ? `${unit.kind} · ${unit.epistemic_status || "未标注"}` : "legacy 未验证";
+  const relation = scopes.map((scope) => scope.relation).filter(Boolean).join(" / ");
+  return `<li><p>${escapeHtml(unit.text)}</p><small>类型：${escapeHtml(typed)}${relation ? ` · 关系：${escapeHtml(relation)}` : ""} · ${unit.kind ? "证据" : "旧版引用（未验证）"}：${linked || "无"}</small></li>`;
 }
 
 function renderReport(kind, payload) {
@@ -186,8 +189,9 @@ function renderReport(kind, payload) {
   const overview = artifact.overview ? reportUnit(artifact.overview, evidence) : "";
   const changes = (artifact.key_changes || []).map((unit) => reportUnit(unit, evidence)).join("");
   const uncertainties = (artifact.uncertainties || []).map((unit) => reportUnit(unit, evidence)).join("");
+  const gateStatus = summary.claim_gate_status || artifact.claim_gate_status || "legacy_unverified";
   const summaryHtml = summary.status === "succeeded"
-    ? `<div class="report-summary"><div class="summary-label">AI 摘要 · 仅作 additive projection</div>${overview ? `<ul class="report-units">${overview}</ul>` : ""}${changes ? `<h4>关键变化候选</h4><ul class="report-units">${changes}</ul>` : ""}${uncertainties ? `<h4>不确定性</h4><ul class="report-units">${uncertainties}</ul>` : ""}</div>`
+    ? `<div class="report-summary"><div class="summary-label">AI 摘要 · claim gate：${escapeHtml(gateStatus === "verified" ? "verified" : "legacy_unverified（未验证）")} · 仅作 additive projection</div>${overview ? `<ul class="report-units">${overview}</ul>` : ""}${changes ? `<h4>关键变化候选</h4><ul class="report-units">${changes}</ul>` : ""}${uncertainties ? `<h4>不确定性</h4><ul class="report-units">${uncertainties}</ul>` : ""}</div>`
     : `<div class="report-summary report-summary-muted">AI 摘要：${escapeHtml(summary.status === "blocked" ? "当前没有可用 provider 或不适用，仍保留 raw。" : summary.status === "failed" ? "生成失败，仍保留 raw。" : "尚未生成，仍保留 raw。")}</div>`;
   const raw = items.length ? `<details class="raw-list"><summary>查看 ${items.length} 条 raw listings</summary><ol>${items.map((item) => `<li><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(translationStatusLabels[item.translation_status] || "原文")} · ${escapeHtml(item.publisher_name || item.source_name || "未知来源")} · ${escapeHtml(item.created_at || item.published_at || "")}</span>${item.translation_status === "translated" ? `<details class="original-copy"><summary>查看原语言元数据</summary><strong>${escapeHtml(item.original_title || "")}</strong><p>${escapeHtml(item.original_summary || "")}</p></details>` : ""}${safeUrl(item.source_url) ? `<a href="${safeUrl(item.source_url)}" target="_blank" rel="noopener noreferrer">原文</a>` : ""}</li>`).join("")}</ol></details>` : '<div class="empty-state">该时段没有可报告的原始条目。</div>';
   content.innerHTML = summaryHtml + raw;
@@ -249,10 +253,11 @@ function renderWorldChanges(payload, lifecyclePayload) {
 
 function renderMultilingualConcepts(payload) {
   const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
-  const status = payload?.status || (candidates.length ? "evaluated" : "empty");
-  $("#multilingual-status-label").textContent = status === "evaluated" ? `${candidates.length} 个真实候选` : status === "empty" ? "empty · 未伪造" : status;
+  const status = payload?.status || (candidates.length ? "evaluated" : "not_run");
+  const denominator = payload?.denominator || {};
+  $("#multilingual-status-label").textContent = status === "evaluated" ? `${candidates.length} 个真实候选 · 输入 ${denominator.eligible_translation_inputs ?? 0}` : status === "not_run" ? `not_run · 输入 ${denominator.eligible_translation_inputs ?? 0}` : status;
   if (!candidates.length) {
-    $("#multilingual-items").innerHTML = '<div class="empty-state">没有 provider-backed 多语言概念候选；保持 empty，不生成伪造映射。</div>';
+    $("#multilingual-items").innerHTML = `<div class="empty-state">${status === "not_run" ? "映射任务尚未运行；" : "当前没有"} provider-backed 多语言概念候选；保持明确状态，不生成伪造映射。已检查输入：${escapeHtml(denominator.eligible_translation_inputs ?? 0)}。</div>`;
     return;
   }
   $("#multilingual-items").innerHTML = candidates.map((candidate) => `<article class="weak-card"><div class="weak-card-top"><span>${escapeHtml(candidate.candidate_status || "concept participation")}</span><span>${escapeHtml(candidate.target_language || "未提供")}</span></div><h3>${escapeHtml(candidate.target_canonical_label || candidate.canonical_concept_key || "未命名概念")}</h3><p>仅概念参与，不是事件或预测；provider 映射版本：${escapeHtml(candidate.member_version_ids || [])}</p><div class="world-change-boundary">语言 ${escapeHtml((candidate.languages || []).join(" / "))} · publisher ${escapeHtml((candidate.publishers || []).join(" / "))}</div></article>`).join("");

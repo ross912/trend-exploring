@@ -45,7 +45,35 @@ BEGIN
            'source_language','target_language','provider','model','prompt_version',
            'input_hash','output_hash','translated_text','created_at'
          ]);
-      SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = rel AND conname = 'local_multilingual_translation_input_pkey')
+      SELECT EXISTS (
+               SELECT 1 FROM pg_constraint
+                WHERE conrelid = rel AND contype = 'p'
+                  AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'artifact_id' AND attnum > 0 AND NOT attisdropped)]::smallint[]
+             )
+         AND EXISTS (
+               SELECT 1 FROM pg_constraint c
+                WHERE c.conrelid = rel AND c.contype = 'u'
+                  AND c.conkey = ARRAY[
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'source_version_id' AND attnum > 0 AND NOT attisdropped),
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'source_content_hash' AND attnum > 0 AND NOT attisdropped),
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'target_language' AND attnum > 0 AND NOT attisdropped),
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'provider' AND attnum > 0 AND NOT attisdropped),
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'model' AND attnum > 0 AND NOT attisdropped),
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'prompt_version' AND attnum > 0 AND NOT attisdropped),
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'input_hash' AND attnum > 0 AND NOT attisdropped),
+                    (SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'output_hash' AND attnum > 0 AND NOT attisdropped)
+                  ]::smallint[]
+             )
+         AND EXISTS (
+               SELECT 1 FROM pg_constraint c
+                WHERE c.conrelid = rel AND c.contype = 'f'
+                  AND c.confrelid = 'local_source_item_version'::regclass
+                  AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'source_version_id' AND attnum > 0 AND NOT attisdropped)]::smallint[]
+             )
+         AND (SELECT COUNT(*) FROM pg_constraint WHERE conrelid = rel AND contype = 'c') >= 9
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_translation_input_lineage_trigger')
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_translation_input_immutable_trigger')
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_translation_input_no_truncate_trigger')
         INTO structural_ok;
     ELSIF rel::text = 'local_multilingual_concept_mapping' THEN
       SELECT COUNT(*) = 18 INTO required_ok
@@ -58,7 +86,28 @@ BEGIN
            'provider','model','prompt_version','prompt_hash','input_hash',
            'output_hash','derived_from_translation','created_at'
          ]);
-      SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = rel AND conname = 'local_multilingual_concept_mapping_pkey')
+      SELECT EXISTS (
+               SELECT 1 FROM pg_constraint
+                WHERE conrelid = rel AND contype = 'p'
+                  AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'mapping_id' AND attnum > 0 AND NOT attisdropped)]::smallint[]
+             )
+         AND EXISTS (
+               SELECT 1 FROM pg_constraint c
+                WHERE c.conrelid = rel AND c.contype = 'f'
+                  AND c.confrelid = 'local_source_item_version'::regclass
+                  AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'source_version_id' AND attnum > 0 AND NOT attisdropped)]::smallint[]
+             )
+         AND EXISTS (
+               SELECT 1 FROM pg_constraint c
+                WHERE c.conrelid = rel AND c.contype = 'f'
+                  AND c.confrelid = 'local_multilingual_translation_input'::regclass
+                  AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'translation_artifact_id' AND attnum > 0 AND NOT attisdropped)]::smallint[]
+             )
+         AND (SELECT COUNT(*) FROM pg_constraint WHERE conrelid = rel AND contype = 'c') >= 14
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_concept_mapping_lineage_trigger')
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_mapping_translation_trigger')
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_mapping_immutable_trigger')
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_mapping_no_truncate_trigger')
         INTO structural_ok;
     ELSE
       SELECT COUNT(*) = 25 INTO required_ok
@@ -74,10 +123,21 @@ BEGIN
            'exploration_only_count','signal_eligible_count','evidence',
            'merge_policy','event_merge_allowed','claim_merge_allowed','created_at'
          ]);
-      SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = rel AND conname = 'local_multilingual_participation_candidate_pkey')
+      SELECT EXISTS (
+               SELECT 1 FROM pg_constraint
+                WHERE conrelid = rel AND contype = 'p'
+                  AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = rel AND attname = 'candidate_id' AND attnum > 0 AND NOT attisdropped)]::smallint[]
+             )
+         AND (SELECT COUNT(*) FROM pg_constraint WHERE conrelid = rel AND contype = 'c') >= 20
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_candidate_guard_trigger')
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_candidate_immutable_trigger')
+         AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = rel AND NOT tgisinternal AND tgname = 'local_multilingual_candidate_no_truncate_trigger')
         INTO structural_ok;
     END IF;
-    IF row_count > 0 AND (NOT required_ok OR NOT structural_ok) THEN
+    -- Existing rows are not the only migration hazard.  An empty relation
+    -- with an early-draft shape must fail closed too; CREATE TABLE IF NOT
+    -- EXISTS below cannot safely repair missing keys, checks, or guards.
+    IF NOT required_ok OR NOT structural_ok THEN
       RAISE EXCEPTION 'unsupported early-draft data in %; refusing 018 migration', rel;
     END IF;
   END LOOP;

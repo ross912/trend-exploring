@@ -25,6 +25,17 @@ class ReportSummaryRunnerTest < Minitest::Test
     end
   end
 
+  class ReceiptProvider < FakeProvider
+    def initialize(result:, receipt:)
+      super(result: result)
+      @receipt = receipt
+    end
+
+    def last_receipt
+      @receipt
+    end
+  end
+
   class FakeLedger
     attr_reader :runs
 
@@ -109,5 +120,24 @@ class ReportSummaryRunnerTest < Minitest::Test
     assert_match(/\AE\d{3}\z/, provider.last_input.dig("placements", 0, "version_id"))
     assert_equal 200, provider.last_input.dig("projection_boundary", "raw_item_count")
     assert_equal "deterministic_publisher_round_robin_v1", provider.last_input.dig("projection_boundary", "selection_method")
+  end
+
+  def test_provider_failure_receipt_is_appended_before_failed_run
+    receipt = {
+      "exchange_id" => "exchange-fail", "provider" => "fake", "model" => "fake-model", "prompt_version" => "fake-v1",
+      "canonical_request_hash" => "a" * 64, "raw_response_hash" => "b" * 64,
+      "captured_at" => "2026-08-10T00:00:00Z", "status" => "failed", "response_available" => true,
+      "error_code" => "invalid_provider_response", "error_message" => "not an object"
+    }
+    provider = ReceiptProvider.new(result: { "overview" => { "bad" => true }, "key_changes" => [], "uncertainties" => [] }, receipt: receipt)
+    ledger = FakeLedger.new
+    # The runner's failure path is exercised with a ledger that records receipt calls.
+    ledger.define_singleton_method(:append_provider_response_receipt!) do |run_id:, receipt:|
+      (@receipts ||= []) << [run_id, receipt]
+      "receipt-fail"
+    end
+    result = ReportSummaryRunner.new(ledger: ledger, provider: provider).run(edition_id: "edition-1", idempotency_key: "receipt-fail")
+    assert_equal "failed", result.fetch("status")
+    assert_equal "failed", ledger.instance_variable_get(:@receipts).fetch(0).fetch(1).fetch("status")
   end
 end

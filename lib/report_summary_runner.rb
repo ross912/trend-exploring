@@ -3,6 +3,7 @@
 require "digest"
 require "json"
 require_relative "report_summary_provider"
+require_relative "report_claim_gate"
 
 # Builds one replaceable AI projection for an already-published local report
 # edition.  The edition and archive are read-only inputs; only summary run and
@@ -21,6 +22,7 @@ class ReportSummaryRunner
 
   def run(edition_id:, idempotency_key:)
     run = nil
+    receipt = nil
     context = @ledger.report_summary_context(edition_id: edition_id)
     input_hash = Digest::SHA256.hexdigest(JSON.generate(context))
     metadata = {
@@ -42,8 +44,17 @@ class ReportSummaryRunner
 
     provider_context, citation_aliases = bounded_provider_context(context)
     raw = @provider.summarize(input: provider_context)
+    receipt = provider_receipt
+    receipt_id = if receipt
+                   unless @ledger.respond_to?(:append_provider_response_receipt!)
+                     raise Error, "provider response receipt store is unavailable"
+                   end
+                   @ledger.append_provider_response_receipt!(run_id: run.fetch("run_id"), receipt: receipt)
+                 end
     raw = expand_citation_aliases(raw, citation_aliases)
-    normalized = validate_output(raw, allowed_version_ids: context.fetch("placements").map { |item| item.fetch("version_id") })
+    legacy = ReportClaimGate.legacy_payload?(raw)
+    raw = ReportClaimGate.adapt_legacy_payload(payload: raw, placements: context.fetch("placements")) if legacy
+    normalized = validate_output(raw, placements: context.fetch("placements"))
     output_hash = Digest::SHA256.hexdigest(JSON.generate(normalized))
     artifact = {
       "artifact_id" => "summary-artifact-#{run.fetch('run_id')}",
@@ -51,12 +62,24 @@ class ReportSummaryRunner
       "input_hash" => input_hash, "provider" => metadata.fetch("provider"),
       "model" => metadata.fetch("model"), "prompt_version" => metadata.fetch("prompt_version"),
       "overview" => normalized.fetch("overview"), "key_changes" => normalized.fetch("key_changes"),
-      "uncertainties" => normalized.fetch("uncertainties"), "output_hash" => output_hash
+      "uncertainties" => normalized.fetch("uncertainties"), "output_hash" => output_hash,
+      "claim_gate_status" => legacy ? "legacy_unverified" : "verified",
+      "provider_receipt_id" => receipt_id
     }
     stored = @ledger.finish_summary_success!(run_id: run.fetch("run_id"), artifact: artifact)
     { "status" => "succeeded", "run" => stored.fetch("run"), "artifact" => stored.fetch("artifact") }
   rescue StandardError => error
     if run
+      begin
+        if receipt.nil? && error.respond_to?(:receipt)
+          receipt = error.receipt
+        end
+        if receipt && @ledger.respond_to?(:append_provider_response_receipt!)
+          @ledger.append_provider_response_receipt!(run_id: run.fetch("run_id"), receipt: receipt)
+        end
+      rescue StandardError
+        nil
+      end
       failed = @ledger.finish_summary_failed!(run_id: run.fetch("run_id"), state: "failed", reason: error.message)
       { "status" => "failed", "run" => failed, "artifact" => nil }
     else
@@ -110,8 +133,14 @@ class ReportSummaryRunner
     copy = JSON.parse(JSON.generate(payload))
     units = [copy["overview"], *Array(copy["key_changes"]), *Array(copy["uncertainties"])]
     units.each do |unit|
-      next unless unit.is_a?(Hash) && unit["cited_version_ids"].is_a?(Array)
-      unit["cited_version_ids"] = unit["cited_version_ids"].map { |id| aliases.fetch(id.to_s, id) }
+      next unless unit.is_a?(Hash)
+      if unit["cited_version_ids"].is_a?(Array)
+        unit["cited_version_ids"] = unit["cited_version_ids"].map { |id| aliases.fetch(id.to_s, id) }
+      end
+      Array(unit["evidence_scopes"]).each do |scope|
+        next unless scope.is_a?(Hash)
+        scope["version_id"] = aliases.fetch(scope["version_id"].to_s, scope["version_id"]) if scope.key?("version_id")
+      end
     end
     copy
   end
@@ -135,39 +164,17 @@ class ReportSummaryRunner
     { "status" => "blocked", "run" => blocked, "artifact" => nil }
   end
 
-  def validate_output(payload, allowed_version_ids:)
-    raise Error, "summary provider output must be a JSON object" unless payload.is_a?(Hash)
-    expected_top = %w[overview key_changes uncertainties]
-    raise Error, "summary provider output has unknown or missing top-level keys" unless payload.keys.sort == expected_top.sort
-    overview = validate_unit(payload.fetch("overview"), allowed_version_ids: allowed_version_ids)
-    key_changes = validate_units(payload.fetch("key_changes"), allowed_version_ids: allowed_version_ids)
-    uncertainties = validate_units(payload.fetch("uncertainties"), allowed_version_ids: allowed_version_ids)
-    { "overview" => overview, "key_changes" => key_changes, "uncertainties" => uncertainties }
-  rescue KeyError, TypeError => error
-    raise Error, "invalid summary provider output: #{error.message}"
+  def validate_output(payload, placements:)
+    ReportClaimGate.validate_artifact!(payload: payload, placements: placements)
+  rescue ReportClaimGate::Error => error
+    raise Error, "claim gate blocked summary: #{error.message}"
   end
 
-  def validate_units(value, allowed_version_ids:)
-    raise Error, "summary unit collection must be an array" unless value.is_a?(Array)
+  def provider_receipt
+    receipt = @provider.respond_to?(:last_receipt) ? @provider.last_receipt : nil
+    return receipt if receipt.is_a?(Hash)
+    return nil unless @provider.respond_to?(:provider_name) && @provider.provider_name.to_s == "deepseek"
 
-    value.map { |unit| validate_unit(unit, allowed_version_ids: allowed_version_ids) }
-  end
-
-  def validate_unit(unit, allowed_version_ids:)
-    raise Error, "summary unit must be an object" unless unit.is_a?(Hash)
-    raise Error, "summary unit has unknown or missing keys" unless unit.keys.sort == %w[cited_version_ids text]
-    text = unit.fetch("text")
-    citations = unit.fetch("cited_version_ids")
-    raise Error, "summary unit text must be non-empty" unless text.is_a?(String) && !text.strip.empty?
-    raise Error, "summary unit citations must be a non-empty array" unless citations.is_a?(Array) && !citations.empty?
-    citations = citations.map do |value|
-      raise Error, "summary unit citation must be a non-empty string" unless value.is_a?(String) && !value.strip.empty?
-
-      value
-    end
-    raise Error, "summary unit citations must be unique" unless citations.uniq.length == citations.length
-    unknown = citations - allowed_version_ids
-    raise Error, "summary unit cites unknown version_id(s): #{unknown.join(', ')}" unless unknown.empty?
-    { "text" => text, "cited_version_ids" => citations }
+    raise Error, "provider response receipt missing"
   end
 end

@@ -139,7 +139,7 @@ class ConversationServiceTest < Minitest::Test
                                      provider: NoCredentialProvider.new).answer(question: "  global question  ", user_id: "private-user")
     assert_equal "not_generated", result.fetch("answer_status")
     assert_equal [["global", 20]], global.calls
-    assert_equal [["global", "private-user", 20]], personal.calls
+    assert_equal [["global", "local-owner", 20]], personal.calls
   end
 
   def test_opposite_personal_stance_and_framing_produce_identical_global_query_and_evidence
@@ -210,7 +210,7 @@ class ConversationServiceTest < Minitest::Test
                                        question: "上海 AI 政策最近如何？", user_id: "public-user")
     assert_equal "not_generated", result.fetch("answer_status")
     assert_equal [["ai 上海 政策最近", 20]], global.calls
-    assert_equal [["ai 上海 政策最近", "public-user", 20]], personal.calls
+    assert_equal [["ai 上海 政策最近", "local-owner", 20]], personal.calls
   end
 
   def test_question_without_public_terms_fails_closed
@@ -256,6 +256,31 @@ class ConversationServiceTest < Minitest::Test
     assert_equal "failed", result.fetch("answer_status")
     assert_equal "v1", result.fetch("global_evidence").fetch(0).fetch("version_id")
     assert_equal "m1", result.fetch("personal_memory").fetch(0).fetch("memory_entry_id")
+  end
+
+  def test_provider_failure_receipt_is_preserved_in_ledger_when_configured
+    receipt = { "exchange_id" => "exchange-real", "provider" => "deepseek", "model" => "deepseek-v4-pro",
+                "canonical_request_hash" => "a" * 64, "raw_response_hash" => "b" * 64,
+                "http_status" => 503, "request_id" => "req-123", "error_code" => "provider_http_503" }
+    client = Class.new do
+      define_method(:available?) { true }
+      define_method(:model) { "deepseek-v4-pro" }
+      define_method(:chat_json) do |**_payload|
+        raise DeepSeekClient::Error.new("HTTP 503", code: "provider_http_503", receipt: receipt)
+      end
+    end.new
+    provider = ConversationProvider.new(client: client)
+    captured = nil
+    ledger = Object.new
+    ledger.define_singleton_method(:record_turn!) do |**payload|
+      captured = payload.fetch(:provider_receipt)
+      { "thread" => { "thread_id" => "t" }, "turn" => { "turn_id" => "u" },
+        "evidence_snapshot" => { "evidence_snapshot_id" => "s" }, "provider_receipts" => [{ "provider_receipt_id" => "r" }] }
+    end
+    ConversationService.new(global_retriever: SpyGlobal.new(evidence), personal_retriever: FakePersonal.new,
+                             provider: provider, ledger_store: ledger).answer(question: "global evidence")
+    assert_equal "req-123", captured.fetch("provider_receipt_json").fetch("request_id")
+    assert_equal 503, captured.fetch("provider_receipt_json").fetch("http_status")
   end
 
   def test_user_memory_requires_personal_ids

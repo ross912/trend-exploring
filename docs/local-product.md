@@ -35,7 +35,7 @@ ruby scripts/local/publish_report_edition.rb --slot-id report-morning-20260810 \
   --comparison-watermark 2026-08-10T08:00:00+08:00
 ```
 
-`GET /api/reports/latest?kind=morning|evening` 只读已发布 edition 的 raw listings，并 additive 返回 `summary` 投影。summary 由独立 CLI 生成：`overview`、`key_changes[]`、`uncertainties[]` 的每个单元都必须引用本 edition 的 `version_id`，HTTP 读取时再回查 archive evidence；raw edition/placements/version 永不修改。无凭据时保留 `blocked` run，provider/JSON/citation 校验失败时保留 `failed` run；summary 失败绝不影响 raw report HTTP 200。0 item edition 明确为 `blocked`（not applicable），不调用模型。
+`GET /api/reports/latest?kind=morning|evening` 只读已发布 edition 的 raw listings，并 additive 返回 `summary` 投影。summary 由独立 CLI 生成：新 artifact 的每个单元都是带 `kind`、`epistemic_status`、`claim_id`、field-level `evidence_scopes` 与 relation 的 typed claim，并以 `claim_gate_status=verified` 标记；历史两字段 artifact 显示 `legacy_unverified`，不在 UI 中冒充证据。provider exchange receipt 与 summary run 绑定。无凭据时保留 `blocked` run，provider/JSON/claim gate 校验失败时保留 `failed` run；summary 失败绝不影响 raw report HTTP 200。0 item edition 明确为 `blocked`（not applicable），不调用模型。
 
 只允许通过 CLI 生成 summary，不提供公开 POST 路由：
 
@@ -60,8 +60,9 @@ bash scripts/local/run_product.sh
 - `GET /api/weak-signals`：返回最新弱信号规则运行；基线不足时保留 `warming_up`，不伪造候选。
 - `GET /api/world-changes`：返回固定 `run_id/as_of` 的五通道世界变化候选；逐通道公开有界 lineage refs（资格/support/反证最多 3/2/2 条，仅含 `version_id/title/source_url/publisher/channel/role`），并通过 `truncated/evidence_boundary` 明示正文不出接口；内部追加式账本仍保留完整证据。响应标记 `not_a_prediction=true`。
 - `GET /api/signals/lifecycle`：只读 operational lifecycle state/trigger/evidence；`retrospective_reanalysis` 单列，不能冒充当时发现。
-- `GET /api/multilingual-concepts`：只读 provider-backed 多语言概念参与候选；无真实 provider 映射时返回 `empty`，不伪造 `translation_equivalent`。
-- `POST /api/conversation/query`：只接受 JSON；先做敏感信息阻断，再只读检索全局 archive 与物理隔离的个人记忆。没有 provider 凭据时返回 evidence/memory 而不伪造回答。
+- `GET /api/multilingual-concepts`：只读 provider-backed 多语言概念参与候选，并返回 `run`、`status`、`examined_count` 与 `denominator`；`not_run` 表示任务尚未运行，不把空候选解释为无变化，也不伪造 `translation_equivalent`。定时周期默认以 `dry_run`/无 provider/不持久化接入概念映射；付费生产调用必须显式开启。
+- `POST /api/conversation/query`：只接受 JSON；先做敏感信息阻断，再只读检索全局 archive 与物理隔离的个人记忆。返回 server-owned `thread_id`、`turn_id` 与 evidence snapshot id；没有 provider 凭据时返回 evidence/memory 而不伪造回答。
+- `GET /api/conversation/replay/:turn_id`（或 `?turn_id=`）：严格 ID、只读、无 body、owner 由服务端固定；只回放不可变 personal ledger，不重新检索 archive 或调用 provider。
 
 服务启动后可用另一终端运行 HTTP smoke：
 
@@ -69,7 +70,7 @@ bash scripts/local/run_product.sh
 ruby scripts/local/smoke_radar.rb
 ```
 
-持续运行的最小运维闭环是：07:55/18:55 预采集，08:05/19:05 生成对应日报、运行弱信号、世界变化候选与 summary；世界变化使用独立固定 run id，失败只降级该面板，不影响 raw 日报。若 macOS 休眠或 launchd 延迟，周期会在下一个日报边界前补发当前仍为 `scheduled` 的时段。截止时间仍固定为 08:00/19:00，不会提前发布或把补发时刻后的材料混入旧时段；重复执行使用固定幂等键，只产生一个 edition。周期可用 `--now` 做时钟测试。它是定时批处理，不是连续实时流。采集失败会发布 `degraded/DEGRADED_COVERAGE` 日报，不覆盖旧 published head。macOS 可用 `bash scripts/local/install_launch_agent.sh` 安装幂等的采集、周期和本地 UI server LaunchAgents，`uninstall_launch_agent.sh` 卸载；周期 wrapper 会先启动 PostgreSQL、迁移全局/个人库，再执行周期。
+持续运行的最小运维闭环是：07:55/18:55 预采集，08:05/19:05 生成对应日报、运行弱信号、世界变化候选、默认 dry/no-paid concept mapping 与 summary；世界变化使用独立固定 run id，失败只降级该面板，不影响 raw 日报。若 macOS 休眠或 launchd 延迟，周期会在下一个日报边界前补发当前仍为 `scheduled` 的时段。截止时间仍固定为 08:00/19:00，不会提前发布或把补发时刻后的材料混入旧时段；重复执行使用固定幂等键，只产生一个 edition。周期可用 `--now` 做时钟测试。它是定时批处理，不是连续实时流。采集失败会发布 `degraded/DEGRADED_COVERAGE` 日报，不覆盖旧 published head。macOS 可用 `bash scripts/local/install_launch_agent.sh` 安装幂等的采集、周期和本地 UI server LaunchAgents，`uninstall_launch_agent.sh` 卸载；周期 wrapper 会先启动 PostgreSQL、迁移全局/个人库，再执行周期。
 
 运行状态：`ruby scripts/local/status_local.rb` 输出 server、global/personal DB、迁移、latest ingest、日报槽位和 weak-signal 状态 JSON。备份：`bash scripts/local/backup_local.sh [目录]` 同时导出全局和个人库并写 manifest/count/hash；恢复只创建带时间戳的 disposable DB，`LOCAL_RESTORE_CLEANUP=1` 可在验证后清理，绝不覆盖运行库。
 

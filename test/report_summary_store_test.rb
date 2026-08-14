@@ -20,4 +20,10 @@ class ReportSummaryStoreTest < Minitest::Test
     second = first.merge("placements" => first.fetch("placements").reverse)
     refute_equal Digest::SHA256.hexdigest(JSON.generate(first)), Digest::SHA256.hexdigest(JSON.generate(second))
   end
+
+  def test_claim_gate_requires_successful_available_receipt
+    sql = File.read(File.join(ROOT, "schema/postgres/021_report_claim_gate.sql"))
+    assert_includes sql, "status = 'succeeded'"
+    assert_includes sql, "response_available = TRUE"
+  end
 end

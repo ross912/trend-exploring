@@ -7,7 +7,14 @@ require_relative "deepseek_client"
 # inject a fake object in tests, while production remains deterministic when
 # credentials are absent.
 class ConversationProvider
-  class Error < StandardError; end
+  class Error < StandardError
+    attr_reader :receipt
+
+    def initialize(message, receipt: nil)
+      @receipt = receipt
+      super(message)
+    end
+  end
 
   KINDS = %w[fact source_claim inference user_memory insufficient_evidence].freeze
   TOP_LEVEL_KEYS = %w[answer_sections follow_up_questions].freeze
@@ -45,7 +52,7 @@ class ConversationProvider
                               max_tokens: Integer(ENV.fetch("DEEPSEEK_CONVERSATION_MAX_OUTPUT_TOKENS", "8192"))).fetch("content")
     self.class.validate_answer!(parsed, global_evidence: global_evidence, personal_memory: personal_memory)
   rescue DeepSeekClient::Error => error
-    raise Error, error.message
+    raise Error.new(error.message, receipt: error.receipt)
   end
 
   def self.validate_answer!(answer, global_evidence:, personal_memory:)

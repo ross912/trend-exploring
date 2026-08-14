@@ -21,6 +21,10 @@ world_change_store = WorldChangeStore.new
 multilingual_concept_store = MultilingualConceptStore.new
 port = Integer(ENV.fetch("PORT", "3000"))
 
+# Conversation replay is intentionally owner-bound to the server process. The
+# browser may supply a turn id only; it can never select an owner principal.
+CONVERSATION_ID_PATTERN = /\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\z/.freeze
+
 server = WEBrick::HTTPServer.new(
   Port: port,
   BindAddress: ENV.fetch("BIND_ADDRESS", "127.0.0.1"),
@@ -141,9 +145,18 @@ server.mount_proc "/api/multilingual-concepts" do |request, response|
     next
   end
   candidates = multilingual_concept_store.read_candidates
-  json_response.call(response, { "status" => candidates.empty? ? "empty" : "evaluated", "candidates" => candidates, "boundary" => "provider-backed concept participation only; not an event or prediction" })
+  denominator = multilingual_concept_store.mapping_denominator
+  json_response.call(response, {
+    "status" => denominator.fetch("status"), "candidates" => candidates,
+    "run" => denominator.fetch("run"), "examined_count" => denominator.fetch("examined_count"),
+    "mapped_count" => denominator.fetch("mapped_count"), "candidate_count" => denominator.fetch("candidate_count"),
+    "denominator" => denominator.fetch("denominator"),
+    "boundary" => "provider-backed concept participation only; not an event or prediction"
+  })
 rescue MultilingualConceptStore::Error => error
-  json_response.call(response, { "status" => "error", "error" => error.message, "candidates" => [] }, 503)
+  json_response.call(response, { "status" => "error", "error" => error.message, "candidates" => [], "run" => nil,
+                                  "examined_count" => 0, "mapped_count" => 0, "candidate_count" => 0,
+                                  "denominator" => { "eligible_translation_inputs" => 0, "mapped_source_versions" => 0, "candidate_rows" => 0 } }, 503)
 end
 
 server.mount_proc "/api/conversation/query" do |request, response|
@@ -169,6 +182,34 @@ server.mount_proc "/api/conversation/query" do |request, response|
   json_response.call(response, result)
 rescue JSON::ParserError, KeyError, ConversationService::Error, ConversationProvider::Error,
        ConversationRetriever::Error, PersonalMemoryStore::Error, ArgumentError => error
+  json_response.call(response, { "error" => error.message }, 400)
+rescue StandardError => error
+  json_response.call(response, { "error" => error.message }, 503)
+end
+
+server.mount_proc "/api/conversation/replay" do |request, response|
+  if request.request_method != "GET"
+    json_response.call(response, { "error" => "method not allowed" }, 405)
+    next
+  end
+  # Accept either /api/conversation/replay/:turn_id or a query parameter for
+  # simple clients, but never accept a request body or an owner override.
+  prefix = "/api/conversation/replay/"
+  turn_id = if request.path.start_with?(prefix)
+              request.path.delete_prefix(prefix)
+            else
+              request.query["turn_id"].to_s
+            end
+  if turn_id.empty? || !CONVERSATION_ID_PATTERN.match?(turn_id) || turn_id.include?("/")
+    json_response.call(response, { "error" => "turn_id must be a strict identifier" }, 400)
+    next
+  end
+  if request.body.to_s.bytesize.positive?
+    json_response.call(response, { "error" => "replay does not accept a request body" }, 400)
+    next
+  end
+  json_response.call(response, conversation_service.replay(turn_id: turn_id))
+rescue ConversationService::Error, ConversationLedgerStore::Error, ArgumentError => error
   json_response.call(response, { "error" => error.message }, 400)
 rescue StandardError => error
   json_response.call(response, { "error" => error.message }, 503)
