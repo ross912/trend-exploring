@@ -31,6 +31,18 @@ class ReportClaimGateTest < Minitest::Test
     assert_match(/UNKNOWN|unknown|relation/, error.message)
   end
 
+  def test_edition_metadata_is_not_a_claim_gate_field
+    payload = artifact(claims: [claim.merge(
+      "edition_id" => "edition-1", "nominal_window_start" => "2026-08-09T19:00:00Z",
+      "nominal_window_end" => "2026-08-10T08:00:00Z", "raw_item_count" => 1,
+      "provider_item_count" => 1
+    )])
+    error = assert_raises(ReportClaimGate::Error) do
+      ReportClaimGate.validate_artifact!(payload: payload, placements: PLACEMENTS)
+    end
+    assert_match(/unknown keys .*edition_id/, error.message)
+  end
+
   def test_unrelated_scope_text_is_blocked
     error = assert_raises(ReportClaimGate::Error) do
       ReportClaimGate.validate_artifact!(payload: artifact(claims: [claim(scopes: [scope(text: "not in archive")])]), placements: PLACEMENTS)

@@ -12,6 +12,19 @@ class ReportSummaryRunner
   class Error < StandardError; end
   MAX_PROVIDER_ITEMS = 30
   MAX_PROVIDER_CHARACTERS = 25_000
+  # These are fields that can appear in the provider input as edition or
+  # projection-boundary metadata.  They are never claim fields and are never
+  # accepted by ReportClaimGate.  A provider may accidentally echo them next
+  # to an otherwise complete claim; the projection below removes only this
+  # closed set after checking the claim's declared core shape.  Any other
+  # unknown key remains visible to the gate and therefore fails closed.
+  CLAIM_METADATA_KEYS = %w[
+    edition_id nominal_window_start nominal_window_end raw_item_count provider_item_count
+  ].freeze
+  CLAIM_DECLARED_KEYS = %w[
+    claim_id kind text epistemic_status evidence_scopes premise_scope_ids inference_support_status
+  ].freeze
+  CLAIM_CORE_KEYS = %w[claim_id kind text epistemic_status evidence_scopes].freeze
 
   def initialize(ledger:, provider: ReportSummaryProvider::DeepSeek.new)
     @ledger = ledger
@@ -52,6 +65,7 @@ class ReportSummaryRunner
                    @ledger.append_provider_response_receipt!(run_id: run.fetch("run_id"), receipt: receipt)
                  end
     raw = expand_citation_aliases(raw, citation_aliases)
+    raw = project_provider_metadata(raw)
     legacy = ReportClaimGate.legacy_payload?(raw)
     raw = ReportClaimGate.adapt_legacy_payload(payload: raw, placements: context.fetch("placements")) if legacy
     normalized = validate_output(raw, placements: context.fetch("placements"))
@@ -143,6 +157,59 @@ class ReportSummaryRunner
       end
     end
     copy
+  end
+
+  # Providers sometimes echo the edition/projection boundary alongside a
+  # claim.  Keep the claim gate strict: only a closed, explicitly-known set of
+  # input metadata keys may be removed, and only when the remaining claim has
+  # its complete declared core shape.  Unknown keys are intentionally left in
+  # place so ReportClaimGate rejects them.  In particular, this method never
+  # projects nested evidence scopes or treats metadata as evidence.
+  def project_provider_metadata(payload)
+    return payload unless payload.is_a?(Hash)
+
+    copy = JSON.parse(JSON.generate(payload))
+    copy["overview"] = project_claim_metadata!(copy["overview"]) if copy.key?("overview")
+    if copy.key?("key_changes") && copy["key_changes"].is_a?(Array)
+      copy["key_changes"] = copy["key_changes"].map { |unit| project_claim_metadata!(unit) }
+    end
+    if copy.key?("uncertainties") && copy["uncertainties"].is_a?(Array)
+      copy["uncertainties"] = copy["uncertainties"].map { |unit| project_claim_metadata!(unit) }
+    end
+    copy
+  rescue JSON::GeneratorError, JSON::ParserError, TypeError
+    payload
+  end
+
+  def project_claim_metadata!(unit)
+    return unit unless unit.is_a?(Hash)
+
+    normalized = unit.transform_keys(&:to_s)
+    metadata_keys = normalized.keys & CLAIM_METADATA_KEYS
+    return unit if metadata_keys.empty?
+
+    # Do not strip metadata from malformed claims.  This leaves the original
+    # object for the claim gate, which reports the missing/unknown shape and
+    # prevents a partial projection from being accepted.
+    return unit unless CLAIM_CORE_KEYS.all? { |key| normalized.key?(key) }
+
+    # An ai_inference has two additional core fields.  Checking them here is
+    # what prevents a metadata-only cleanup from making an incomplete
+    # inference look valid; the gate still validates their values and scopes.
+    if normalized["kind"].to_s == "ai_inference" &&
+       !%w[premise_scope_ids inference_support_status].all? { |key| normalized.key?(key) }
+      return unit
+    end
+
+    # Only the closed metadata set can be projected.  Any unrelated unknown
+    # key remains in the object and is rejected by ReportClaimGate.
+    non_metadata_keys = normalized.keys - metadata_keys
+    return unit unless (non_metadata_keys - CLAIM_DECLARED_KEYS).empty?
+
+    # Evidence scopes are deliberately not projected or rewritten.  If the
+    # provider placed metadata (or any other unknown key) inside a scope, the
+    # gate must see it and fail closed.
+    normalized.select { |key, _value| CLAIM_DECLARED_KEYS.include?(key) }
   end
 
   def replay(run)

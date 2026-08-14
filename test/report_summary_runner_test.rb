@@ -81,6 +81,19 @@ class ReportSummaryRunnerTest < Minitest::Test
     { "text" => text, "cited_version_ids" => citations }
   end
 
+  def typed_claim(text: "A typed claim")
+    {
+      "claim_id" => "claim-typed-1",
+      "kind" => "fact",
+      "text" => text,
+      "epistemic_status" => "asserted",
+      "evidence_scopes" => [{
+        "scope_id" => "scope-typed-1", "version_id" => "version-1", "field" => "summary",
+        "text" => "Summary", "relation" => "supports"
+      }]
+    }
+  end
+
   def test_empty_edition_blocks_without_calling_provider
     provider = FakeProvider.new(result: {})
     ledger = FakeLedger.new(placements: [])
@@ -104,6 +117,49 @@ class ReportSummaryRunnerTest < Minitest::Test
     provider = FakeProvider.new(result: { "overview" => unit(citations: ["unknown"]), "key_changes" => [], "uncertainties" => [] })
     result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "bad")
     assert_equal "failed", result.fetch("status")
+    assert_nil result.fetch("artifact")
+  end
+
+  def test_complete_claim_can_drop_the_five_echoed_edition_metadata_fields
+    echoed_metadata = {
+      "edition_id" => "edition-1", "nominal_window_start" => "2026-08-09T19:00:00Z",
+      "nominal_window_end" => "2026-08-10T08:00:00Z", "raw_item_count" => 1,
+      "provider_item_count" => 1
+    }
+    provider = FakeProvider.new(result: {
+      "overview" => typed_claim.merge(echoed_metadata), "key_changes" => [], "uncertainties" => []
+    })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "metadata")
+
+    assert_equal "succeeded", result.fetch("status")
+    refute result.dig("artifact", "overview").keys.any? { |key| echoed_metadata.key?(key) }
+    assert_equal "claim-typed-1", result.dig("artifact", "overview", "claim_id")
+  end
+
+  def test_metadata_projection_does_not_fill_missing_claim_core_fields
+    echoed_metadata = {
+      "edition_id" => "edition-1", "nominal_window_start" => "2026-08-09T19:00:00Z",
+      "nominal_window_end" => "2026-08-10T08:00:00Z", "raw_item_count" => 1,
+      "provider_item_count" => 1
+    }
+    incomplete = typed_claim.reject { |key, _value| key == "text" }.merge(echoed_metadata)
+    provider = FakeProvider.new(result: { "overview" => incomplete, "key_changes" => [], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "metadata-missing-core")
+
+    assert_equal "failed", result.fetch("status")
+    assert_match(/CLAIM_SHAPE|CLAIM_TEXT_MISSING/, result.dig("run", "error_reason"))
+    assert_nil result.fetch("artifact")
+  end
+
+  def test_unrelated_unknown_claim_key_remains_rejected
+    provider = FakeProvider.new(result: {
+      "overview" => typed_claim.merge("edition_id" => "edition-1", "unrelated" => "not metadata"),
+      "key_changes" => [], "uncertainties" => []
+    })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "metadata-unknown")
+
+    assert_equal "failed", result.fetch("status")
+    assert_match(/unknown keys .*unrelated/, result.dig("run", "error_reason"))
     assert_nil result.fetch("artifact")
   end
 

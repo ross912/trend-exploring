@@ -88,6 +88,8 @@ class DeepSeekProviderTest < Minitest::Test
     ReportSummaryProvider::DeepSeek.new(client: summary_client).summarize(input: {})
     assert summary_client.calls.fetch(0).fetch(:thinking)
     assert_equal "high", summary_client.calls.fetch(0).fetch(:reasoning_effort)
+    assert_includes summary_client.calls.fetch(0).fetch(:system), "输出 schema 与这些元数据完全分离"
+    assert_includes summary_client.calls.fetch(0).fetch(:system), "provider_item_count"
 
     answer = { "answer_sections" => [{ "kind" => "fact", "text" => "事实", "cited_version_ids" => ["v1"] }], "follow_up_questions" => [] }
     conversation_client = FakeClient.new(answer)
