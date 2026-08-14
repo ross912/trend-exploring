@@ -25,6 +25,7 @@ class ReportSummaryRunner
     claim_id kind text epistemic_status evidence_scopes premise_scope_ids inference_support_status
   ].freeze
   CLAIM_CORE_KEYS = %w[claim_id kind text epistemic_status evidence_scopes].freeze
+  CLAIM_WRAPPER_KEYS = %w[claim].freeze
 
   def initialize(ledger:, provider: ReportSummaryProvider::DeepSeek.new)
     @ledger = ledger
@@ -64,6 +65,7 @@ class ReportSummaryRunner
                    end
                    @ledger.append_provider_response_receipt!(run_id: run.fetch("run_id"), receipt: receipt)
                  end
+    raw = normalize_provider_claim_shape(raw)
     raw = expand_citation_aliases(raw, citation_aliases)
     raw = project_provider_metadata(raw)
     legacy = ReportClaimGate.legacy_payload?(raw)
@@ -157,6 +159,58 @@ class ReportSummaryRunner
       end
     end
     copy
+  end
+
+  # A provider may use the input/archive vocabulary (summary) for the claim
+  # text or wrap one overview claim in a `claim` object.  Normalize only those
+  # two explicitly registered compatibility shapes.  The gate remains the
+  # authority for all required fields and evidence; this method never creates
+  # a kind, epistemic status, citation, or evidence scope.
+  def normalize_provider_claim_shape(payload)
+    return payload unless payload.is_a?(Hash)
+
+    copy = JSON.parse(JSON.generate(payload))
+    if copy.key?("overview")
+      overview = copy["overview"]
+      overview = unwrap_overview_claim(overview)
+      copy["overview"] = normalize_claim_text_alias(overview)
+    end
+    %w[key_changes uncertainties].each do |section|
+      next unless copy[section].is_a?(Array)
+
+      copy[section] = copy[section].map { |unit| normalize_claim_text_alias(unit) }
+    end
+    copy
+  rescue JSON::GeneratorError, JSON::ParserError, TypeError
+    payload
+  end
+
+  def unwrap_overview_claim(unit)
+    return unit unless unit.is_a?(Hash)
+
+    normalized = unit.transform_keys(&:to_s)
+    return normalized unless normalized.key?("claim")
+    return unit unless normalized.keys.sort == CLAIM_WRAPPER_KEYS.sort
+    return unit unless normalized.fetch("claim").is_a?(Hash)
+
+    normalized.fetch("claim")
+  end
+
+  def normalize_claim_text_alias(unit)
+    return unit unless unit.is_a?(Hash)
+
+    normalized = unit.transform_keys(&:to_s)
+    return normalized unless normalized.key?("summary")
+
+    if normalized.key?("text")
+      unless normalized.fetch("text") == normalized.fetch("summary")
+        raise Error, "claim text alias conflict: text and summary differ"
+      end
+      normalized.delete("summary")
+    else
+      normalized["text"] = normalized.delete("summary")
+    end
+    normalized
   end
 
   # Providers sometimes echo the edition/projection boundary alongside a

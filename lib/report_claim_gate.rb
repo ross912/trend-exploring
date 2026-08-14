@@ -19,6 +19,10 @@ class ReportClaimGate
   RELATIONS = %w[supports contradicts alternative unknown].freeze
   SCOPE_FIELDS = %w[title summary].freeze
   INFERENCE_SUPPORT_STATUSES = %w[supported unsupported uncertain].freeze
+  LEGACY_UNIT_KEYS = [
+    %w[cited_version_ids text].freeze,
+    %w[cited_version_ids summary].freeze
+  ].freeze
 
   class << self
 
@@ -158,15 +162,29 @@ class ReportClaimGate
 
   def legacy_payload?(payload)
     return false unless payload.is_a?(Hash)
-    unit = payload["overview"]
-    unit.is_a?(Hash) && unit.keys.map(&:to_s).sort == %w[cited_version_ids text]
+    normalized = payload.transform_keys(&:to_s)
+    return false unless normalized.keys.sort == %w[overview key_changes uncertainties].sort
+    return false unless legacy_unit?(normalized["overview"])
+    %w[key_changes uncertainties].all? do |section|
+      normalized[section].is_a?(Array) && normalized[section].all? { |unit| legacy_unit?(unit) }
+    end
   end
 
   def adapt_legacy_payload(payload:, placements:)
     raise Error, "LEGACY_PAYLOAD_UNSUPPORTED" unless legacy_payload?(payload)
     placement_by_id = Array(placements).to_h { |row| [row.fetch("version_id").to_s, row] }
     convert = lambda do |unit, section, index|
-      citations = Array(unit.fetch("cited_version_ids")).map(&:to_s)
+      unit = unit.transform_keys(&:to_s)
+      citations = unit.fetch("cited_version_ids")
+      raise Error, "LEGACY_CITATION_MISSING: #{section}[#{index}]" unless citations.is_a?(Array) && !citations.empty?
+      citations = citations.map(&:to_s)
+      raise Error, "LEGACY_CITATION_MISSING: #{section}[#{index}]" if citations.any?(&:empty?)
+      text = if unit.key?("text")
+               unit.fetch("text")
+             else
+               unit.fetch("summary")
+             end
+      raise Error, "LEGACY_TEXT_MISSING: #{section}[#{index}]" unless text.is_a?(String) && !text.strip.empty?
       scopes = citations.each_with_index.map do |version_id, scope_index|
         placement = placement_by_id.fetch(version_id) { raise Error, "CLAIM_SCOPE_VERSION_UNKNOWN: #{version_id}" }
         field = placement.fetch("summary", "").to_s.empty? ? "title" : "summary"
@@ -177,9 +195,9 @@ class ReportClaimGate
         }
       end
       {
-        "claim_id" => "claim-legacy-#{Digest::SHA256.hexdigest([section, index, unit.fetch("text")].join("\u0000"))[0, 24]}",
+        "claim_id" => "claim-legacy-#{Digest::SHA256.hexdigest([section, index, text].join("\u0000"))[0, 24]}",
         "kind" => section == "uncertainties" ? "uncertainty" : "fact",
-        "text" => unit.fetch("text"),
+        "text" => text,
         "epistemic_status" => section == "uncertainties" ? "unknown" : "asserted",
         "evidence_scopes" => scopes
       }
@@ -189,6 +207,12 @@ class ReportClaimGate
       "key_changes" => Array(payload.fetch("key_changes")).each_with_index.map { |unit, index| convert.call(unit, "key_changes", index) },
       "uncertainties" => Array(payload.fetch("uncertainties")).each_with_index.map { |unit, index| convert.call(unit, "uncertainties", index) }
     }
+  end
+
+  def legacy_unit?(unit)
+    return false unless unit.is_a?(Hash)
+
+    LEGACY_UNIT_KEYS.include?(unit.keys.map(&:to_s).sort)
   end
   end
 end

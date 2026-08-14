@@ -94,6 +94,14 @@ class ReportSummaryRunnerTest < Minitest::Test
     }
   end
 
+  def legacy_summary_payload(overview: "Legacy overview", key_changes: [], uncertainties: [])
+    {
+      "overview" => { "summary" => overview, "cited_version_ids" => ["version-1"] },
+      "key_changes" => key_changes,
+      "uncertainties" => uncertainties
+    }
+  end
+
   def test_empty_edition_blocks_without_calling_provider
     provider = FakeProvider.new(result: {})
     ledger = FakeLedger.new(placements: [])
@@ -161,6 +169,69 @@ class ReportSummaryRunnerTest < Minitest::Test
     assert_equal "failed", result.fetch("status")
     assert_match(/unknown keys .*unrelated/, result.dig("run", "error_reason"))
     assert_nil result.fetch("artifact")
+  end
+
+  def test_typed_claim_summary_alias_is_normalized_to_text
+    claim = typed_claim.reject { |key, _value| key == "text" }.merge("summary" => "A typed claim")
+    provider = FakeProvider.new(result: { "overview" => claim, "key_changes" => [], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "summary-alias")
+
+    assert_equal "succeeded", result.fetch("status")
+    assert_equal "A typed claim", result.dig("artifact", "overview", "text")
+    refute result.dig("artifact", "overview").key?("summary")
+  end
+
+  def test_equal_text_and_summary_are_accepted_but_different_values_fail
+    equal_provider = FakeProvider.new(result: {
+      "overview" => typed_claim.merge("summary" => "A typed claim"), "key_changes" => [], "uncertainties" => []
+    })
+    equal = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: equal_provider).run(edition_id: "edition-1", idempotency_key: "summary-alias-equal")
+    assert_equal "succeeded", equal.fetch("status")
+
+    conflict_provider = FakeProvider.new(result: {
+      "overview" => typed_claim.merge("summary" => "different"), "key_changes" => [], "uncertainties" => []
+    })
+    conflict = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: conflict_provider).run(edition_id: "edition-1", idempotency_key: "summary-alias-conflict")
+    assert_equal "failed", conflict.fetch("status")
+    assert_match(/alias conflict/, conflict.dig("run", "error_reason"))
+    assert_nil conflict.fetch("artifact")
+  end
+
+  def test_legacy_summary_shape_is_adapted_with_edition_evidence
+    payload = legacy_summary_payload(
+      key_changes: [{ "summary" => "Summary", "cited_version_ids" => ["version-1"] }],
+      uncertainties: [{ "summary" => "Summary", "cited_version_ids" => ["version-1"] }]
+    )
+    provider = FakeProvider.new(result: payload)
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "legacy-summary")
+
+    assert_equal "succeeded", result.fetch("status")
+    assert_equal "legacy_unverified", result.dig("artifact", "claim_gate_status")
+    assert_equal "Legacy overview", result.dig("artifact", "overview", "text")
+    assert_equal "version-1", result.dig("artifact", "overview", "evidence_scopes", 0, "version_id")
+  end
+
+  def test_summary_without_citation_does_not_get_typed_claim_fields
+    payload = { "overview" => { "summary" => "No citation" }, "key_changes" => [], "uncertainties" => [] }
+    provider = FakeProvider.new(result: payload)
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "summary-no-citation")
+
+    assert_equal "failed", result.fetch("status")
+    assert_nil result.fetch("artifact")
+  end
+
+  def test_overview_claim_wrapper_is_allowed_only_for_one_claim
+    wrapped = { "overview" => { "claim" => typed_claim.merge("summary" => "A typed claim") }, "key_changes" => [], "uncertainties" => [] }
+    provider = FakeProvider.new(result: wrapped)
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "claim-wrapper")
+    assert_equal "succeeded", result.fetch("status")
+    assert_equal "A typed claim", result.dig("artifact", "overview", "text")
+
+    unknown_wrapper = { "overview" => { "claim" => typed_claim, "wrapper" => "unexpected" }, "key_changes" => [], "uncertainties" => [] }
+    bad_provider = FakeProvider.new(result: unknown_wrapper)
+    bad = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: bad_provider).run(edition_id: "edition-1", idempotency_key: "claim-wrapper-unknown")
+    assert_equal "failed", bad.fetch("status")
+    assert_nil bad.fetch("artifact")
   end
 
 

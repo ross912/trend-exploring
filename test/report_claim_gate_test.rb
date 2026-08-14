@@ -69,4 +69,23 @@ class ReportClaimGateTest < Minitest::Test
     assert_equal "claim-legacy-", adapted.fetch("overview").fetch("claim_id")[0, 13]
     assert_equal "fact", adapted.dig("overview", "kind")
   end
+
+  def test_legacy_summary_alias_is_adapted_from_edition_placement
+    payload = { "overview" => { "summary" => "legacy", "cited_version_ids" => ["v1"] }, "key_changes" => [], "uncertainties" => [] }
+    assert ReportClaimGate.legacy_payload?(payload)
+    adapted = ReportClaimGate.adapt_legacy_payload(payload: payload, placements: PLACEMENTS)
+    assert_equal "legacy", adapted.dig("overview", "text")
+    assert_equal "v1", adapted.dig("overview", "evidence_scopes", 0, "version_id")
+  end
+
+  def test_legacy_adapter_rejects_missing_citation_and_unknown_unit_keys
+    no_citation = { "overview" => { "summary" => "legacy", "cited_version_ids" => [] }, "key_changes" => [], "uncertainties" => [] }
+    assert ReportClaimGate.legacy_payload?(no_citation)
+    assert_raises(ReportClaimGate::Error) do
+      ReportClaimGate.adapt_legacy_payload(payload: no_citation, placements: PLACEMENTS)
+    end
+
+    unknown = { "overview" => { "summary" => "legacy", "cited_version_ids" => ["v1"], "wrapper" => true }, "key_changes" => [], "uncertainties" => [] }
+    refute ReportClaimGate.legacy_payload?(unknown)
+  end
 end
