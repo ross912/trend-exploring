@@ -176,10 +176,33 @@ end
 
 if result.dig("report", "status") == "published"
   edition_id = result.dig("report", "edition_id")
-  summary = run_command([RbConfig.ruby, File.join(ROOT, "scripts/local/generate_report_summary.rb"), "--edition-id", edition_id,
-                         "--idempotency-key", "scheduled-summary-#{edition_id}"], env: env)
-  result["summary"] = summary.reject { |key, _| key == "stdout" }.merge("output" => tail_output(summary["stdout"]))
-  result["status"] = "degraded" if summary.fetch("status") == "failed"
+  begin
+    recovery = ledger.recover_stale_summary_runs!(edition_id: edition_id,
+                                                   recovery_owner: "scheduled-cycle-#{Process.pid}")
+    summary_key = ledger.next_summary_idempotency_key(edition_id: edition_id,
+                                                      base_key: "scheduled-summary-#{edition_id}",
+                                                      max_attempts: LocalReportLedger::SUMMARY_MAX_ATTEMPTS)
+    if summary_key.nil?
+      # A bounded retry budget is an explicit terminal operational outcome;
+      # do not call the provider again or recycle a failed idempotency key.
+      result["summary"] = { "status" => "attempts_exhausted", "edition_id" => edition_id,
+                             "idempotency_key" => nil, "recovered_runs" => recovery.map { |run| run.fetch("run_id") },
+                             "attempt_limit" => LocalReportLedger::SUMMARY_MAX_ATTEMPTS }
+    else
+      summary = run_command([RbConfig.ruby, File.join(ROOT, "scripts/local/generate_report_summary.rb"), "--edition-id", edition_id,
+                             "--idempotency-key", summary_key], env: env)
+      result["summary"] = summary.reject { |key, _| key == "stdout" }.merge(
+        "output" => tail_output(summary["stdout"]), "idempotency_key" => summary_key,
+        "recovered_runs" => recovery.map { |run| run.fetch("run_id") },
+        "attempt_limit" => LocalReportLedger::SUMMARY_MAX_ATTEMPTS
+      )
+      result["status"] = "degraded" if summary.fetch("status") == "failed"
+    end
+  rescue LocalReportLedger::Error => error
+    result["status"] = "degraded"
+    result["summary"] = { "status" => "failed", "edition_id" => edition_id,
+                           "recovered_runs" => [], "error" => error.message }
+  end
 else
   result["summary"] = { "status" => "not_run", "reason" => "no edition published in this cycle" }
 end

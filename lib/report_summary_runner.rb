@@ -3,6 +3,8 @@
 require "digest"
 require "digest/sha2"
 require "json"
+require "securerandom"
+require_relative "local_report_ledger"
 require_relative "report_summary_provider"
 require_relative "report_claim_gate"
 
@@ -92,6 +94,7 @@ class ReportSummaryRunner
 
   def run(edition_id:, idempotency_key:)
     run = nil
+    lease_owner = "summary-owner-#{SecureRandom.hex(16)}"
     appended_receipt_ids = []
     initial_receipt_id = nil
     final_receipt_id = nil
@@ -107,32 +110,37 @@ class ReportSummaryRunner
       "retry_policy_version" => RETRY_POLICY_VERSION
     }
     run = append_summary_run(metadata: metadata, edition_id: edition_id, idempotency_key: idempotency_key,
-                             input_hash: input_hash)
+                             input_hash: input_hash, owner_id: lease_owner)
     # LocalReportLedger returns this transient ownership marker after its
     # serializable idempotency lock.  A concurrent/replayed running row is
     # observed but never invokes the provider a second time.  Lightweight
     # fakes from older tests omit the marker and are treated as the owner.
     execution_owner = run.delete("__summary_execution_owner") if run.is_a?(Hash)
+    lease_owner = run.delete("__summary_lease_owner").to_s if run.is_a?(Hash) && run["__summary_lease_owner"]
+    lease_owner = nil if lease_owner.to_s.empty?
     return replay(run) unless run.fetch("state") == "running" && execution_owner != false
 
     if context.fetch("placements").empty?
-      return terminal_blocked(run, "raw edition is empty; summary not applicable")
+      return terminal_blocked(run, "raw edition is empty; summary not applicable", lease_owner: lease_owner)
     end
     unless @provider.available?
-      return terminal_blocked(run, "summary provider credentials are not configured")
+      return terminal_blocked(run, "summary provider credentials are not configured", lease_owner: lease_owner)
     end
 
     provider_context, citation_aliases = bounded_provider_context(context)
     original_model_json = nil
     raw = begin
+      heartbeat_summary_run!(run_id: run.fetch("run_id"), lease_owner: lease_owner)
       value = @provider.summarize(input: provider_context)
+      heartbeat_summary_run!(run_id: run.fetch("run_id"), lease_owner: lease_owner)
       original_model_json = sanitize_repair_json(provider_content(value))
       value
     rescue StandardError => error
       receipt = provider_receipt(error)
       if receipt
         receipt = annotate_receipt(receipt, attempt_ordinal: 1, exchange_kind: "initial")
-        append_receipt!(run_id: run.fetch("run_id"), receipt: receipt, appended_receipt_ids: appended_receipt_ids)
+        append_receipt!(run_id: run.fetch("run_id"), receipt: receipt, appended_receipt_ids: appended_receipt_ids,
+                        lease_owner: lease_owner)
       end
       raise
     end
@@ -141,7 +149,7 @@ class ReportSummaryRunner
     if initial_receipt
       initial_receipt = annotate_receipt(initial_receipt, attempt_ordinal: 1, exchange_kind: "initial")
       initial_receipt_id = append_receipt!(run_id: run.fetch("run_id"), receipt: initial_receipt,
-                                           appended_receipt_ids: appended_receipt_ids)
+                                           appended_receipt_ids: appended_receipt_ids, lease_owner: lease_owner)
       final_receipt_id = initial_receipt_id
       if initial_receipt.fetch("status", "").to_s == "failed"
         raise Error, "initial provider exchange failed; structural repair is not permitted"
@@ -161,6 +169,7 @@ class ReportSummaryRunner
       repaired = true
       generation_attempt_count = MAX_PROVIDER_EXCHANGES
       repair_from_receipt_id = initial_receipt_id
+      heartbeat_summary_run!(run_id: run.fetch("run_id"), lease_owner: lease_owner)
       repair_result = invoke_repair(
         input: provider_context,
         original_json: original_model_json || sanitize_repair_json(provider_content(raw)),
@@ -169,6 +178,7 @@ class ReportSummaryRunner
         context: context,
         citation_aliases: citation_aliases
       )
+      heartbeat_summary_run!(run_id: run.fetch("run_id"), lease_owner: lease_owner)
       repair_raw = provider_content(repair_result)
       enforce_repair_no_new_facts!(original_model_json || sanitize_repair_json(provider_content(raw)), repair_raw)
       repair_receipt = provider_receipt
@@ -176,7 +186,7 @@ class ReportSummaryRunner
         repair_receipt = annotate_receipt(repair_receipt, attempt_ordinal: 2, exchange_kind: "repair",
                                           repair_from_receipt_id: initial_receipt_id.to_s)
         final_receipt_id = append_receipt!(run_id: run.fetch("run_id"), receipt: repair_receipt,
-                                           appended_receipt_ids: appended_receipt_ids)
+                                           appended_receipt_ids: appended_receipt_ids, lease_owner: lease_owner)
         if repair_receipt.fetch("status", "").to_s == "failed"
           raise Error, "repair provider exchange failed; summary remains failed"
         end
@@ -201,7 +211,7 @@ class ReportSummaryRunner
       "repaired" => repaired,
       "repair_from_receipt_id" => repair_from_receipt_id
     }
-    stored = @ledger.finish_summary_success!(run_id: run.fetch("run_id"), artifact: artifact)
+    stored = finish_summary_success(run_id: run.fetch("run_id"), artifact: artifact, lease_owner: lease_owner)
     { "status" => "succeeded", "run" => stored.fetch("run"), "artifact" => stored.fetch("artifact") }
   rescue StandardError => error
     if run
@@ -216,13 +226,29 @@ class ReportSummaryRunner
                                         exchange_kind: ordinal == 1 ? "initial" : "repair",
                                         repair_from_receipt_id: ordinal == 2 ? initial_receipt_id.to_s : nil)
           append_receipt!(run_id: run.fetch("run_id"), receipt: annotated,
-                          appended_receipt_ids: appended_receipt_ids)
+                          appended_receipt_ids: appended_receipt_ids, lease_owner: lease_owner)
         end
       rescue StandardError
         nil
       end
-      failed = @ledger.finish_summary_failed!(run_id: run.fetch("run_id"), state: "failed", reason: error.message)
-      { "status" => "failed", "run" => failed, "artifact" => nil }
+      begin
+        failed = finish_summary_failed(run_id: run.fetch("run_id"), state: "failed", reason: error.message,
+                                       lease_owner: lease_owner)
+        { "status" => "failed", "run" => failed, "artifact" => nil }
+      rescue StandardError => finish_error
+        # Once the lease is gone this process is no longer authorized to
+        # mutate the run.  Do not fabricate an interrupted terminal row (the
+        # next scheduled cycle owns that CAS recovery); return the observed
+        # state and leave any already-appended receipts intact.
+        raise unless lease_loss_error?(finish_error)
+        current = if @ledger.respond_to?(:summary_run_for_id)
+                    @ledger.summary_run_for_id(run_id: run.fetch("run_id"))
+                  else
+                    run
+                  end
+        { "status" => current.fetch("state", "running"), "run" => current, "artifact" => nil,
+          "error" => "summary lease lost; scheduled recovery required: #{finish_error.message}" }
+      end
     else
       raise
     end
@@ -232,24 +258,30 @@ class ReportSummaryRunner
 
   private
 
-  def append_summary_run(metadata:, edition_id:, idempotency_key:, input_hash:)
+  def append_summary_run(metadata:, edition_id:, idempotency_key:, input_hash:, owner_id:)
     kwargs = {
       edition_id: edition_id, idempotency_key: idempotency_key, input_hash: input_hash,
       provider: metadata.fetch("provider"), model: metadata.fetch("model"),
       prompt_version: metadata.fetch("prompt_version"),
-      retry_policy_version: metadata.fetch("retry_policy_version")
+      retry_policy_version: metadata.fetch("retry_policy_version"), owner_id: owner_id
     }
     method = @ledger.method(:append_summary_run!)
     parameters = method.parameters
     accepts_retry = parameters.any? { |kind, name| %i[key keyreq].include?(kind) && name == :retry_policy_version } ||
                     parameters.any? { |kind, _name| kind == :keyrest }
+    accepts_owner = parameters.any? { |kind, name| %i[key keyreq].include?(kind) && name == :owner_id } ||
+                    parameters.any? { |kind, _name| kind == :keyrest }
     kwargs.delete(:retry_policy_version) unless accepts_retry
+    kwargs.delete(:owner_id) unless accepts_owner
     @ledger.append_summary_run!(**kwargs)
   rescue ArgumentError => error
     # Older in-memory ledgers may not expose the new retry-policy keyword. A
     # TypeError here is not a provider retry; fall back only when the method
     # explicitly rejected that one optional keyword.
-    if accepts_retry && error.message.match?(/retry_policy_version|keyword/i)
+    if accepts_owner && error.message.match?(/owner_id|keyword/i)
+      kwargs.delete(:owner_id)
+      @ledger.append_summary_run!(**kwargs)
+    elsif accepts_retry && error.message.match?(/retry_policy_version|keyword/i)
       kwargs.delete(:retry_policy_version)
       @ledger.append_summary_run!(**kwargs)
     else
@@ -330,7 +362,18 @@ class ReportSummaryRunner
     provider_content(@provider.repair(arguments))
   end
 
-  def append_receipt!(run_id:, receipt:, appended_receipt_ids:)
+  def heartbeat_summary_run!(run_id:, lease_owner:)
+    return if lease_owner.to_s.empty? || !@ledger.respond_to?(:heartbeat_summary_run!)
+
+    parameters = @ledger.method(:heartbeat_summary_run!).parameters
+    kwargs = { run_id: run_id, lease_owner: lease_owner }
+    accepts_seconds = parameters.any? { |kind, name| %i[key keyreq].include?(kind) && name == :lease_seconds } ||
+                      parameters.any? { |kind, _name| kind == :keyrest }
+    kwargs[:lease_seconds] = LocalReportLedger::SUMMARY_LEASE_SECONDS if accepts_seconds
+    @ledger.heartbeat_summary_run!(**kwargs)
+  end
+
+  def append_receipt!(run_id:, receipt:, appended_receipt_ids:, lease_owner: nil)
     return nil unless receipt.is_a?(Hash)
     unless @ledger.respond_to?(:append_provider_response_receipt!)
       raise Error, "provider response receipt store is unavailable"
@@ -340,10 +383,37 @@ class ReportSummaryRunner
     if !receipt_key.empty? && appended_receipt_ids.include?(receipt_key)
       return receipt_id.empty? ? nil : receipt_id
     end
-    stored_id = @ledger.append_provider_response_receipt!(run_id: run_id, receipt: receipt)
+    kwargs = { run_id: run_id, receipt: receipt }
+    parameters = @ledger.method(:append_provider_response_receipt!).parameters
+    accepts_owner = parameters.any? { |kind, name| %i[key keyreq].include?(kind) && name == :lease_owner } ||
+                    parameters.any? { |kind, _name| kind == :keyrest }
+    kwargs[:lease_owner] = lease_owner if accepts_owner && !lease_owner.to_s.empty?
+    stored_id = @ledger.append_provider_response_receipt!(**kwargs)
     appended_receipt_ids << receipt_key unless receipt_key.empty?
     appended_receipt_ids << stored_id.to_s unless stored_id.to_s.empty?
     stored_id
+  end
+
+  def finish_summary_success(run_id:, artifact:, lease_owner: nil)
+    kwargs = { run_id: run_id, artifact: artifact }
+    parameters = @ledger.method(:finish_summary_success!).parameters
+    accepts_owner = parameters.any? { |kind, name| %i[key keyreq].include?(kind) && name == :lease_owner } ||
+                    parameters.any? { |kind, _name| kind == :keyrest }
+    kwargs[:lease_owner] = lease_owner if accepts_owner && !lease_owner.to_s.empty?
+    @ledger.finish_summary_success!(**kwargs)
+  end
+
+  def finish_summary_failed(run_id:, state:, reason:, lease_owner: nil)
+    kwargs = { run_id: run_id, state: state, reason: reason }
+    parameters = @ledger.method(:finish_summary_failed!).parameters
+    accepts_owner = parameters.any? { |kind, name| %i[key keyreq].include?(kind) && name == :lease_owner } ||
+                    parameters.any? { |kind, _name| kind == :keyrest }
+    kwargs[:lease_owner] = lease_owner if accepts_owner && !lease_owner.to_s.empty?
+    @ledger.finish_summary_failed!(**kwargs)
+  end
+
+  def lease_loss_error?(error)
+    error.message.to_s.match?(/lease|owner|not running/i)
   end
 
   def annotate_receipt(receipt, attempt_ordinal:, exchange_kind:, repair_from_receipt_id: nil)
@@ -870,8 +940,9 @@ class ReportSummaryRunner
     ReportSummaryProvider::DeepSeek::PROMPT_VERSION
   end
 
-  def terminal_blocked(run, reason)
-    blocked = @ledger.finish_summary_failed!(run_id: run.fetch("run_id"), state: "blocked", reason: reason)
+  def terminal_blocked(run, reason, lease_owner: nil)
+    blocked = finish_summary_failed(run_id: run.fetch("run_id"), state: "blocked", reason: reason,
+                                    lease_owner: lease_owner)
     { "status" => "blocked", "run" => blocked, "artifact" => nil }
   end
 

@@ -16,6 +16,12 @@ class LocalReportLedger
   class Error < StandardError; end
 
   TIMEZONE = "Asia/Shanghai"
+  # A provider call is bounded by an owner lease.  The scheduled cycle uses
+  # the same conservative values, while tests/operators may pass explicit
+  # values to the recovery method without changing these defaults.
+  SUMMARY_LEASE_SECONDS = 600
+  SUMMARY_STALE_SECONDS = 1200
+  SUMMARY_MAX_ATTEMPTS = 3
   MORNING = "morning"
   EVENING = "evening"
   KINDS = [MORNING, EVENING].freeze
@@ -317,10 +323,15 @@ class LocalReportLedger
   # locate a prior run; every other input is checked on replay so a key can
   # never silently point at a different edition or provider contract.
   def append_summary_run!(edition_id:, idempotency_key:, input_hash:, provider:, model:, prompt_version:,
-                          retry_policy_version: "report-summary-repair-v1")
+                          retry_policy_version: "report-summary-repair-v1", owner_id: nil,
+                          lease_seconds: SUMMARY_LEASE_SECONDS)
     raise Error, "summary idempotency_key is required" if idempotency_key.to_s.empty?
     expected_input_hash = Digest::SHA256.hexdigest(JSON.generate(report_summary_context(edition_id: edition_id)))
     raise Error, "summary input_hash does not match server recomputation" unless input_hash.to_s == expected_input_hash
+    lease_supported = summary_lease_schema_available?
+    owner_identity = owner_id.to_s.empty? ? "summary-owner-#{SecureRandom.hex(12)}" : owner_id.to_s
+    lease_duration = Integer(lease_seconds)
+    raise Error, "summary lease_seconds must be positive" unless lease_duration.positive?
     retries = 0
     begin
       transaction do
@@ -328,13 +339,28 @@ class LocalReportLedger
         owner = rows.empty?
         if rows.empty?
           run_id = "summary-run-#{Digest::SHA256.hexdigest(idempotency_key.to_s)[0, 32]}"
-          transaction_query(<<~SQL)
-            INSERT INTO local_report_summary_run
-              (run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state)
-            VALUES (#{literal(run_id)}, #{literal(edition_id)}, #{literal(idempotency_key)}, #{literal(input_hash)},
-                    #{literal(provider)}, #{literal(model)}, #{literal(prompt_version)}, #{literal(retry_policy_version)}, 'running')
-            ON CONFLICT (idempotency_key) DO NOTHING
-          SQL
+          if lease_supported
+            inserted = transaction_query(<<~SQL)
+              INSERT INTO local_report_summary_run
+                (run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version,
+                 state, lease_owner, lease_expires_at, heartbeat_at)
+              VALUES (#{literal(run_id)}, #{literal(edition_id)}, #{literal(idempotency_key)}, #{literal(input_hash)},
+                      #{literal(provider)}, #{literal(model)}, #{literal(prompt_version)}, #{literal(retry_policy_version)},
+                      'running', #{literal(owner_identity)}, now() + (#{lease_duration} * interval '1 second'), now())
+              ON CONFLICT (idempotency_key) DO NOTHING
+              RETURNING run_id
+            SQL
+          else
+            inserted = transaction_query(<<~SQL)
+              INSERT INTO local_report_summary_run
+                (run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state)
+              VALUES (#{literal(run_id)}, #{literal(edition_id)}, #{literal(idempotency_key)}, #{literal(input_hash)},
+                      #{literal(provider)}, #{literal(model)}, #{literal(prompt_version)}, #{literal(retry_policy_version)}, 'running')
+              ON CONFLICT (idempotency_key) DO NOTHING
+              RETURNING run_id
+            SQL
+          end
+          owner = !inserted.empty?
           rows = transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE idempotency_key = #{literal(idempotency_key)} FOR UPDATE")
         end
         run = normalize_summary_run(row_to_hash(rows.fetch(0), SUMMARY_RUN_KEYS))
@@ -351,6 +377,7 @@ class LocalReportLedger
         # caller replay a running idempotency row without invoking the
         # provider a second time, while retaining the historical run shape.
         run["__summary_execution_owner"] = owner
+        run["__summary_lease_owner"] = owner && lease_supported ? owner_identity : nil
         run
       end
     rescue Error => error
@@ -364,9 +391,9 @@ class LocalReportLedger
     raise Error, error.message
   end
 
-  def finish_summary_failed!(run_id:, state:, reason:)
+  def finish_summary_failed!(run_id:, state:, reason:, lease_owner: nil)
     normalized_state = state.to_s
-    raise Error, "summary terminal state must be failed or blocked" unless %w[failed blocked].include?(normalized_state)
+    raise Error, "summary terminal state must be failed, blocked, or interrupted" unless %w[failed blocked interrupted].include?(normalized_state)
     raise Error, "summary failure reason is required" if reason.to_s.strip.empty?
     safe_reason = reason.to_s.gsub(/[\r\n\t]+/, " ").gsub(/\s+/, " ").strip[0, 2000]
     transaction do
@@ -374,6 +401,7 @@ class LocalReportLedger
       raise Error, "summary run not found: #{run_id}" if rows.empty?
       run = normalize_summary_run(row_to_hash(rows.fetch(0), SUMMARY_RUN_KEYS))
       if run.fetch("state") == "running"
+        assert_summary_lease_owner!(run, lease_owner)
         transaction_query("UPDATE local_report_summary_run SET state = #{literal(normalized_state)}, finished_at = now(), error_reason = #{literal(safe_reason)} WHERE run_id = #{literal(run_id)}")
         run = normalize_summary_run(row_to_hash(transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)}").fetch(0), SUMMARY_RUN_KEYS))
       elsif run.fetch("state") != normalized_state
@@ -386,7 +414,7 @@ class LocalReportLedger
   # Atomically insert the immutable artifact and transition its run to
   # succeeded.  Deferrable database constraints enforce one artifact/run and
   # prevent a terminal non-success run from acquiring an artifact.
-  def finish_summary_success!(run_id:, artifact:)
+  def finish_summary_success!(run_id:, artifact:, lease_owner: nil)
     transaction do
       rows = transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)} FOR UPDATE")
       raise Error, "summary run not found: #{run_id}" if rows.empty?
@@ -395,6 +423,7 @@ class LocalReportLedger
         { "run" => run, "artifact" => summary_artifact_for_run_in_transaction(run_id) }
       else
         raise Error, "summary run is already terminal: #{run.fetch('state')}" unless run.fetch("state") == "running"
+        assert_summary_lease_owner!(run, lease_owner)
         transaction_query(<<~SQL)
           INSERT INTO local_report_summary_artifact
             (artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version,
@@ -422,7 +451,7 @@ class LocalReportLedger
   # (run, attempt_ordinal) remains unique; a replay carrying a different
   # exchange or request/response hash is rejected instead of silently
   # reusing the idempotency key.
-  def append_provider_response_receipt!(run_id:, receipt:)
+  def append_provider_response_receipt!(run_id:, receipt:, lease_owner: nil)
     raise Error, "provider response receipt must be an object" unless receipt.is_a?(Hash)
     required = %w[exchange_id provider model prompt_version canonical_request_hash raw_response_hash captured_at status]
     missing = required.select { |key| receipt.fetch(key, "").to_s.empty? }
@@ -441,9 +470,12 @@ class LocalReportLedger
     receipt_id = receipt.fetch("receipt_id", "receipt-#{Digest::SHA256.hexdigest([run_id, receipt.fetch('exchange_id')].join("\u0000"))[0, 32]}").to_s
     canonical = canonical_provider_receipt(receipt, receipt_id: receipt_id)
     transaction do
-      run_rows = transaction_query("SELECT run_id, provider, model, prompt_version FROM local_report_summary_run WHERE run_id = #{literal(run_id)} FOR UPDATE")
+      lease_select = summary_lease_schema_available? ? ", lease_owner, lease_expires_at::text" : ", '' AS lease_owner, NULL::text AS lease_expires_at"
+      run_rows = transaction_query("SELECT run_id, provider, model, prompt_version, state#{lease_select} FROM local_report_summary_run WHERE run_id = #{literal(run_id)} FOR UPDATE")
       raise Error, "summary run not found: #{run_id}" if run_rows.empty?
-      run = row_to_hash(run_rows.fetch(0), %w[run_id provider model prompt_version])
+      run = row_to_hash(run_rows.fetch(0), %w[run_id provider model prompt_version state lease_owner lease_expires_at])
+      raise Error, "summary run is not running" unless run.fetch("state") == "running"
+      assert_summary_lease_owner!(run, lease_owner) if lease_owner
       %w[provider model prompt_version].each do |key|
         raise Error, "provider receipt #{key} differs from summary run" unless run.fetch(key).to_s == receipt.fetch(key).to_s
       end
@@ -540,11 +572,122 @@ class LocalReportLedger
     end
   end
 
+  # Refresh the owner-bound lease immediately before/after a provider
+  # exchange.  Pre-023 databases are read-compatible and simply return the
+  # current run; no caller can mistake that compatibility path for a lease.
+  def heartbeat_summary_run!(run_id:, lease_owner:, lease_seconds: SUMMARY_LEASE_SECONDS)
+    return summary_run_for_id(run_id: run_id) unless summary_lease_schema_available?
+    owner = lease_owner.to_s
+    raise Error, "summary lease owner is required" if owner.empty?
+    duration = Integer(lease_seconds)
+    raise Error, "summary lease_seconds must be positive" unless duration.positive?
+    transaction do
+      rows = transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)} FOR UPDATE")
+      raise Error, "summary run not found: #{run_id}" if rows.empty?
+      run = normalize_summary_run(row_to_hash(rows.fetch(0), SUMMARY_RUN_KEYS))
+      assert_summary_lease_owner!(run, owner)
+      raise Error, "summary run is not running" unless run.fetch("state") == "running"
+      transaction_query("UPDATE local_report_summary_run SET heartbeat_at = now(), lease_expires_at = now() + (#{duration} * interval '1 second') WHERE run_id = #{literal(run_id)} AND state = 'running' AND lease_owner = #{literal(owner)}")
+      normalize_summary_run(row_to_hash(transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)}").fetch(0), SUMMARY_RUN_KEYS))
+    end
+  rescue ArgumentError, TypeError => error
+    raise Error, "invalid summary lease configuration: #{error.message}"
+  end
+
+  # Mark expired running rows interrupted in one serializable transaction.
+  # `FOR UPDATE SKIP LOCKED` makes concurrent scheduled cycles converge on a
+  # single recovery owner for each run.  Existing provider receipts remain
+  # untouched and no artifact is synthesized.
+  def recover_stale_summary_runs!(edition_id: nil, stale_after_seconds: SUMMARY_STALE_SECONDS,
+                                  recovery_owner: "scheduled-cycle")
+    return [] unless summary_lease_schema_available?
+    threshold = Integer(stale_after_seconds)
+    raise Error, "summary stale threshold must be positive" unless threshold.positive?
+    reason = "summary run lease stale after #{threshold}s; interrupted by #{recovery_owner.to_s[0, 120]}"
+    retries = 0
+    begin
+      transaction do
+        clauses = ["state = 'running'", "heartbeat_at <= now() - (#{threshold} * interval '1 second')", "lease_expires_at <= now()"]
+        clauses << "edition_id = #{literal(edition_id)}" if edition_id && !edition_id.to_s.empty?
+        rows = transaction_query(<<~SQL)
+          SELECT #{summary_run_columns}
+            FROM local_report_summary_run
+           WHERE #{clauses.join(' AND ')}
+           ORDER BY started_at ASC, run_id ASC
+           FOR UPDATE SKIP LOCKED
+        SQL
+        rows.map do |row|
+          candidate = normalize_summary_run(row_to_hash(row, SUMMARY_RUN_KEYS))
+          updated = transaction_query(<<~SQL)
+            UPDATE local_report_summary_run
+               SET state = 'interrupted', finished_at = now(), error_reason = #{literal(reason)}
+             WHERE run_id = #{literal(candidate.fetch('run_id'))}
+               AND state = 'running'
+               AND heartbeat_at <= now() - (#{threshold} * interval '1 second')
+               AND lease_expires_at <= now()
+            RETURNING #{summary_run_columns}
+          SQL
+          next if updated.empty?
+
+          normalize_summary_run(row_to_hash(updated.fetch(0), SUMMARY_RUN_KEYS))
+        end.compact
+      end
+    rescue Error => error
+      retries += 1
+      retry if retries < 3 && serialization_conflict?(error)
+      raise
+    rescue StandardError => error
+      raise Error, error.message
+    end
+  rescue ArgumentError, TypeError => error
+    raise Error, "invalid summary stale threshold: #{error.message}"
+  end
+
+  # Return the deterministic idempotency key for the next bounded summary
+  # attempt.  A succeeded/running run is replayed; a terminal failed or
+  # interrupted run advances to a fresh key and can never be overwritten.
+  def next_summary_idempotency_key(edition_id:, base_key: nil, max_attempts: SUMMARY_MAX_ATTEMPTS)
+    maximum = Integer(max_attempts)
+    raise Error, "summary max_attempts must be positive" unless maximum.positive?
+    base = base_key.to_s
+    base = "scheduled-summary-#{edition_id}" if base.empty?
+    runs = summary_runs_for_edition(edition_id: edition_id)
+    return base if runs.empty?
+    latest = runs.last
+    return latest.fetch("idempotency_key") if %w[running succeeded].include?(latest.fetch("state"))
+
+    observed = runs.map do |run|
+      key = run.fetch("idempotency_key").to_s
+      if key == base
+        1
+      elsif (match = /\A#{Regexp.escape(base)}-attempt-(\d+)\z/.match(key))
+        match.fetch(1).to_i
+      else
+        nil
+      end
+    end.compact
+    attempt = [observed.max || runs.length, runs.length].max + 1
+    return nil if attempt > maximum
+
+    attempt == 1 ? base : "#{base}-attempt-#{attempt}"
+  rescue ArgumentError, TypeError => error
+    raise Error, "invalid summary max_attempts: #{error.message}"
+  end
+
+  alias next_summary_attempt_key next_summary_idempotency_key
+
   def summary_artifact_for_run(run_id:)
     rows = query("SELECT #{summary_artifact_columns} FROM local_report_summary_artifact WHERE run_id = #{literal(run_id)}")
     return nil if rows.empty?
 
     normalize_summary_artifact(row_to_hash(rows.fetch(0), SUMMARY_ARTIFACT_KEYS))
+  end
+
+  def summary_run_for_id(run_id:)
+    rows = query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)}")
+    raise Error, "summary run not found: #{run_id}" if rows.empty?
+
+    normalize_summary_run(row_to_hash(rows.fetch(0), SUMMARY_RUN_KEYS))
   end
 
   def latest_summary_for_edition(edition_id:)
@@ -555,7 +698,6 @@ class LocalReportLedger
     if succeeded.empty?
       latest = runs.last
       state = latest ? latest.fetch("state") : "not_generated"
-      state = "failed" if state == "running"
       return { "status" => state, "artifact" => nil, "runs" => runs, "claim_gate_status" => "not_generated" }
     end
     artifact = normalize_summary_artifact(row_to_hash(succeeded.fetch(0), SUMMARY_ARTIFACT_KEYS))
@@ -669,10 +811,10 @@ class LocalReportLedger
   ATTEMPT_KEYS = %w[attempt_id slot_id idempotency_key payload_hash state started_at finished_at failure_reason created_at updated_at].freeze
   EDITION_KEYS = %w[edition_id slot_id attempt_id nominal_window_start nominal_window_end configured_data_cutoff processing_frontier selection_completeness_frontier data_cutoff comparison_watermark publication_committed_at edition_status reason_codes summary_status payload_hash item_count created_at updated_at].freeze
   PLACED_ITEM_KEYS = %w[placement_id sort_order placement_kind reason_codes arrival_id version_id item_key capture_id content_hash information_arrival_at nominal_slot_id arrival_kind source_id source_name language title summary source_url published_at fetched_at captured_at publisher_name publisher_url publisher_id publisher_identity_status source_kind original_title original_summary translation_status translation_artifact_id translated_at].freeze
-  SUMMARY_RUN_KEYS = %w[run_id edition_id idempotency_key input_hash provider model prompt_version retry_policy_version state started_at finished_at error_reason created_at updated_at].freeze
+  SUMMARY_RUN_KEYS = %w[run_id edition_id idempotency_key input_hash provider model prompt_version retry_policy_version state started_at finished_at error_reason created_at updated_at lease_owner lease_expires_at heartbeat_at].freeze
   SUMMARY_ARTIFACT_KEYS = %w[artifact_id run_id edition_id input_hash provider model prompt_version overview key_changes uncertainties output_hash claim_gate_status provider_receipt_id generation_attempt_count repaired repair_from_receipt_id created_at].freeze
   RECEIPT_KEYS = %w[receipt_id exchange_id provider model prompt_version canonical_request_hash raw_response_hash http_status request_id captured_at status response_available error_code error_message attempt_ordinal exchange_kind repair_from_receipt_id].freeze
-  TIMESTAMP_KEYS = %w[window_start window_end scheduled_at configured_data_cutoff created_at updated_at information_arrival_at started_at finished_at nominal_window_start nominal_window_end processing_frontier selection_completeness_frontier data_cutoff publication_committed_at published_at fetched_at captured_at comparison_watermark].freeze
+  TIMESTAMP_KEYS = %w[window_start window_end scheduled_at configured_data_cutoff created_at updated_at information_arrival_at started_at finished_at nominal_window_start nominal_window_end processing_frontier selection_completeness_frontier data_cutoff publication_committed_at published_at fetched_at captured_at comparison_watermark lease_expires_at heartbeat_at].freeze
 
   def slot_columns
     "slot_id, kind, timezone, window_start::text, window_end::text, scheduled_at::text, configured_data_cutoff::text, config_hash, state, failure_reason, created_at::text, updated_at::text"
@@ -949,7 +1091,11 @@ class LocalReportLedger
   end
 
   def summary_run_columns
-    "run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state, started_at::text, finished_at::text, regexp_replace(error_reason, E'[\\n\\r\\t]+', ' ', 'g'), created_at::text, updated_at::text"
+    if summary_lease_schema_available?
+      "run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state, started_at::text, finished_at::text, regexp_replace(error_reason, E'[\\n\\r\\t]+', ' ', 'g'), created_at::text, updated_at::text, lease_owner, lease_expires_at::text, heartbeat_at::text"
+    else
+      "run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state, started_at::text, finished_at::text, regexp_replace(error_reason, E'[\\n\\r\\t]+', ' ', 'g'), created_at::text, updated_at::text, '' AS lease_owner, NULL::text AS lease_expires_at, NULL::text AS heartbeat_at"
+    end
   end
 
   def summary_artifact_columns
@@ -959,6 +1105,9 @@ class LocalReportLedger
   def normalize_summary_run(row)
     canonicalize_timestamps(row).tap do |normalized|
       normalized["retry_policy_version"] = "report-summary-repair-v1" if normalized.fetch("retry_policy_version", "").to_s.empty?
+      normalized["lease_owner"] = nil if normalized.fetch("lease_owner", "").to_s.empty?
+      normalized["lease_expires_at"] = nil if normalized.fetch("lease_expires_at", "").to_s.empty?
+      normalized["heartbeat_at"] = nil if normalized.fetch("heartbeat_at", "").to_s.empty?
     end
   end
 
@@ -1065,6 +1214,37 @@ class LocalReportLedger
 
   def truthy?(value)
     %w[t true 1].include?(value.to_s.downcase)
+  end
+
+  def summary_lease_schema_available?
+    return @summary_lease_schema_available unless @summary_lease_schema_available.nil?
+
+    sql = <<~SQL
+      SELECT COUNT(*) = 3
+        FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'local_report_summary_run'
+         AND column_name IN ('lease_owner', 'lease_expires_at', 'heartbeat_at')
+    SQL
+    @summary_lease_schema_available = query(sql).fetch(0) == "t"
+  rescue StandardError
+    # A database that is down or pre-014 remains usable for raw-report reads;
+    # summary methods will surface their ordinary relation error when called.
+    @summary_lease_schema_available = false
+  end
+
+  def assert_summary_lease_owner!(run, lease_owner)
+    # Legacy pre-023 callers do not have a lease field.  Runner passes an
+    # owner only when the durable lease schema is present.
+    return true unless summary_lease_schema_available?
+    owner = lease_owner.to_s
+    raise Error, "summary run lease owner is required" if owner.empty?
+    raise Error, "summary run lease owner mismatch" unless run.fetch("lease_owner").to_s == owner
+    expiry = run.fetch("lease_expires_at", nil)
+    raise Error, "summary run lease is unavailable" if expiry.to_s.empty?
+    raise Error, "summary run lease expired" if parse_time(expiry) <= Time.now.utc
+
+    true
   end
 
   def serialization_conflict?(error)

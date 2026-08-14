@@ -30,7 +30,16 @@ if edition_id.empty?
   raise ArgumentError, "no published edition for kind #{kind}" if edition_id.empty?
 end
 key = options["idempotency_key"].to_s
-key = "report-summary-#{edition_id}" if key.empty?
+if key.empty?
+  ledger.recover_stale_summary_runs!(edition_id: edition_id, recovery_owner: "summary-cli-#{Process.pid}")
+  key = ledger.next_summary_idempotency_key(edition_id: edition_id, base_key: "report-summary-#{edition_id}",
+                                            max_attempts: LocalReportLedger::SUMMARY_MAX_ATTEMPTS)
+  if key.nil?
+    puts JSON.generate({ "status" => "attempts_exhausted", "edition_id" => edition_id,
+                         "attempt_limit" => LocalReportLedger::SUMMARY_MAX_ATTEMPTS })
+    exit 0
+  end
+end
 
 result = ReportSummaryRunner.new(ledger: ledger).run(edition_id: edition_id, idempotency_key: key)
 puts JSON.generate(result)

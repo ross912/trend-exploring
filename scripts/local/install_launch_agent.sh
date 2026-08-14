@@ -12,6 +12,76 @@ collect_plist="${agent_dir}/${collect_label}.plist"
 state_dir="${LOCAL_STATE_DIR:-${HOME:-/tmp}/Library/Application Support/TrendExploring}"
 mkdir -p "${agent_dir}" "${state_dir}/logs"
 
+# Deployment is fail-closed by default.  A checkout/app copy is never
+# switched while a collection/cycle/server process or a live summary lease
+# may still be using the previous copy.  The override is intentionally
+# explicit and named for human disaster recovery; it is not a normal restart
+# path and is never inferred from LOCAL_SKIP_LAUNCHCTL.
+disaster_override="${LOCAL_DEPLOY_DISASTER_RECOVERY:-${LOCAL_FORCE_DEPLOY:-0}}"
+lock_root="${state_dir}/locks"
+deploy_lock="${state_dir}/deploy.lock"
+preflight_fail() {
+  echo "install_launch_agent: refusing deployment: $*" >&2
+  echo "install_launch_agent: use LOCAL_DEPLOY_DISASTER_RECOVERY=1 only for an explicit human disaster recovery" >&2
+  exit 75
+}
+
+mkdir -p "${lock_root}"
+if [[ "${disaster_override}" != "1" ]]; then
+  [[ ! -e "${deploy_lock}" ]] || preflight_fail "deployment lock is active (${deploy_lock})"
+else
+  # An orphaned deployment lock is recoverable only under the explicit
+  # override.  The target is an exact product-owned path, never a broad
+  # directory or workspace.
+  rm -rf "${deploy_lock}"
+fi
+if ! mkdir "${deploy_lock}" 2>/dev/null; then
+  preflight_fail "another deployment is active (${deploy_lock})"
+fi
+printf '%s\n' "$$" > "${deploy_lock}/pid"
+cleanup_deploy_lock() { rm -rf "${deploy_lock}"; }
+trap cleanup_deploy_lock EXIT INT TERM
+
+if [[ "${disaster_override}" != "1" ]]; then
+  active_processes="$(pgrep -f 'run_launchd_(collect|cycle|server)\.sh' 2>/dev/null || true)"
+  [[ -z "${active_processes}" ]] || preflight_fail "active launchd process detected (pids: ${active_processes//$'\n'/ })"
+  for active_lock in "${lock_root}/collect.lock" "${lock_root}/cycle.lock" "${lock_root}/server.lock"; do
+    [[ ! -e "${active_lock}" ]] || preflight_fail "active runtime lock detected (${active_lock})"
+  done
+
+  # Query only the local PostgreSQL socket.  If a configured client exists but
+  # the database cannot be inspected, unknown state is unsafe and blocks the
+  # app switch.  Environments without a local client (for example a static
+  # plist lint) retain the historical no-database install behavior.
+  summary_psql="${LOCAL_PSQL:-}"
+  if [[ -z "${summary_psql}" && -n "${PG_BIN:-}" ]]; then summary_psql="${PG_BIN}/psql"; fi
+  if [[ -z "${summary_psql}" ]]; then summary_psql="${project_root}/.runtime/bin/psql"; fi
+  summary_pgdata="${LOCAL_PGDATA:-${state_dir}/postgres}"
+  # A static plist install may be run before the local runtime has ever been
+  # initialized (the normal first-run path).  In that case there is no
+  # summary database to inspect yet; once PG_VERSION exists, an unavailable
+  # query is unsafe and fail-closed.  Operators can require the probe even
+  # before initialization with LOCAL_PREFLIGHT_REQUIRE_DB=1.
+  if [[ -x "${summary_psql}" && ( -f "${summary_pgdata}/PG_VERSION" || "${LOCAL_PREFLIGHT_REQUIRE_DB:-0}" == "1" ) ]]; then
+    summary_host="${LOCAL_PGHOST:-${LOCAL_PGSOCKET:-${state_dir}/socket}}"
+    summary_port="${LOCAL_PGPORT:-55433}"
+    summary_user="${LOCAL_PGUSER:-${USER:-postgres}}"
+    summary_database="${LOCAL_PGDATABASE:-trend_exploring_local}"
+    relation_state="$(PGCONNECT_TIMEOUT=2 "${summary_psql}" -XAtq -w -h "${summary_host}" -p "${summary_port}" -U "${summary_user}" -d "${summary_database}" -c "SELECT to_regclass('local_report_summary_run') IS NOT NULL" 2>/dev/null || true)"
+    [[ -n "${relation_state}" ]] || preflight_fail "summary run state is unavailable from local database"
+    if [[ "${relation_state}" == "t" ]]; then
+      lease_columns="$(PGCONNECT_TIMEOUT=2 "${summary_psql}" -XAtq -w -h "${summary_host}" -p "${summary_port}" -U "${summary_user}" -d "${summary_database}" -c "SELECT COUNT(*) = 3 FROM information_schema.columns WHERE table_schema='public' AND table_name='local_report_summary_run' AND column_name IN ('lease_owner','lease_expires_at','heartbeat_at')" 2>/dev/null || true)"
+      [[ -n "${lease_columns}" ]] || preflight_fail "summary lease schema state is unavailable"
+      if [[ "${lease_columns}" == "t" ]]; then
+        running_summary="$(PGCONNECT_TIMEOUT=2 "${summary_psql}" -XAtq -w -h "${summary_host}" -p "${summary_port}" -U "${summary_user}" -d "${summary_database}" -c "SELECT run_id FROM local_report_summary_run WHERE state='running' AND lease_expires_at > now() ORDER BY started_at, run_id" 2>/dev/null || true)"
+      else
+        running_summary="$(PGCONNECT_TIMEOUT=2 "${summary_psql}" -XAtq -w -h "${summary_host}" -p "${summary_port}" -U "${summary_user}" -d "${summary_database}" -c "SELECT run_id FROM local_report_summary_run WHERE state='running' AND started_at > now() - interval '20 minutes' ORDER BY started_at, run_id" 2>/dev/null || true)"
+      fi
+      [[ -z "${running_summary}" ]] || preflight_fail "non-expired summary run is active (run ids: ${running_summary//$'\n'/ })"
+    fi
+  fi
+fi
+
 # launchd may start after the checkout is moved, or with a cwd that is not
 # traversable (notably a localized Documents path).  Keep a small, atomic
 # runtime copy in the user-owned state directory.  It contains no tests,
