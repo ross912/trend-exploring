@@ -75,6 +75,7 @@ class ReportSummaryRunner
     legacy = ReportClaimGate.legacy_payload?(raw)
     raw = ReportClaimGate.adapt_legacy_payload(payload: raw, placements: context.fetch("placements")) if legacy
     raw = canonicalize_claim_ids(raw, edition_id: edition_id)
+    raw = canonicalize_claim_statuses(raw)
     normalized = validate_output(raw, placements: context.fetch("placements"))
     output_hash = Digest::SHA256.hexdigest(JSON.generate(normalized))
     artifact = {
@@ -336,6 +337,49 @@ class ReportSummaryRunner
     normalized.gsub(/\s+/, " ").strip
   rescue ArgumentError
     value
+  end
+
+  # The provider does not own epistemic status.  Derive only an allowed status
+  # from a legal kind and a complete set of legal evidence relations; malformed
+  # kinds/scopes are left untouched so ReportClaimGate fails closed.  This
+  # never upgrades a claim to fact or fabricates evidence.
+  def canonicalize_claim_statuses(payload)
+    return payload unless payload.is_a?(Hash)
+
+    copy = JSON.parse(JSON.generate(payload))
+    copy["overview"] = canonicalize_claim_status(copy["overview"]) if copy.key?("overview")
+    %w[key_changes uncertainties].each do |section|
+      next unless copy[section].is_a?(Array)
+
+      copy[section] = copy[section].map { |unit| canonicalize_claim_status(unit) }
+    end
+    copy
+  rescue JSON::GeneratorError, JSON::ParserError, TypeError
+    payload
+  end
+
+  def canonicalize_claim_status(unit)
+    return unit unless unit.is_a?(Hash)
+
+    normalized = unit.transform_keys(&:to_s)
+    kind = normalized["kind"].to_s
+    return normalized unless ReportClaimGate::KINDS.include?(kind)
+
+    scopes = normalized["evidence_scopes"]
+    return normalized unless scopes.is_a?(Array) && !scopes.empty? && scopes.all? { |scope| scope.is_a?(Hash) }
+
+    relations = scopes.map { |scope| scope.transform_keys(&:to_s).fetch("relation", "").to_s }
+    return normalized unless relations.all? { |relation| ReportClaimGate::RELATIONS.include?(relation) }
+    return normalized unless relations.include?("supports")
+
+    normalized["epistemic_status"] = if kind == "uncertainty"
+                                       "unknown"
+                                     elsif relations.include?("contradicts")
+                                       "disputed"
+                                     else
+                                       "asserted"
+                                     end
+    normalized
   end
 
   def replay(run)

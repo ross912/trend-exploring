@@ -78,6 +78,7 @@ class LocalProductTest < Minitest::Test
     assert_includes js, "missing_channels"
     assert_includes js, "alternative_explanations"
     assert_includes js, "next_verification"
+    assert_includes js, "AI 摘要未通过生成或证据门禁，raw 已保留；观察台与 raw 日报更新正常"
     assert_includes readme_top, "单用户本地产品"
     %w[全球变化台 多地区 可验证趋势 可解释趋势 什么正在变化 条趋势 独立来源 独立出版方 事件短语 已翻译 覆盖地区].each do |forbidden|
       refute_includes html, forbidden

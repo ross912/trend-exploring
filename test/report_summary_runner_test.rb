@@ -159,6 +159,53 @@ class ReportSummaryRunnerTest < Minitest::Test
     assert_match(/\Aclaim-report-summary-v1-[a-f0-9]{64}\z/, result.dig("artifact", "overview", "claim_id"))
   end
 
+  def test_provider_status_is_ignored_when_kind_and_supporting_evidence_are_complete
+    provider_claim = typed_claim.merge("epistemic_status" => "attributed")
+    provider = FakeProvider.new(result: { "overview" => provider_claim, "key_changes" => [], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "status-invalid")
+
+    assert_equal "succeeded", result.fetch("status")
+    assert_equal "asserted", result.dig("artifact", "overview", "epistemic_status")
+  end
+
+  def test_missing_status_is_derived_and_uncertainty_maps_to_unknown
+    provider_claim = typed_claim.reject { |key, _value| %w[claim_id epistemic_status].include?(key) }
+                         .merge("kind" => "uncertainty")
+    provider = FakeProvider.new(result: { "overview" => provider_claim, "key_changes" => [], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "status-missing")
+
+    assert_equal "succeeded", result.fetch("status")
+    assert_equal "unknown", result.dig("artifact", "overview", "epistemic_status")
+  end
+
+  def test_contradictory_evidence_derives_disputed_status
+    contradiction = typed_claim.merge(
+      "epistemic_status" => "made-up",
+      "evidence_scopes" => [
+        typed_claim.fetch("evidence_scopes").first,
+        typed_claim.fetch("evidence_scopes").first.merge("scope_id" => "scope-typed-2", "relation" => "contradicts")
+      ]
+    )
+    provider = FakeProvider.new(result: { "overview" => contradiction, "key_changes" => [], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "status-disputed")
+
+    assert_equal "succeeded", result.fetch("status")
+    assert_equal "disputed", result.dig("artifact", "overview", "epistemic_status")
+  end
+
+  def test_status_cannot_repair_missing_support_or_invalid_kind
+    no_support = typed_claim.merge(
+      "epistemic_status" => "asserted",
+      "evidence_scopes" => [typed_claim.fetch("evidence_scopes").first.merge("relation" => "alternative")]
+    )
+    bad_kind = typed_claim.merge("kind" => "fact-ish", "epistemic_status" => "asserted")
+    provider = FakeProvider.new(result: { "overview" => no_support, "key_changes" => [bad_kind], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "status-failclosed")
+
+    assert_equal "failed", result.fetch("status")
+    assert_nil result.fetch("artifact")
+  end
+
   def test_metadata_projection_does_not_fill_missing_claim_core_fields
     echoed_metadata = {
       "edition_id" => "edition-1", "nominal_window_start" => "2026-08-09T19:00:00Z",

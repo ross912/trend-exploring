@@ -92,6 +92,7 @@ class DeepSeekProviderTest < Minitest::Test
     assert_includes summary_client.calls.fetch(0).fetch(:system), "provider_item_count"
     assert_includes summary_client.calls.fetch(0).fetch(:system), "claim 正文字段必须叫 text"
     assert_includes summary_client.calls.fetch(0).fetch(:system), "不要输出 claim_id"
+    assert_includes summary_client.calls.fetch(0).fetch(:system), "不要输出 claim_id 或 epistemic_status"
 
     answer = { "answer_sections" => [{ "kind" => "fact", "text" => "事实", "cited_version_ids" => ["v1"] }], "follow_up_questions" => [] }
     conversation_client = FakeClient.new(answer)
