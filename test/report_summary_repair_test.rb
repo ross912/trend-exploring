@@ -188,6 +188,21 @@ class ReportSummaryRepairTest < Minitest::Test
     assert_equal malformed.dig("overview", "text"), provider.repair_args.dig(:original_json, "overview", "text")
   end
 
+  def test_repair_with_invalid_duplicate_and_missing_scope_ids_uses_server_ids
+    malformed = payload(typed_claim.merge("unknown" => "shape"))
+    repaired = payload(typed_claim.merge("evidence_scopes" => [
+      typed_claim.fetch("evidence_scopes").first.merge("scope_id" => "../../forged"),
+      typed_claim.fetch("evidence_scopes").first.merge("scope_id" => "../../forged", "relation" => "alternative"),
+      typed_claim.fetch("evidence_scopes").first.reject { |key, _| key == "scope_id" }
+    ]))
+    provider = Provider.new(initial: malformed, repaired: repaired)
+    result, = execute(provider, key: "scope-id-repair")
+    assert_equal "succeeded", result.fetch("status")
+    ids = result.dig("artifact", "overview", "evidence_scopes").map { |scope| scope.fetch("scope_id") }
+    assert_equal 3, ids.uniq.length
+    ids.each { |id| assert_match(/\Ascope-report-summary-v1-[a-f0-9]{64}\z/, id) }
+  end
+
   def test_second_gate_failure_keeps_two_receipts_but_no_artifact
     malformed = payload(typed_claim.merge("unknown" => "shape"))
     still_bad = payload(typed_claim.merge("evidence_scopes" => [typed_claim.fetch("evidence_scopes").first.merge("version_id" => "unknown")]))
@@ -216,6 +231,26 @@ class ReportSummaryRepairTest < Minitest::Test
     result, = execute(provider, key: "unknown-evidence")
     assert_equal "failed", result.fetch("status")
     assert_match(/CLAIM_SCOPE_VERSION_UNKNOWN/, result.dig("run", "error_reason"))
+  end
+
+  def test_scope_id_identity_ignores_provider_id_but_binds_claim_and_evidence_fields
+    runner = ReportSummaryRunner.new(ledger: Ledger.new, provider: Provider.new(initial: payload(typed_claim)))
+    base = payload(typed_claim)
+    canonical = runner.send(:canonicalize_scope_ids,
+                             runner.send(:canonicalize_claim_ids, base, edition_id: "edition-1"), edition_id: "edition-1")
+    provider_id_changed = base.merge("overview" => base.fetch("overview").merge("evidence_scopes" => [
+      base.dig("overview", "evidence_scopes", 0).merge("scope_id" => "another-provider-id")
+    ]))
+    changed_provider_id = runner.send(:canonicalize_scope_ids,
+                                       runner.send(:canonicalize_claim_ids, provider_id_changed, edition_id: "edition-1"), edition_id: "edition-1")
+    assert_equal canonical.dig("overview", "claim_id"), changed_provider_id.dig("overview", "claim_id")
+    assert_equal canonical.dig("overview", "evidence_scopes", 0, "scope_id"), changed_provider_id.dig("overview", "evidence_scopes", 0, "scope_id")
+    changed_excerpt = base.merge("overview" => base.fetch("overview").merge("evidence_scopes" => [
+      base.dig("overview", "evidence_scopes", 0).merge("text" => "Title")
+    ]))
+    changed = runner.send(:canonicalize_scope_ids,
+                           runner.send(:canonicalize_claim_ids, changed_excerpt, edition_id: "edition-1"), edition_id: "edition-1")
+    refute_equal canonical.dig("overview", "evidence_scopes", 0, "scope_id"), changed.dig("overview", "evidence_scopes", 0, "scope_id")
   end
 
   def test_same_key_replay_does_not_call_provider_again

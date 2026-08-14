@@ -366,6 +366,7 @@ class ReportSummaryRunner
     legacy = ReportClaimGate.legacy_payload?(raw)
     raw = ReportClaimGate.adapt_legacy_payload(payload: raw, placements: context.fetch("placements")) if legacy
     raw = canonicalize_claim_ids(raw, edition_id: edition_id)
+    raw = canonicalize_scope_ids(raw, edition_id: edition_id)
     raw = canonicalize_claim_statuses(raw)
     [validate_output(raw, placements: context.fetch("placements")), legacy]
   rescue ValidationError
@@ -468,9 +469,9 @@ class ReportSummaryRunner
         }
       },
       "evidence_scope" => {
-        "type" => "object", "required" => %w[scope_id version_id field text relation], "additionalProperties" => false,
+        "type" => "object", "required" => %w[version_id field text relation], "additionalProperties" => false,
         "properties" => {
-          "scope_id" => { "type" => "string" }, "version_id" => { "type" => "string" },
+          "version_id" => { "type" => "string" },
           "field" => { "enum" => ReportClaimGate::SCOPE_FIELDS }, "text" => { "type" => "string" },
           "relation" => { "enum" => ReportClaimGate::RELATIONS - ["unknown"] }
         }
@@ -493,8 +494,7 @@ class ReportSummaryRunner
     {
       "overview" => {
         "kind" => "fact", "text" => "仅保留原始证据支持的陈述",
-        "evidence_scopes" => [{ "scope_id" => "scope-repair-example", "version_id" => alias_id,
-                                  "field" => field, "text" => excerpt, "relation" => "supports" }]
+        "evidence_scopes" => [{ "version_id" => alias_id, "field" => field, "text" => excerpt, "relation" => "supports" }]
       },
       "key_changes" => [], "uncertainties" => []
     }
@@ -694,10 +694,96 @@ class ReportSummaryRunner
     normalized
   end
 
+  # Provider scope IDs are untrusted labels.  They are deliberately ignored
+  # for identity and replaced after the server-owned claim_id is available.
+  # The canonical scope identity binds the immutable edition, claim, ordinal,
+  # referenced version/field, normalized excerpt (the locatable span), and
+  # relation.  Thus malformed, duplicate, missing, or adversarial provider
+  # IDs cannot alter identity, while a forged version/excerpt still reaches
+  # ReportClaimGate's edition-placement and locatability checks.
+  def canonicalize_scope_ids(payload, edition_id:)
+    return payload unless payload.is_a?(Hash)
+
+    copy = JSON.parse(JSON.generate(payload))
+    copy["overview"] = canonicalize_scope_ids_for_claim(copy["overview"], edition_id: edition_id) if copy.key?("overview")
+    %w[key_changes uncertainties].each do |section|
+      next unless copy[section].is_a?(Array)
+
+      copy[section] = copy[section].map do |claim|
+        canonicalize_scope_ids_for_claim(claim, edition_id: edition_id)
+      end
+    end
+    copy
+  rescue JSON::GeneratorError, JSON::ParserError, TypeError
+    payload
+  end
+
+  def canonicalize_scope_ids_for_claim(unit, edition_id:)
+    return unit unless unit.is_a?(Hash)
+
+    normalized_claim = unit.transform_keys(&:to_s)
+    claim_id = normalized_claim["claim_id"].to_s
+    scopes = normalized_claim["evidence_scopes"]
+    return normalized_claim unless scopes.is_a?(Array)
+
+    original_scope_ids = Hash.new { |hash, key| hash[key] = [] }
+    canonical_scope_ids = []
+    normalized_scopes = scopes.each_with_index.map do |scope, ordinal|
+      unless scope.is_a?(Hash)
+        canonical_scope_ids << nil
+        next scope
+      end
+
+      scope = scope.transform_keys(&:to_s)
+      provider_scope_id = scope["scope_id"].to_s
+      original_scope_ids[provider_scope_id] << ordinal unless provider_scope_id.empty?
+      canonical_id = canonical_scope_id(scope, edition_id: edition_id, claim_id: claim_id, ordinal: ordinal)
+      canonical_scope_ids << canonical_id
+      scope.merge("scope_id" => canonical_id)
+    end
+    normalized_claim["evidence_scopes"] = normalized_scopes
+
+    # AI-inference premises historically referenced provider scope IDs. Map a
+    # provider ID only when it identifies exactly one scope; duplicate or
+    # missing labels remain unresolved and are rejected by the gate rather than
+    # being guessed. Canonical IDs are accepted for already-canonical callers.
+    if normalized_claim["premise_scope_ids"].is_a?(Array)
+      normalized_claim["premise_scope_ids"] = normalized_claim["premise_scope_ids"].map do |premise_id|
+        value = premise_id.to_s
+        if canonical_scope_ids.include?(value)
+          value
+        elsif original_scope_ids.fetch(value, []).length == 1
+          canonical_scope_ids.fetch(original_scope_ids.fetch(value).first)
+        else
+          value
+        end
+      end
+    end
+    normalized_claim
+  end
+
+  def canonical_scope_id(scope, edition_id:, claim_id:, ordinal:)
+    canonical_input = {
+      "namespace" => "report-summary-scope",
+      "version" => "v1",
+      "edition_id" => edition_id.to_s,
+      "claim_id" => claim_id.to_s,
+      "scope_ordinal" => ordinal.to_i,
+      "version_id" => scope["version_id"].to_s,
+      "field" => scope["field"].to_s,
+      "excerpt" => normalize_claim_text_for_id(scope["text"]),
+      "relation" => scope["relation"].to_s
+    }
+    "scope-report-summary-v1-#{Digest::SHA256.hexdigest(JSON.generate(canonical_input))}"
+  end
+
   def canonical_claim_id(claim, edition_id:, section:, ordinal:)
     evidence = Array(claim["evidence_scopes"]).map do |scope|
       identity = if scope.is_a?(Hash)
-                   scope.transform_keys(&:to_s).sort.to_h
+                   # scope_id is server-owned and is intentionally excluded
+                   # from claim identity; provider labels must not affect the
+                   # canonical claim_id.
+                   scope.transform_keys(&:to_s).reject { |key, _value| key == "scope_id" }.sort.to_h
                  else
                    { "invalid_scope" => scope.to_s }
                  end
