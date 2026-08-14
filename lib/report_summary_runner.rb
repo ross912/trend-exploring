@@ -315,7 +315,7 @@ class ReportSummaryRunner
       [JSON.generate(identity), identity]
     end.sort_by(&:first).map(&:last)
     text = claim["text"]
-    normalized_text = text.is_a?(String) && text.respond_to?(:unicode_normalize) ? text.unicode_normalize(:nfc) : text
+    normalized_text = normalize_claim_text_for_id(text)
     canonical_input = {
       "namespace" => CLAIM_ID_NAMESPACE,
       "version" => CLAIM_ID_VERSION,
@@ -327,6 +327,15 @@ class ReportSummaryRunner
     }
     digest = Digest::SHA256.hexdigest(JSON.generate(canonical_input))
     "claim-#{CLAIM_ID_NAMESPACE}-#{CLAIM_ID_VERSION}-#{digest}"
+  end
+
+  def normalize_claim_text_for_id(value)
+    return value unless value.is_a?(String)
+
+    normalized = value.respond_to?(:unicode_normalize) ? value.unicode_normalize(:nfkc) : value
+    normalized.gsub(/\s+/, " ").strip
+  rescue ArgumentError
+    value
   end
 
   def replay(run)

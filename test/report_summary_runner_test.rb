@@ -270,6 +270,8 @@ class ReportSummaryRunnerTest < Minitest::Test
     first = runner.send(:canonicalize_claim_ids, { "overview" => base, "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
     second = runner.send(:canonicalize_claim_ids, { "overview" => same_provider_id, "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
     assert_equal first.dig("overview", "claim_id"), second.dig("overview", "claim_id")
+    whitespace_only = runner.send(:canonicalize_claim_ids, { "overview" => base.merge("text" => "  A   typed claim  "), "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
+    assert_equal first.dig("overview", "claim_id"), whitespace_only.dig("overview", "claim_id")
     scope_a = base.fetch("evidence_scopes").first
     scope_b = scope_a.merge("scope_id" => "scope-typed-2", "version_id" => "version-2", "text" => "Other summary")
     ordered = runner.send(:canonicalize_claim_ids, { "overview" => base.merge("evidence_scopes" => [scope_a, scope_b]), "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
