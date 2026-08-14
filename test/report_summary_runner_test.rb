@@ -141,7 +141,22 @@ class ReportSummaryRunnerTest < Minitest::Test
 
     assert_equal "succeeded", result.fetch("status")
     refute result.dig("artifact", "overview").keys.any? { |key| echoed_metadata.key?(key) }
-    assert_equal "claim-typed-1", result.dig("artifact", "overview", "claim_id")
+    assert_match(/\Aclaim-report-summary-v1-[a-f0-9]{64}\z/, result.dig("artifact", "overview", "claim_id"))
+    refute_equal "claim-typed-1", result.dig("artifact", "overview", "claim_id")
+  end
+
+  def test_server_owned_claim_id_can_be_omitted_before_metadata_projection
+    echoed_metadata = {
+      "edition_id" => "edition-1", "nominal_window_start" => "2026-08-09T19:00:00Z",
+      "nominal_window_end" => "2026-08-10T08:00:00Z", "raw_item_count" => 1,
+      "provider_item_count" => 1
+    }
+    provider_claim = typed_claim.reject { |key, _value| key == "claim_id" }.merge(echoed_metadata)
+    provider = FakeProvider.new(result: { "overview" => provider_claim, "key_changes" => [], "uncertainties" => [] })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "server-owned-claim-id")
+
+    assert_equal "succeeded", result.fetch("status")
+    assert_match(/\Aclaim-report-summary-v1-[a-f0-9]{64}\z/, result.dig("artifact", "overview", "claim_id"))
   end
 
   def test_metadata_projection_does_not_fill_missing_claim_core_fields
@@ -232,6 +247,43 @@ class ReportSummaryRunnerTest < Minitest::Test
     bad = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: bad_provider).run(edition_id: "edition-1", idempotency_key: "claim-wrapper-unknown")
     assert_equal "failed", bad.fetch("status")
     assert_nil bad.fetch("artifact")
+  end
+
+  def test_provider_invalid_or_duplicate_claim_ids_are_ignored_and_canonical_ids_are_unique
+    first = typed_claim.merge("claim_id" => "not-a-claim-id")
+    second = typed_claim(text: "A second typed claim").merge("claim_id" => "not-a-claim-id")
+    provider = FakeProvider.new(result: {
+      "overview" => first, "key_changes" => [second], "uncertainties" => []
+    })
+    result = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: provider).run(edition_id: "edition-1", idempotency_key: "canonical-malicious-ids")
+
+    assert_equal "succeeded", result.fetch("status")
+    ids = [result.dig("artifact", "overview", "claim_id"), result.dig("artifact", "key_changes", 0, "claim_id")]
+    assert_equal 2, ids.uniq.length
+    ids.each { |id| assert_match(/\Aclaim-report-summary-v1-[a-f0-9]{64}\z/, id) }
+  end
+
+  def test_canonical_claim_id_is_stable_and_changes_with_edition_text_evidence_or_ordinal
+    runner = ReportSummaryRunner.new(ledger: FakeLedger.new, provider: FakeProvider.new(result: {}))
+    base = typed_claim
+    same_provider_id = base.merge("claim_id" => "another-provider-id")
+    first = runner.send(:canonicalize_claim_ids, { "overview" => base, "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
+    second = runner.send(:canonicalize_claim_ids, { "overview" => same_provider_id, "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
+    assert_equal first.dig("overview", "claim_id"), second.dig("overview", "claim_id")
+    scope_a = base.fetch("evidence_scopes").first
+    scope_b = scope_a.merge("scope_id" => "scope-typed-2", "version_id" => "version-2", "text" => "Other summary")
+    ordered = runner.send(:canonicalize_claim_ids, { "overview" => base.merge("evidence_scopes" => [scope_a, scope_b]), "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
+    reversed = runner.send(:canonicalize_claim_ids, { "overview" => base.merge("evidence_scopes" => [scope_b, scope_a]), "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
+    assert_equal ordered.dig("overview", "claim_id"), reversed.dig("overview", "claim_id")
+
+    changed_text = runner.send(:canonicalize_claim_ids, { "overview" => base.merge("text" => "changed"), "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
+    changed_edition = runner.send(:canonicalize_claim_ids, { "overview" => base, "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-2")
+    changed_evidence = runner.send(:canonicalize_claim_ids, { "overview" => base.merge("evidence_scopes" => [base.fetch("evidence_scopes").first.merge("text" => "other")]), "key_changes" => [], "uncertainties" => [] }, edition_id: "edition-1")
+    changed_ordinal = runner.send(:canonicalize_claim_ids, { "overview" => base, "key_changes" => [base], "uncertainties" => [] }, edition_id: "edition-1")
+    refute_equal first.dig("overview", "claim_id"), changed_text.dig("overview", "claim_id")
+    refute_equal first.dig("overview", "claim_id"), changed_edition.dig("overview", "claim_id")
+    refute_equal first.dig("overview", "claim_id"), changed_evidence.dig("overview", "claim_id")
+    refute_equal first.dig("overview", "claim_id"), changed_ordinal.dig("key_changes", 0, "claim_id")
   end
 
 

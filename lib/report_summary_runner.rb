@@ -24,8 +24,12 @@ class ReportSummaryRunner
   CLAIM_DECLARED_KEYS = %w[
     claim_id kind text epistemic_status evidence_scopes premise_scope_ids inference_support_status
   ].freeze
-  CLAIM_CORE_KEYS = %w[claim_id kind text epistemic_status evidence_scopes].freeze
+  # claim_id is server-owned and is assigned after all provider compatibility
+  # normalization.  It is intentionally not part of the provider core shape.
+  CLAIM_CORE_KEYS = %w[kind text epistemic_status evidence_scopes].freeze
   CLAIM_WRAPPER_KEYS = %w[claim].freeze
+  CLAIM_ID_NAMESPACE = "report-summary"
+  CLAIM_ID_VERSION = "v1"
 
   def initialize(ledger:, provider: ReportSummaryProvider::DeepSeek.new)
     @ledger = ledger
@@ -70,6 +74,7 @@ class ReportSummaryRunner
     raw = project_provider_metadata(raw)
     legacy = ReportClaimGate.legacy_payload?(raw)
     raw = ReportClaimGate.adapt_legacy_payload(payload: raw, placements: context.fetch("placements")) if legacy
+    raw = canonicalize_claim_ids(raw, edition_id: edition_id)
     normalized = validate_output(raw, placements: context.fetch("placements"))
     output_hash = Digest::SHA256.hexdigest(JSON.generate(normalized))
     artifact = {
@@ -264,6 +269,64 @@ class ReportSummaryRunner
     # provider placed metadata (or any other unknown key) inside a scope, the
     # gate must see it and fail closed.
     normalized.select { |key, _value| CLAIM_DECLARED_KEYS.include?(key) }
+  end
+
+  # Provider-supplied claim IDs are never identity.  The immutable edition,
+  # section/ordinal, normalized claim text, and a sorted, field-level evidence
+  # identity form one canonical input to a versioned, namespaced SHA-256 ID.
+  # This runs immediately before the gate so malformed claims still fail at
+  # the gate, while arbitrary/duplicate provider IDs cannot replace or merge
+  # an artifact claim.
+  def canonicalize_claim_ids(payload, edition_id:)
+    return payload unless payload.is_a?(Hash)
+
+    copy = JSON.parse(JSON.generate(payload))
+    copy["overview"] = canonicalize_claim_unit(copy["overview"], edition_id: edition_id, section: "overview", ordinal: 0) if copy.key?("overview")
+    if copy["key_changes"].is_a?(Array)
+      copy["key_changes"] = copy["key_changes"].each_with_index.map do |unit, index|
+        canonicalize_claim_unit(unit, edition_id: edition_id, section: "key_changes", ordinal: index)
+      end
+    end
+    if copy["uncertainties"].is_a?(Array)
+      copy["uncertainties"] = copy["uncertainties"].each_with_index.map do |unit, index|
+        canonicalize_claim_unit(unit, edition_id: edition_id, section: "uncertainties", ordinal: index)
+      end
+    end
+    copy
+  rescue JSON::GeneratorError, JSON::ParserError, TypeError
+    payload
+  end
+
+  def canonicalize_claim_unit(unit, edition_id:, section:, ordinal:)
+    return unit unless unit.is_a?(Hash)
+
+    normalized = unit.transform_keys(&:to_s)
+    normalized["claim_id"] = canonical_claim_id(normalized, edition_id: edition_id, section: section, ordinal: ordinal)
+    normalized
+  end
+
+  def canonical_claim_id(claim, edition_id:, section:, ordinal:)
+    evidence = Array(claim["evidence_scopes"]).map do |scope|
+      identity = if scope.is_a?(Hash)
+                   scope.transform_keys(&:to_s).sort.to_h
+                 else
+                   { "invalid_scope" => scope.to_s }
+                 end
+      [JSON.generate(identity), identity]
+    end.sort_by(&:first).map(&:last)
+    text = claim["text"]
+    normalized_text = text.is_a?(String) && text.respond_to?(:unicode_normalize) ? text.unicode_normalize(:nfc) : text
+    canonical_input = {
+      "namespace" => CLAIM_ID_NAMESPACE,
+      "version" => CLAIM_ID_VERSION,
+      "edition_id" => edition_id.to_s,
+      "section" => section.to_s,
+      "ordinal" => ordinal.to_i,
+      "text" => normalized_text,
+      "evidence_scopes" => evidence
+    }
+    digest = Digest::SHA256.hexdigest(JSON.generate(canonical_input))
+    "claim-#{CLAIM_ID_NAMESPACE}-#{CLAIM_ID_VERSION}-#{digest}"
   end
 
   def replay(run)

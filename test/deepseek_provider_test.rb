@@ -91,6 +91,7 @@ class DeepSeekProviderTest < Minitest::Test
     assert_includes summary_client.calls.fetch(0).fetch(:system), "输出 schema 与这些元数据完全分离"
     assert_includes summary_client.calls.fetch(0).fetch(:system), "provider_item_count"
     assert_includes summary_client.calls.fetch(0).fetch(:system), "claim 正文字段必须叫 text"
+    assert_includes summary_client.calls.fetch(0).fetch(:system), "不要输出 claim_id"
 
     answer = { "answer_sections" => [{ "kind" => "fact", "text" => "事实", "cited_version_ids" => ["v1"] }], "follow_up_questions" => [] }
     conversation_client = FakeClient.new(answer)
