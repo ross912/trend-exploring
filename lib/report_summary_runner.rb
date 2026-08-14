@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "digest"
+require "digest/sha2"
 require "json"
 require_relative "report_summary_provider"
 require_relative "report_claim_gate"
@@ -10,8 +11,59 @@ require_relative "report_claim_gate"
 # artifact rows are appended.
 class ReportSummaryRunner
   class Error < StandardError; end
+
+  # Validation failures are intentionally distinct from provider/transport or
+  # persistence failures.  Only this allowlist may trigger the single repair
+  # exchange; everything else fails closed after the initial exchange.
+  class ValidationError < Error
+    attr_reader :code, :validation_message
+
+    def initialize(message, code:, validation_message: nil)
+      @code = code.to_s
+      @validation_message = (validation_message || message).to_s
+      super(message)
+    end
+  end
+
   MAX_PROVIDER_ITEMS = 30
   MAX_PROVIDER_CHARACTERS = 25_000
+  RETRY_POLICY_VERSION = "report-summary-repair-v1"
+  MAX_PROVIDER_EXCHANGES = 2
+  REPAIRABLE_VALIDATION_CODES = %w[
+    CLAIM_ARTIFACT_SHAPE
+    CLAIM_SHAPE
+    CLAIM_TEXT_ALIAS_CONFLICT
+    CLAIM_TEXT_MISSING
+    CLAIM_KIND_INVALID
+    CLAIM_ID_INVALID
+    CLAIM_ID_DUPLICATE
+    CLAIM_EPISTEMIC_STATUS_INVALID
+    CLAIM_EVIDENCE_MISSING
+    CLAIM_SCOPE_SHAPE
+    CLAIM_SCOPE_ID_INVALID
+    CLAIM_SCOPE_ID_DUPLICATE
+    CLAIM_SCOPE_VERSION_UNKNOWN
+    CLAIM_SCOPE_FIELD_INVALID
+    CLAIM_SCOPE_TEXT_MISSING
+    CLAIM_SCOPE_NOT_LOCATABLE
+    CLAIM_RELATION_INVALID
+    CLAIM_EVIDENCE_UNKNOWN
+    CLAIM_EVIDENCE_SUPPORT_MISSING
+    CLAIM_CONTRADICTION_UNDECLARED
+    CLAIM_ALTERNATIVE_UNSUPPORTED
+    CLAIM_INFERENCE_FIELDS_FORBIDDEN
+    INFERENCE_PREMISE_MISSING
+    INFERENCE_SUPPORT_STATUS_INVALID
+    INFERENCE_PREMISE_SCOPE_MISSING
+    INFERENCE_PREMISE_NOT_SUPPORTED
+    LEGACY_CITATION_MISSING
+    LEGACY_TEXT_MISSING
+    LEGACY_PAYLOAD_UNSUPPORTED
+  ].freeze
+  REPAIRABLE_ERROR_CODES = REPAIRABLE_VALIDATION_CODES
+  REPAIRABLE_CLAIM_ERROR_CODES = REPAIRABLE_VALIDATION_CODES
+
+  SECRET_KEY_PATTERN = /(api[_-]?key|authorization|secret|password|credential|access[_-]?token|refresh[_-]?token)/i
   # These are fields that can appear in the provider input as edition or
   # projection-boundary metadata.  They are never claim fields and are never
   # accepted by ReportClaimGate.  A provider may accidentally echo them next
@@ -40,18 +92,28 @@ class ReportSummaryRunner
 
   def run(edition_id:, idempotency_key:)
     run = nil
-    receipt = nil
+    appended_receipt_ids = []
+    initial_receipt_id = nil
+    final_receipt_id = nil
+    generation_attempt_count = 0
+    repaired = false
+    repair_from_receipt_id = nil
     context = @ledger.report_summary_context(edition_id: edition_id)
     input_hash = Digest::SHA256.hexdigest(JSON.generate(context))
     metadata = {
       "provider" => @provider.provider_name.to_s,
       "model" => @provider.model.to_s,
-      "prompt_version" => provider_prompt_version
+      "prompt_version" => provider_prompt_version,
+      "retry_policy_version" => RETRY_POLICY_VERSION
     }
-    run = @ledger.append_summary_run!(edition_id: edition_id, idempotency_key: idempotency_key,
-                                      input_hash: input_hash, provider: metadata.fetch("provider"),
-                                      model: metadata.fetch("model"), prompt_version: metadata.fetch("prompt_version"))
-    return replay(run) unless run.fetch("state") == "running"
+    run = append_summary_run(metadata: metadata, edition_id: edition_id, idempotency_key: idempotency_key,
+                             input_hash: input_hash)
+    # LocalReportLedger returns this transient ownership marker after its
+    # serializable idempotency lock.  A concurrent/replayed running row is
+    # observed but never invokes the provider a second time.  Lightweight
+    # fakes from older tests omit the marker and are treated as the owner.
+    execution_owner = run.delete("__summary_execution_owner") if run.is_a?(Hash)
+    return replay(run) unless run.fetch("state") == "running" && execution_owner != false
 
     if context.fetch("placements").empty?
       return terminal_blocked(run, "raw edition is empty; summary not applicable")
@@ -61,22 +123,70 @@ class ReportSummaryRunner
     end
 
     provider_context, citation_aliases = bounded_provider_context(context)
-    raw = @provider.summarize(input: provider_context)
-    receipt = provider_receipt
-    receipt_id = if receipt
-                   unless @ledger.respond_to?(:append_provider_response_receipt!)
-                     raise Error, "provider response receipt store is unavailable"
-                   end
-                   @ledger.append_provider_response_receipt!(run_id: run.fetch("run_id"), receipt: receipt)
-                 end
-    raw = normalize_provider_claim_shape(raw)
-    raw = expand_citation_aliases(raw, citation_aliases)
-    raw = project_provider_metadata(raw)
-    legacy = ReportClaimGate.legacy_payload?(raw)
-    raw = ReportClaimGate.adapt_legacy_payload(payload: raw, placements: context.fetch("placements")) if legacy
-    raw = canonicalize_claim_ids(raw, edition_id: edition_id)
-    raw = canonicalize_claim_statuses(raw)
-    normalized = validate_output(raw, placements: context.fetch("placements"))
+    original_model_json = nil
+    raw = begin
+      value = @provider.summarize(input: provider_context)
+      original_model_json = sanitize_repair_json(provider_content(value))
+      value
+    rescue StandardError => error
+      receipt = provider_receipt(error)
+      if receipt
+        receipt = annotate_receipt(receipt, attempt_ordinal: 1, exchange_kind: "initial")
+        append_receipt!(run_id: run.fetch("run_id"), receipt: receipt, appended_receipt_ids: appended_receipt_ids)
+      end
+      raise
+    end
+
+    initial_receipt = provider_receipt
+    if initial_receipt
+      initial_receipt = annotate_receipt(initial_receipt, attempt_ordinal: 1, exchange_kind: "initial")
+      initial_receipt_id = append_receipt!(run_id: run.fetch("run_id"), receipt: initial_receipt,
+                                           appended_receipt_ids: appended_receipt_ids)
+      final_receipt_id = initial_receipt_id
+      if initial_receipt.fetch("status", "").to_s == "failed"
+        raise Error, "initial provider exchange failed; structural repair is not permitted"
+      end
+    end
+    generation_attempt_count = 1
+
+    begin
+      normalized, legacy = normalize_and_validate(raw, citation_aliases: citation_aliases,
+                                                  context: context, edition_id: edition_id)
+    rescue ValidationError => validation_error
+      raise unless repairable_validation?(validation_error)
+      unless provider_supports_repair?
+        raise Error, "#{validation_error.validation_message}; summary provider does not support structural repair"
+      end
+
+      repaired = true
+      generation_attempt_count = MAX_PROVIDER_EXCHANGES
+      repair_from_receipt_id = initial_receipt_id
+      repair_result = invoke_repair(
+        input: provider_context,
+        original_json: original_model_json || sanitize_repair_json(provider_content(raw)),
+        validation_code: validation_error.code,
+        validation_message: validation_error.validation_message,
+        context: context,
+        citation_aliases: citation_aliases
+      )
+      repair_raw = provider_content(repair_result)
+      enforce_repair_no_new_facts!(original_model_json || sanitize_repair_json(provider_content(raw)), repair_raw)
+      repair_receipt = provider_receipt
+      if repair_receipt
+        repair_receipt = annotate_receipt(repair_receipt, attempt_ordinal: 2, exchange_kind: "repair",
+                                          repair_from_receipt_id: initial_receipt_id.to_s)
+        final_receipt_id = append_receipt!(run_id: run.fetch("run_id"), receipt: repair_receipt,
+                                           appended_receipt_ids: appended_receipt_ids)
+        if repair_receipt.fetch("status", "").to_s == "failed"
+          raise Error, "repair provider exchange failed; summary remains failed"
+        end
+      end
+      # Do not recursively repair a second gate failure.  This call may raise
+      # ValidationError, which is handled by the terminal failure path below.
+      normalized, legacy = normalize_and_validate(repair_raw, citation_aliases: citation_aliases,
+                                                  context: context, edition_id: edition_id)
+    end
+
     output_hash = Digest::SHA256.hexdigest(JSON.generate(normalized))
     artifact = {
       "artifact_id" => "summary-artifact-#{run.fetch('run_id')}",
@@ -86,18 +196,27 @@ class ReportSummaryRunner
       "overview" => normalized.fetch("overview"), "key_changes" => normalized.fetch("key_changes"),
       "uncertainties" => normalized.fetch("uncertainties"), "output_hash" => output_hash,
       "claim_gate_status" => legacy ? "legacy_unverified" : "verified",
-      "provider_receipt_id" => receipt_id
+      "provider_receipt_id" => final_receipt_id,
+      "generation_attempt_count" => generation_attempt_count,
+      "repaired" => repaired,
+      "repair_from_receipt_id" => repair_from_receipt_id
     }
     stored = @ledger.finish_summary_success!(run_id: run.fetch("run_id"), artifact: artifact)
     { "status" => "succeeded", "run" => stored.fetch("run"), "artifact" => stored.fetch("artifact") }
   rescue StandardError => error
     if run
       begin
-        if receipt.nil? && error.respond_to?(:receipt)
-          receipt = error.receipt
-        end
+        # Provider failures can happen before a normal return.  Preserve that
+        # exchange receipt exactly once; validation failures already appended
+        # their initial/repair receipts before reaching this branch.
+        receipt = provider_receipt(error)
         if receipt && @ledger.respond_to?(:append_provider_response_receipt!)
-          @ledger.append_provider_response_receipt!(run_id: run.fetch("run_id"), receipt: receipt)
+          ordinal = appended_receipt_ids.empty? ? 1 : 2
+          annotated = annotate_receipt(receipt, attempt_ordinal: ordinal,
+                                        exchange_kind: ordinal == 1 ? "initial" : "repair",
+                                        repair_from_receipt_id: ordinal == 2 ? initial_receipt_id.to_s : nil)
+          append_receipt!(run_id: run.fetch("run_id"), receipt: annotated,
+                          appended_receipt_ids: appended_receipt_ids)
         end
       rescue StandardError
         nil
@@ -112,6 +231,274 @@ class ReportSummaryRunner
   alias generate! run
 
   private
+
+  def append_summary_run(metadata:, edition_id:, idempotency_key:, input_hash:)
+    kwargs = {
+      edition_id: edition_id, idempotency_key: idempotency_key, input_hash: input_hash,
+      provider: metadata.fetch("provider"), model: metadata.fetch("model"),
+      prompt_version: metadata.fetch("prompt_version"),
+      retry_policy_version: metadata.fetch("retry_policy_version")
+    }
+    method = @ledger.method(:append_summary_run!)
+    parameters = method.parameters
+    accepts_retry = parameters.any? { |kind, name| %i[key keyreq].include?(kind) && name == :retry_policy_version } ||
+                    parameters.any? { |kind, _name| kind == :keyrest }
+    kwargs.delete(:retry_policy_version) unless accepts_retry
+    @ledger.append_summary_run!(**kwargs)
+  rescue ArgumentError => error
+    # Older in-memory ledgers may not expose the new retry-policy keyword. A
+    # TypeError here is not a provider retry; fall back only when the method
+    # explicitly rejected that one optional keyword.
+    if accepts_retry && error.message.match?(/retry_policy_version|keyword/i)
+      kwargs.delete(:retry_policy_version)
+      @ledger.append_summary_run!(**kwargs)
+    else
+      raise
+    end
+  end
+
+  def provider_content(value)
+    return value unless value.is_a?(Hash) && value.key?("content")
+
+    value.fetch("content")
+  end
+
+  def provider_supports_repair?
+    return false unless @provider.respond_to?(:repair)
+    return @provider.supports_repair? if @provider.respond_to?(:supports_repair?)
+
+    true
+  rescue StandardError
+    false
+  end
+
+  def invoke_repair(input:, original_json:, validation_code:, validation_message:, context:, citation_aliases:)
+    arguments = {
+      input: input,
+      original_json: sanitize_repair_json(original_json),
+      original_model_json: sanitize_repair_json(original_json),
+      validation_code: validation_code.to_s,
+      validation_message: validation_message.to_s,
+      validation_error: { "code" => validation_code.to_s, "message" => validation_message.to_s },
+      schema: frozen_output_schema,
+      allowed_evidence: allowed_evidence(context, citation_aliases),
+      minimum_example: minimum_valid_example(context, citation_aliases)
+    }
+    method = @provider.method(:repair)
+    parameters = method.parameters
+    if parameters.any? { |kind, _name| kind == :keyrest }
+      return provider_content(@provider.repair(**arguments))
+    end
+    positional_names = parameters.select { |kind, _name| %i[req opt].include?(kind) }.map(&:last)
+    if positional_names.length >= 2
+      positional = positional_names.map do |name|
+        if arguments.key?(name)
+          arguments.fetch(name)
+        elsif %i[original_output model_output output_json].include?(name)
+          arguments.fetch(:original_json)
+        elsif name == :validation_error
+          arguments.fetch(:validation_error)
+        else
+          arguments.fetch(name, nil)
+        end
+      end
+      return provider_content(@provider.repair(*positional))
+    end
+    keyword_names = parameters.select { |kind, _name| %i[key keyreq].include?(kind) }.map(&:last)
+    if keyword_names.any?
+      aliases = {
+        original_output: :original_json,
+        model_json: :original_json,
+        output_json: :original_json,
+        original_model_output: :original_json,
+        model_output: :original_json,
+        original_model_json: :original_model_json,
+        validation_error_code: :validation_code,
+        validation_error_message: :validation_message,
+        evidence: :allowed_evidence,
+        allowed_evidence_scope: :allowed_evidence,
+        example: :minimum_example
+      }
+      selected = keyword_names.each_with_object({}) do |name, result|
+        source = arguments.key?(name) ? name : aliases.fetch(name, nil)
+        result[name] = arguments.fetch(source) if source && arguments.key?(source)
+      end
+      return provider_content(@provider.repair(**selected))
+    end
+    # Positional hash is accepted for tiny test doubles and keeps the
+    # capability explicit; a provider without repair is rejected above.
+    provider_content(@provider.repair(arguments))
+  end
+
+  def append_receipt!(run_id:, receipt:, appended_receipt_ids:)
+    return nil unless receipt.is_a?(Hash)
+    unless @ledger.respond_to?(:append_provider_response_receipt!)
+      raise Error, "provider response receipt store is unavailable"
+    end
+    receipt_id = receipt.fetch("receipt_id", "").to_s
+    receipt_key = receipt_id.empty? ? receipt.fetch("exchange_id", "").to_s : receipt_id
+    if !receipt_key.empty? && appended_receipt_ids.include?(receipt_key)
+      return receipt_id.empty? ? nil : receipt_id
+    end
+    stored_id = @ledger.append_provider_response_receipt!(run_id: run_id, receipt: receipt)
+    appended_receipt_ids << receipt_key unless receipt_key.empty?
+    appended_receipt_ids << stored_id.to_s unless stored_id.to_s.empty?
+    stored_id
+  end
+
+  def annotate_receipt(receipt, attempt_ordinal:, exchange_kind:, repair_from_receipt_id: nil)
+    return receipt unless receipt.is_a?(Hash)
+
+    receipt.merge(
+      "prompt_version" => provider_prompt_version,
+      "attempt_ordinal" => attempt_ordinal.to_i,
+      "exchange_kind" => exchange_kind.to_s,
+      "repair_from_receipt_id" => repair_from_receipt_id.to_s
+    ).tap do |annotated|
+      annotated.delete("repair_from_receipt_id") if repair_from_receipt_id.nil?
+    end
+  end
+
+  def normalize_and_validate(value, citation_aliases:, context:, edition_id:)
+    raw = normalize_provider_claim_shape(provider_content(value))
+    raw = expand_citation_aliases(raw, citation_aliases)
+    raw = project_provider_metadata(raw)
+    legacy = ReportClaimGate.legacy_payload?(raw)
+    raw = ReportClaimGate.adapt_legacy_payload(payload: raw, placements: context.fetch("placements")) if legacy
+    raw = canonicalize_claim_ids(raw, edition_id: edition_id)
+    raw = canonicalize_claim_statuses(raw)
+    [validate_output(raw, placements: context.fetch("placements")), legacy]
+  rescue ValidationError
+    raise
+  rescue ReportClaimGate::Error => error
+    raise validation_error_from(error)
+  rescue Error => error
+    raise error
+  end
+
+  def repairable_validation?(error)
+    error.is_a?(ValidationError) && REPAIRABLE_VALIDATION_CODES.include?(error.code.to_s)
+  end
+
+  def validation_error_from(error)
+    message = error.message.to_s
+    code = error.respond_to?(:code) && !error.code.to_s.empty? ? error.code.to_s : message[/\A([A-Z][A-Z0-9_]+)/, 1].to_s
+    code = "CLAIM_ARTIFACT_SHAPE" if code.empty?
+    ValidationError.new("claim gate blocked summary: #{message}", code: code, validation_message: message)
+  end
+
+  def sanitize_repair_json(value)
+    case value
+    when Hash
+      value.each_with_object({}) do |(key, child), result|
+        key_string = key.to_s
+        result[key_string] = SECRET_KEY_PATTERN.match?(key_string) ? "[REDACTED]" : sanitize_repair_json(child)
+      end
+    when Array
+      value.map { |child| sanitize_repair_json(child) }
+    else
+      value
+    end
+  end
+
+  # The repair exchange is a structural/reference correction only.  Every
+  # repaired claim text must already occur in the initial model JSON (under
+  # either the canonical text field or its explicitly supported summary alias)
+  # so a repair cannot smuggle in a new assertion while fixing a shape error.
+  def enforce_repair_no_new_facts!(original_json, repaired_json)
+    original_texts = claim_text_values(original_json).map { |value| normalize_claim_text_for_id(value) }.uniq
+    repaired_texts = claim_text_values(repaired_json).map { |value| normalize_claim_text_for_id(value) }.uniq
+    added = repaired_texts - original_texts
+    return if added.empty?
+
+    raise Error, "summary repair attempted to add a new claim fact"
+  end
+
+  def claim_text_values(value)
+    case value
+    when Hash
+      value.each_with_object([]) do |(key, child), result|
+        if %w[text summary].include?(key.to_s) && child.is_a?(String)
+          result << child
+        else
+          result.concat(claim_text_values(child))
+        end
+      end
+    when Array
+      value.flat_map { |child| claim_text_values(child) }
+    else
+      []
+    end
+  end
+
+  def allowed_evidence(context, citation_aliases)
+    placements = context.fetch("placements")
+    rows = placements.map do |placement|
+      {
+        "version_id" => placement.fetch("version_id").to_s,
+        "title" => placement.fetch("title", "").to_s,
+        "summary" => placement.fetch("summary", "").to_s
+      }
+    end
+    {
+      "aliases" => citation_aliases.sort.to_h,
+      "version_ids" => rows.map { |row| row.fetch("version_id") },
+      "placements" => rows
+    }
+  end
+
+  def frozen_output_schema
+    {
+      "type" => "object",
+      "required" => %w[overview key_changes uncertainties],
+      "additionalProperties" => false,
+      "properties" => {
+        "overview" => { "type" => "claim" },
+        "key_changes" => { "type" => "array", "items" => { "type" => "claim" }, "maxItems" => 8 },
+        "uncertainties" => { "type" => "array", "items" => { "type" => "claim" }, "maxItems" => 5 }
+      },
+      "claim" => {
+        "type" => "object", "required" => %w[kind text evidence_scopes], "additionalProperties" => false,
+        "properties" => {
+          "kind" => { "enum" => ReportClaimGate::KINDS },
+          "text" => { "type" => "string" },
+          "evidence_scopes" => { "type" => "array", "items" => { "type" => "evidence_scope" }, "minItems" => 1 },
+          "premise_scope_ids" => { "type" => "array", "items" => { "type" => "string" } },
+          "inference_support_status" => { "const" => "supported" }
+        }
+      },
+      "evidence_scope" => {
+        "type" => "object", "required" => %w[scope_id version_id field text relation], "additionalProperties" => false,
+        "properties" => {
+          "scope_id" => { "type" => "string" }, "version_id" => { "type" => "string" },
+          "field" => { "enum" => ReportClaimGate::SCOPE_FIELDS }, "text" => { "type" => "string" },
+          "relation" => { "enum" => ReportClaimGate::RELATIONS - ["unknown"] }
+        }
+      }
+    }
+  end
+
+  def minimum_valid_example(context, citation_aliases)
+    placement = context.fetch("placements").first
+    return { "overview" => {}, "key_changes" => [], "uncertainties" => [] } unless placement
+
+    version_id = placement.fetch("version_id").to_s
+    excerpt = placement.fetch("summary", "").to_s
+    field = "summary"
+    if excerpt.empty?
+      field = "title"
+      excerpt = placement.fetch("title", "").to_s
+    end
+    alias_id = citation_aliases.key(version_id) || version_id
+    {
+      "overview" => {
+        "kind" => "fact", "text" => "仅保留原始证据支持的陈述",
+        "evidence_scopes" => [{ "scope_id" => "scope-repair-example", "version_id" => alias_id,
+                                  "field" => field, "text" => excerpt, "relation" => "supports" }]
+      },
+      "key_changes" => [], "uncertainties" => []
+    }
+  end
 
   # The raw edition remains complete. Only the replaceable AI projection is
   # bounded: deterministic round-robin across publishers, preserving report
@@ -210,7 +597,8 @@ class ReportSummaryRunner
 
     if normalized.key?("text")
       unless normalized.fetch("text") == normalized.fetch("summary")
-        raise Error, "claim text alias conflict: text and summary differ"
+        raise ValidationError.new("claim text alias conflict: text and summary differ",
+                                  code: "CLAIM_TEXT_ALIAS_CONFLICT")
       end
       normalized.delete("summary")
     else
@@ -404,12 +792,15 @@ class ReportSummaryRunner
   def validate_output(payload, placements:)
     ReportClaimGate.validate_artifact!(payload: payload, placements: placements)
   rescue ReportClaimGate::Error => error
-    raise Error, "claim gate blocked summary: #{error.message}"
+    raise validation_error_from(error)
   end
 
-  def provider_receipt
+  def provider_receipt(error = nil)
     receipt = @provider.respond_to?(:last_receipt) ? @provider.last_receipt : nil
     return receipt if receipt.is_a?(Hash)
+    if error && error.respond_to?(:receipt) && error.receipt.is_a?(Hash)
+      return error.receipt
+    end
     return nil unless @provider.respond_to?(:provider_name) && @provider.provider_name.to_s == "deepseek"
 
     raise Error, "provider response receipt missing"

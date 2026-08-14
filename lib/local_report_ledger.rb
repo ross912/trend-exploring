@@ -316,7 +316,8 @@ class LocalReportLedger
   # Append a summary attempt.  The idempotency key is the only key used to
   # locate a prior run; every other input is checked on replay so a key can
   # never silently point at a different edition or provider contract.
-  def append_summary_run!(edition_id:, idempotency_key:, input_hash:, provider:, model:, prompt_version:)
+  def append_summary_run!(edition_id:, idempotency_key:, input_hash:, provider:, model:, prompt_version:,
+                          retry_policy_version: "report-summary-repair-v1")
     raise Error, "summary idempotency_key is required" if idempotency_key.to_s.empty?
     expected_input_hash = Digest::SHA256.hexdigest(JSON.generate(report_summary_context(edition_id: edition_id)))
     raise Error, "summary input_hash does not match server recomputation" unless input_hash.to_s == expected_input_hash
@@ -324,13 +325,14 @@ class LocalReportLedger
     begin
       transaction do
         rows = transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE idempotency_key = #{literal(idempotency_key)} FOR UPDATE")
+        owner = rows.empty?
         if rows.empty?
           run_id = "summary-run-#{Digest::SHA256.hexdigest(idempotency_key.to_s)[0, 32]}"
           transaction_query(<<~SQL)
             INSERT INTO local_report_summary_run
-              (run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, state)
+              (run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state)
             VALUES (#{literal(run_id)}, #{literal(edition_id)}, #{literal(idempotency_key)}, #{literal(input_hash)},
-                    #{literal(provider)}, #{literal(model)}, #{literal(prompt_version)}, 'running')
+                    #{literal(provider)}, #{literal(model)}, #{literal(prompt_version)}, #{literal(retry_policy_version)}, 'running')
             ON CONFLICT (idempotency_key) DO NOTHING
           SQL
           rows = transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE idempotency_key = #{literal(idempotency_key)} FOR UPDATE")
@@ -339,11 +341,16 @@ class LocalReportLedger
         expected = {
           "edition_id" => edition_id.to_s, "input_hash" => input_hash.to_s,
           "provider" => provider.to_s, "model" => model.to_s,
-          "prompt_version" => prompt_version.to_s
+          "prompt_version" => prompt_version.to_s,
+          "retry_policy_version" => retry_policy_version.to_s
         }
         expected.each do |key, value|
           raise Error, "summary idempotency key payload differs (#{key})" unless run.fetch(key).to_s == value
         end
+        # This marker is deliberately not persisted. It lets a concurrent
+        # caller replay a running idempotency row without invoking the
+        # provider a second time, while retaining the historical run shape.
+        run["__summary_execution_owner"] = owner
         run
       end
     rescue Error => error
@@ -391,13 +398,17 @@ class LocalReportLedger
         transaction_query(<<~SQL)
           INSERT INTO local_report_summary_artifact
             (artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version,
-             overview, key_changes, uncertainties, output_hash, claim_gate_status, provider_receipt_id)
+             overview, key_changes, uncertainties, output_hash, claim_gate_status, provider_receipt_id,
+             generation_attempt_count, repaired, repair_from_receipt_id)
           VALUES (#{literal(artifact.fetch('artifact_id'))}, #{literal(run_id)}, #{literal(artifact.fetch('edition_id'))},
                   #{literal(artifact.fetch('input_hash'))}, #{literal(artifact.fetch('provider'))}, #{literal(artifact.fetch('model'))},
                   #{literal(artifact.fetch('prompt_version'))}, #{literal(JSON.generate(artifact.fetch('overview')))}::jsonb,
                   #{literal(JSON.generate(artifact.fetch('key_changes')))}::jsonb, #{literal(JSON.generate(artifact.fetch('uncertainties')))}::jsonb,
                   #{literal(artifact.fetch('output_hash'))}, #{literal(artifact.fetch('claim_gate_status', 'legacy_unverified'))},
-                  #{nullable_literal(artifact.fetch('provider_receipt_id', nil))})
+                  #{nullable_literal(artifact.fetch('provider_receipt_id', nil))},
+                  #{Integer(artifact.fetch('generation_attempt_count', 1))},
+                  #{artifact.fetch('repaired', false) ? 'TRUE' : 'FALSE'},
+                  #{nullable_literal(artifact.fetch('repair_from_receipt_id', nil))})
         SQL
         transaction_query("UPDATE local_report_summary_run SET state = 'succeeded', finished_at = now(), error_reason = '' WHERE run_id = #{literal(run_id)}")
         terminal = normalize_summary_run(row_to_hash(transaction_query("SELECT #{summary_run_columns} FROM local_report_summary_run WHERE run_id = #{literal(run_id)}").fetch(0), SUMMARY_RUN_KEYS))
@@ -406,15 +417,27 @@ class LocalReportLedger
     end
   end
 
-  # Append one immutable provider exchange receipt for a summary run.  A run
-  # may have at most one receipt; a replay carrying a different exchange or
-  # request/response hash is rejected instead of silently reusing the key.
+  # Append one immutable provider exchange receipt for a summary run. A run
+  # may contain the initial exchange and one structural repair exchange. Each
+  # (run, attempt_ordinal) remains unique; a replay carrying a different
+  # exchange or request/response hash is rejected instead of silently
+  # reusing the idempotency key.
   def append_provider_response_receipt!(run_id:, receipt:)
     raise Error, "provider response receipt must be an object" unless receipt.is_a?(Hash)
     required = %w[exchange_id provider model prompt_version canonical_request_hash raw_response_hash captured_at status]
     missing = required.select { |key| receipt.fetch(key, "").to_s.empty? }
     raise Error, "provider response receipt missing #{missing.join(', ')}" unless missing.empty?
     raise Error, "provider response receipt status is invalid" unless %w[succeeded failed].include?(receipt.fetch("status").to_s)
+    ordinal = Integer(receipt.fetch("attempt_ordinal", 1))
+    raise Error, "provider response receipt attempt_ordinal is invalid" unless [1, 2].include?(ordinal)
+    exchange_kind = receipt.fetch("exchange_kind", ordinal == 1 ? "initial" : "repair").to_s
+    raise Error, "provider response receipt exchange_kind is invalid" unless %w[initial repair].include?(exchange_kind)
+    if ordinal == 1 && exchange_kind != "initial"
+      raise Error, "initial provider response receipt exchange_kind is invalid"
+    end
+    if ordinal == 2 && exchange_kind != "repair"
+      raise Error, "repair provider response receipt exchange_kind is invalid"
+    end
     receipt_id = receipt.fetch("receipt_id", "receipt-#{Digest::SHA256.hexdigest([run_id, receipt.fetch('exchange_id')].join("\u0000"))[0, 32]}").to_s
     canonical = canonical_provider_receipt(receipt, receipt_id: receipt_id)
     transaction do
@@ -427,29 +450,40 @@ class LocalReportLedger
       existing = transaction_query(<<~SQL)
         SELECT receipt_id, exchange_id, provider, model, prompt_version,
                canonical_request_hash, raw_response_hash, http_status, request_id,
-               captured_at::text, status, response_available, error_code, error_message
+               captured_at::text, status, response_available, error_code, error_message,
+               attempt_ordinal, exchange_kind, repair_from_receipt_id
           FROM provider_response_receipt
          WHERE run_id = #{literal(run_id)}
          FOR UPDATE
       SQL
-      unless existing.empty?
-        row = row_to_hash(existing.fetch(0), canonical.keys)
-        actual = canonical_provider_receipt(row, receipt_id: row.fetch("receipt_id"))
-        raise Error, "provider response receipt replay differs for idempotency key" unless actual == canonical
-        next canonical.fetch("receipt_id")
+      existing_receipt_id = nil
+      existing.each do |line|
+        row = row_to_hash(line, RECEIPT_KEYS)
+        if row.fetch("receipt_id") == canonical.fetch("receipt_id") ||
+           row.fetch("exchange_id") == canonical.fetch("exchange_id") ||
+           row.fetch("attempt_ordinal").to_i == canonical.fetch("attempt_ordinal").to_i
+          actual = canonical_provider_receipt(row, receipt_id: row.fetch("receipt_id"))
+          raise Error, "provider response receipt replay differs for idempotency key" unless actual == canonical
+          existing_receipt_id = canonical.fetch("receipt_id")
+          break
+        end
       end
+      next existing_receipt_id if existing_receipt_id
       transaction_query(<<~SQL)
         INSERT INTO provider_response_receipt
           (receipt_id, run_id, provider, model, prompt_version, exchange_id,
            canonical_request_hash, raw_response_hash, http_status, request_id,
-           captured_at, status, response_available, error_code, error_message)
+           captured_at, status, response_available, error_code, error_message,
+           attempt_ordinal, exchange_kind, repair_from_receipt_id)
         VALUES (#{literal(canonical.fetch('receipt_id'))}, #{literal(run_id)}, #{literal(canonical.fetch('provider'))},
                 #{literal(canonical.fetch('model'))}, #{literal(canonical.fetch('prompt_version'))}, #{literal(canonical.fetch('exchange_id'))},
                 #{literal(canonical.fetch('canonical_request_hash'))}, #{literal(canonical.fetch('raw_response_hash'))},
                 #{canonical.fetch('http_status').nil? ? 'NULL' : Integer(canonical.fetch('http_status'))},
                 #{literal(canonical.fetch('request_id'))}, #{literal(canonical.fetch('captured_at'))},
                 #{literal(canonical.fetch('status'))}, #{canonical.fetch('response_available') ? 'TRUE' : 'FALSE'},
-                #{literal(canonical.fetch('error_code'))}, #{literal(canonical.fetch('error_message'))})
+                #{literal(canonical.fetch('error_code'))}, #{literal(canonical.fetch('error_message'))},
+                #{Integer(canonical.fetch('attempt_ordinal'))}, #{literal(canonical.fetch('exchange_kind'))},
+                #{nullable_literal(canonical.fetch('repair_from_receipt_id', nil))})
       SQL
       canonical.fetch("receipt_id")
     end
@@ -475,7 +509,10 @@ class LocalReportLedger
       "status" => receipt.fetch("status").to_s,
       "response_available" => %w[t true 1].include?(receipt.fetch("response_available", false).to_s.downcase),
       "error_code" => receipt.fetch("error_code", "").to_s,
-      "error_message" => receipt.fetch("error_message", "").to_s[0, 1000]
+      "error_message" => receipt.fetch("error_message", "").to_s[0, 1000],
+      "attempt_ordinal" => Integer(receipt.fetch("attempt_ordinal", 1)),
+      "exchange_kind" => receipt.fetch("exchange_kind", "initial").to_s,
+      "repair_from_receipt_id" => receipt.fetch("repair_from_receipt_id", nil).to_s
     }
   end
 
@@ -483,6 +520,18 @@ class LocalReportLedger
     Time.parse(value.to_s).utc.iso8601(6)
   rescue ArgumentError
     raise Error, "provider response receipt captured_at is invalid"
+  end
+
+  def provider_response_receipts_for_run(run_id:)
+    query(<<~SQL).map { |row| row_to_hash(row, RECEIPT_KEYS) }
+      SELECT receipt_id, exchange_id, provider, model, prompt_version,
+             canonical_request_hash, raw_response_hash, http_status, request_id,
+             captured_at::text, status, response_available, error_code, error_message,
+             attempt_ordinal, exchange_kind, repair_from_receipt_id
+        FROM provider_response_receipt
+       WHERE run_id = #{literal(run_id)}
+       ORDER BY attempt_ordinal ASC, created_at ASC, receipt_id ASC
+    SQL
   end
 
   def summary_runs_for_edition(edition_id:)
@@ -620,8 +669,9 @@ class LocalReportLedger
   ATTEMPT_KEYS = %w[attempt_id slot_id idempotency_key payload_hash state started_at finished_at failure_reason created_at updated_at].freeze
   EDITION_KEYS = %w[edition_id slot_id attempt_id nominal_window_start nominal_window_end configured_data_cutoff processing_frontier selection_completeness_frontier data_cutoff comparison_watermark publication_committed_at edition_status reason_codes summary_status payload_hash item_count created_at updated_at].freeze
   PLACED_ITEM_KEYS = %w[placement_id sort_order placement_kind reason_codes arrival_id version_id item_key capture_id content_hash information_arrival_at nominal_slot_id arrival_kind source_id source_name language title summary source_url published_at fetched_at captured_at publisher_name publisher_url publisher_id publisher_identity_status source_kind original_title original_summary translation_status translation_artifact_id translated_at].freeze
-  SUMMARY_RUN_KEYS = %w[run_id edition_id idempotency_key input_hash provider model prompt_version state started_at finished_at error_reason created_at updated_at].freeze
-  SUMMARY_ARTIFACT_KEYS = %w[artifact_id run_id edition_id input_hash provider model prompt_version overview key_changes uncertainties output_hash claim_gate_status provider_receipt_id created_at].freeze
+  SUMMARY_RUN_KEYS = %w[run_id edition_id idempotency_key input_hash provider model prompt_version retry_policy_version state started_at finished_at error_reason created_at updated_at].freeze
+  SUMMARY_ARTIFACT_KEYS = %w[artifact_id run_id edition_id input_hash provider model prompt_version overview key_changes uncertainties output_hash claim_gate_status provider_receipt_id generation_attempt_count repaired repair_from_receipt_id created_at].freeze
+  RECEIPT_KEYS = %w[receipt_id exchange_id provider model prompt_version canonical_request_hash raw_response_hash http_status request_id captured_at status response_available error_code error_message attempt_ordinal exchange_kind repair_from_receipt_id].freeze
   TIMESTAMP_KEYS = %w[window_start window_end scheduled_at configured_data_cutoff created_at updated_at information_arrival_at started_at finished_at nominal_window_start nominal_window_end processing_frontier selection_completeness_frontier data_cutoff publication_committed_at published_at fetched_at captured_at comparison_watermark].freeze
 
   def slot_columns
@@ -899,21 +949,26 @@ class LocalReportLedger
   end
 
   def summary_run_columns
-    "run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, state, started_at::text, finished_at::text, regexp_replace(error_reason, E'[\\n\\r\\t]+', ' ', 'g'), created_at::text, updated_at::text"
+    "run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state, started_at::text, finished_at::text, regexp_replace(error_reason, E'[\\n\\r\\t]+', ' ', 'g'), created_at::text, updated_at::text"
   end
 
   def summary_artifact_columns
-    "artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, created_at::text"
+    "artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, generation_attempt_count, repaired, repair_from_receipt_id, created_at::text"
   end
 
   def normalize_summary_run(row)
-    canonicalize_timestamps(row)
+    canonicalize_timestamps(row).tap do |normalized|
+      normalized["retry_policy_version"] = "report-summary-repair-v1" if normalized.fetch("retry_policy_version", "").to_s.empty?
+    end
   end
 
   def normalize_summary_artifact(row)
     normalized = canonicalize_timestamps(row)
     %w[overview key_changes uncertainties].each { |key| normalized[key] = parse_json(normalized.fetch(key)) }
     normalized["claim_gate_status"] = normalized.fetch("claim_gate_status", "").to_s.empty? ? "legacy_unverified" : normalized.fetch("claim_gate_status")
+    normalized["generation_attempt_count"] = normalized.fetch("generation_attempt_count", "1").to_i
+    normalized["repaired"] = truthy?(normalized.fetch("repaired", "false"))
+    normalized["repair_from_receipt_id"] = nil if normalized.fetch("repair_from_receipt_id", "").to_s.empty?
     normalized
   end
 
@@ -1018,6 +1073,12 @@ class LocalReportLedger
 
   def literal(value)
     "'#{value.to_s.gsub("'", "''")}'"
+  end
+
+  def nullable_literal(value)
+    return "NULL" if value.nil? || value.to_s.empty?
+
+    literal(value)
   end
 
   def query(sql)

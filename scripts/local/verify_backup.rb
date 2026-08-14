@@ -17,10 +17,11 @@ TABLES = {
     "local_article_archive" => "SELECT archive_id, source_version_id, body_hash, body_chars, archived_at::text FROM local_article_archive ORDER BY archive_id",
     "local_article_translation_run" => "SELECT run_id, archive_id, state, source_body_hash, prompt_tokens, completion_tokens FROM local_article_translation_run ORDER BY run_id",
     "local_metadata_translation_run" => "SELECT run_id, source_version_id, item_key, state, source_content_hash, prompt_tokens, completion_tokens FROM local_metadata_translation_run ORDER BY run_id",
-    "local_report_summary_run" => "SELECT run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, state, started_at::text, finished_at::text, error_reason, created_at::text, updated_at::text FROM local_report_summary_run ORDER BY run_id",
-    "local_report_summary_artifact" => "SELECT artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, created_at::text FROM local_report_summary_artifact ORDER BY artifact_id",
-    "provider_response_receipt" => "SELECT receipt_id, run_id, provider, model, prompt_version, exchange_id, canonical_request_hash, raw_response_hash, http_status, request_id, captured_at::text, status, response_available, error_code, error_message, created_at::text FROM provider_response_receipt ORDER BY receipt_id",
-    "report_claim_gate_schema_meta" => "SELECT schema_version, installed_at::text FROM report_claim_gate_schema_meta ORDER BY schema_version"
+    "local_report_summary_run" => "SELECT run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state, started_at::text, finished_at::text, error_reason, created_at::text, updated_at::text FROM local_report_summary_run ORDER BY run_id",
+    "local_report_summary_artifact" => "SELECT artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, generation_attempt_count, repaired, repair_from_receipt_id, created_at::text FROM local_report_summary_artifact ORDER BY artifact_id",
+    "provider_response_receipt" => "SELECT receipt_id, run_id, provider, model, prompt_version, exchange_id, canonical_request_hash, raw_response_hash, http_status, request_id, captured_at::text, status, response_available, error_code, error_message, attempt_ordinal, exchange_kind, repair_from_receipt_id, created_at::text FROM provider_response_receipt ORDER BY receipt_id",
+    "report_claim_gate_schema_meta" => "SELECT schema_version, installed_at::text FROM report_claim_gate_schema_meta ORDER BY schema_version",
+    "report_summary_repair_schema_meta" => "SELECT schema_version, installed_at::text FROM report_summary_repair_schema_meta ORDER BY schema_version"
   },
   "personal" => {
     "memory_entry" => "SELECT memory_entry_id, subject_key, memory_kind, text, recorded_at::text, supersedes_entry_id, status, evidence_version_ids::text, source FROM memory_entry ORDER BY memory_entry_id",
@@ -39,6 +40,12 @@ TABLES = {
 # is never silently represented as a zero-row table in the manifest.
 GLOBAL_021_RELATIONS = %w[provider_response_receipt report_claim_gate_schema_meta].freeze
 GLOBAL_021_COLUMNS = %w[claim_gate_status provider_receipt_id].freeze
+GLOBAL_022_RELATIONS = %w[report_summary_repair_schema_meta].freeze
+GLOBAL_022_COLUMNS = {
+  "local_report_summary_run" => %w[retry_policy_version],
+  "local_report_summary_artifact" => %w[generation_attempt_count repaired repair_from_receipt_id],
+  "provider_response_receipt" => %w[attempt_ordinal exchange_kind repair_from_receipt_id]
+}.freeze
 PERSONAL_002_RELATIONS = %w[
   conversation_thread
   conversation_turn
@@ -54,6 +61,9 @@ LEGACY_REPORT_SUMMARY_ARTIFACT_QUERY = <<~SQL.freeze
     FROM local_report_summary_artifact
    ORDER BY artifact_id
 SQL
+POST_021_REPORT_SUMMARY_RUN_QUERY = "SELECT run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, state, started_at::text, finished_at::text, error_reason, created_at::text, updated_at::text FROM local_report_summary_run ORDER BY run_id".freeze
+POST_021_REPORT_SUMMARY_ARTIFACT_QUERY = "SELECT artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, created_at::text FROM local_report_summary_artifact ORDER BY artifact_id".freeze
+POST_021_PROVIDER_RECEIPT_QUERY = "SELECT receipt_id, run_id, provider, model, prompt_version, exchange_id, canonical_request_hash, raw_response_hash, http_status, request_id, captured_at::text, status, response_available, error_code, error_message, created_at::text FROM provider_response_receipt ORDER BY receipt_id".freeze
 
 options = { mode: "verify", manifest: nil, expected_stats: nil, dump_dir: nil, global_database: ENV["LOCAL_PGDATABASE"], personal_database: ENV["PERSONAL_PGDATABASE"], host: ENV["LOCAL_PGHOST"], port: ENV["LOCAL_PGPORT"], user: ENV["LOCAL_PGUSER"], psql: ENV["LOCAL_PSQL"] }
 OptionParser.new do |parser|
@@ -116,6 +126,21 @@ def schema_states(options)
                    raise "global database has a partial 021 schema; refusing backup verification"
                  end
 
+  if global_state == "post_021"
+    global_022_relation_flags = GLOBAL_022_RELATIONS.to_h { |relation| [relation, relation_present?(options, options.fetch(:global_database), relation)] }
+    global_022_column_flags = GLOBAL_022_COLUMNS.each_with_object({}) do |(relation, columns), result|
+      columns.each { |column| result["#{relation}.#{column}"] = column_present?(options, options.fetch(:global_database), relation, column) }
+    end
+    global_022_features = global_022_relation_flags.values + global_022_column_flags.values
+    global_state = if global_022_features.all?
+                     "post_022"
+                   elsif global_022_features.none?
+                     "post_021"
+                   else
+                     raise "global database has a partial 022 schema; refusing backup verification"
+                   end
+  end
+
   personal_relation_flags = PERSONAL_002_RELATIONS.to_h { |relation| [relation, relation_present?(options, options.fetch(:personal_database), relation)] }
   personal_features = personal_relation_flags.values
   personal_state = if personal_features.all?
@@ -133,6 +158,11 @@ def table_definitions(options, database, role, schema_state)
   if role == "global" && schema_state == "pre_021"
     definitions["local_report_summary_artifact"] = LEGACY_REPORT_SUMMARY_ARTIFACT_QUERY
     GLOBAL_021_RELATIONS.each { |relation| definitions.delete(relation) }
+  elsif role == "global" && schema_state == "post_021"
+    definitions["local_report_summary_run"] = POST_021_REPORT_SUMMARY_RUN_QUERY
+    definitions["local_report_summary_artifact"] = POST_021_REPORT_SUMMARY_ARTIFACT_QUERY
+    definitions["provider_response_receipt"] = POST_021_PROVIDER_RECEIPT_QUERY
+    definitions.delete("report_summary_repair_schema_meta")
   elsif role == "personal" && schema_state == "pre_002"
     PERSONAL_002_RELATIONS.each { |relation| definitions.delete(relation) }
   end
@@ -164,7 +194,13 @@ def inferred_schema_states(table_stats)
   global_tables = table_stats.fetch("global", {}).keys
   personal_tables = table_stats.fetch("personal", {}).keys
   {
-    "global" => (GLOBAL_021_RELATIONS.all? { |relation| global_tables.include?(relation) } ? "post_021" : "pre_021"),
+    "global" => if GLOBAL_022_RELATIONS.all? { |relation| global_tables.include?(relation) }
+                  "post_022"
+                elsif GLOBAL_021_RELATIONS.all? { |relation| global_tables.include?(relation) }
+                  "post_021"
+                else
+                  "pre_021"
+                end,
     "personal" => (PERSONAL_002_RELATIONS.all? { |relation| personal_tables.include?(relation) } ? "post_002" : "pre_002")
   }
 end

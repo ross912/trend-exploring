@@ -12,7 +12,14 @@ require "json"
 # provider's declared scope and relation contract and rejects anything that
 # cannot be replayed against the archived title/summary fields.
 class ReportClaimGate
-  class Error < StandardError; end
+  class Error < StandardError
+    attr_reader :code
+
+    def initialize(message, code: nil)
+      @code = (code || message.to_s[/\A([A-Z][A-Z0-9_]+)/, 1]).to_s
+      super(message)
+    end
+  end
 
   KINDS = %w[fact source_claim ai_inference uncertainty].freeze
   EPISTEMIC_STATUSES = %w[asserted disputed retracted unknown].freeze
