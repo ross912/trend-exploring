@@ -1,17 +1,17 @@
-# Ubuntu 24.04 云端上线手册（zixin.space）
+# Ubuntu 24.04 云端上线手册（radar.zixin.space）
 
-本手册只描述上线包和验收顺序；本次开发不连接 VPS、不改 DNS。目标机器为 2 vCPU、2 GiB RAM、40 GiB 磁盘，应用由专用的 `trendexploring` 系统账号运行。
+本手册只描述上线包和验收顺序；上线操作单独连接 VPS。目标机器为 2 vCPU、2 GiB RAM、40 GiB 磁盘，应用由专用的 `trendexploring` 系统账号运行。现有 `zixin.space` 与 `sg.zixin.space` 的 Nginx 站点保持不动，观察台使用独立子域名。
 
-DNS 由人工操作单独完成：添加 `A zixin.space -> 116.62.118.251`（如使用
-IPv6 再单独评估 AAAA），等待解析确认后再让 Caddy 申请证书。仓库脚本不
+DNS 由人工操作单独完成：添加 `A radar.zixin.space -> 116.62.118.251`（如使用
+IPv6 再单独评估 AAAA），等待解析确认后再让 Certbot 申请证书。仓库脚本不
 调用 DNS API，也不假设解析已经生效。
 
 ## 安全边界
 
-- 公网只允许 TCP `22/80/443`。Caddy 监听公网并负责 `zixin.space` 的 TLS；应用只绑定 `127.0.0.1:3000`，PostgreSQL 只监听 `localhost`/Unix socket。
+- 公网只允许 TCP `22/80/443`。现有 Nginx 负责 `radar.zixin.space` 的 TLS 与反代，Caddy 仍可作为兼容路径但不会被 Nginx 安装流程替换；应用只绑定 `127.0.0.1:3000`，PostgreSQL 只监听 `localhost`/Unix socket。
 - 首页、静态资源、`/login`、登录/恢复 POST 和最小 `/api/livez` 可公开；`/app`、所有其他数据 API（包括 `/api/health`）、管理/发布/付费动作必须由后端会话认证。Caddy 不叠加 BasicAuth，避免出现两套凭据。
 - `/etc/trend-exploring/trend-exploring.env` 是 root:trendexploring、权限 `0600` 的本地文件。不要把数据库 URL、会话密钥、GPG 私钥或恢复码放进仓库、argv、日志或备份 manifest。
-- `CLOUD_PUBLIC_DEPLOYMENT=1`、`PUBLIC_UNAUTHENTICATED_MODE=0`、`AUTH_REQUIRED_FOR_APP=1`、`PUBLISH_API_ENABLED=0` 是云端 fail-closed 合同。任一旧 local/anonymous 值都会使 worker 拒绝启动。
+- `CLOUD_PUBLIC_DEPLOYMENT=1`、`PUBLIC_UNAUTHENTICATED_MODE=0`、`AUTH_REQUIRED_FOR_APP=1`、`PUBLISH_API_ENABLED=0` 是云端 fail-closed 合同。任一旧 local/anonymous 值都会使 worker 拒绝启动。Nginx 只信任 loopback 上游，应用的 `TRUSTED_PROXY_CIDRS` 不得扩大。
 - 先由后端/auth agent 配置单账号登录密码、恢复码哈希和 session/cookie secret，再把引用写入权限为 0600 的 env/secrets 文件；本上线包不生成、显示或传输这些值。
 
 ## 第一次安装
@@ -26,13 +26,35 @@ strict 预检会阻止低于约 1.5 GiB RAM、1 GiB swap、10 GiB root free 或
 root 使用率达到 75% 的主机；非 strict 模式只警告。容量门禁不替代上线后
 的 OOM/journal 观察。
 
-安装包不会自动启动服务，也不会覆盖已有 env/Caddy/PostgreSQL 配置：
+安装包不会自动启动服务，也不会覆盖已有 env、Nginx/Caddy/PostgreSQL 配置。当前目标使用 Nginx；`--proxy caddy` 仍保留旧 Caddy 路径：
 
 ```bash
-sudo bash scripts/cloud/install.sh --repo-root /path/to/checkout
+sudo bash scripts/cloud/install.sh --repo-root /path/to/checkout --proxy nginx --domain radar.zixin.space
 sudoedit /etc/trend-exploring/trend-exploring.env
 sudo chmod 600 /etc/trend-exploring/trend-exploring.env
 ```
+
+安装 Nginx 时会把 `www-data` 加入 `trendexploring` 组以读取不可变 release，
+写入独立的 `radar.zixin.space` 站点和 `/etc/nginx/snippets/trend-exploring-*`
+代理片段；不会改写已有 `zixin.space`、`sg.zixin.space` 站点。首次安装会先
+写入 HTTP-only ACME bootstrap，证书签发后用同一命令加
+`--replace-config`，脚本才会切换到 TLS 配置。已存在目标站点时必须人工审阅，
+不传 `--replace-config` 不覆盖。
+
+```bash
+# 先确认 Nginx 已加载 bootstrap 配置
+sudo nginx -t && sudo systemctl reload nginx
+# 证书申请只使用 ACME webroot，不接管其它站点
+sudo certbot certonly --webroot -w /var/www/trend-exploring-acme \
+  -d radar.zixin.space --agree-tos --no-eff-email -m YOUR_EMAIL
+# 安装带 TLS、路径门禁和安全 header 的站点，再验收并 reload
+sudo bash scripts/cloud/install.sh --repo-root /path/to/checkout \
+  --proxy nginx --domain radar.zixin.space --replace-config
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+如果 VPS 仍使用 Caddy，只需省略 `--proxy nginx`（默认 Caddy）；旧的
+`deploy/cloud/caddy/Caddyfile` 不会被 Nginx 分支触碰。
 
 模板同时设置应用实际读取的 `LOCAL_PGSOCKET=/var/run/postgresql`、
 `LOCAL_PGPORT=5432`、`LOCAL_PGUSER`、`LOCAL_PGDATABASE`、
@@ -80,7 +102,10 @@ swap 脚本只接受 1G/2G，检测到已有活动 swap 或同名文件时不覆
 
 ```bash
 sudo bash scripts/cloud/deploy_release.sh --source /path/to/checkout
-sudo systemctl restart caddy  # 首次将 caddy 加入 trendexploring 组后刷新组权限
+# Nginx: refresh www-data's supplementary group after the first install
+sudo systemctl restart nginx
+# Caddy compatibility path instead:
+sudo systemctl restart caddy
 ```
 
 迁移 timer 默认未 enable；需要变更前先完成备份审阅，再显式创建 `/etc/trend-exploring/enable-migrations` 或安装时使用 `--enable-migrations`。迁移脚本分别在 global 与 personal 数据库按受控清单执行：global 只运行 `011_local_radar.sql` 到 `024_metadata_translation_leases.sql`，personal 只运行 `001_personal_memory.sql` 到 `003_single_owner_auth.sql`，各自持有 advisory lock，完成后释放。`schema/postgres/001_m1_core.sql`--`010_m1_data_domain.sql` 是 M1 契约/验证用 schema，只能用于 disposable `verify_postgresql.sh` 演练，不会进入 runtime DB；迁移目录出现未知或缺号的 numbered SQL 会 fail-closed。
@@ -92,11 +117,14 @@ sudo systemctl start postgresql
 sudo bash scripts/cloud/bootstrap_postgresql.sh --confirm
 sudo bash scripts/cloud/run_as_app_user.sh scripts/cloud/run_migration.sh
 sudo bash scripts/cloud/run_as_app_user.sh ruby scripts/local/configure_cloud_owner.rb  # 仅 SSH/TTY，密码和恢复码不进 argv
-sudo systemctl restart caddy
+sudo nginx -t && sudo systemctl reload nginx
 sudo systemctl start trend-exploring-server.service
 sudo systemctl start trend-exploring-collect.timer trend-exploring-cycle.timer trend-exploring-translation.timer
 sudo bash scripts/cloud/status.sh
 ```
+
+若选择兼容的 Caddy 模式，把上面的 Nginx 检查替换为
+`sudo systemctl restart caddy`。
 
 `run_migration.sh` 使用全局批处理锁与 PostgreSQL advisory lock；账号未配置时 web server 会拒绝启动。
 
@@ -135,7 +163,7 @@ sudo systemctl enable --now trend-exploring-backup.timer
 安装器只有传入 `--enable-backups` 才会 enable timer；未配置 recipient
 时备份脚本 fail-closed，不会产生明文 dump。
 
-## systemd/Caddy 运行面
+## systemd 与代理运行面
 
 安装包提供 `server`、`collect`、`cycle`、`translation` 四个 worker、可人工开启的 `migration` unit/timer，以及默认关闭的 encrypted `backup` unit/timer。collection 只在 Asia/Shanghai 07:55 与 18:55 运行（Persistent+jitter），不是每 15 分钟轮询；所有批处理共享全局 flock，补跑时只允许一个批次进入。`cycle` 固定传入 `--skip-ingest`，消费最近一次 immutable collection，避免重复 ingest。
 
@@ -146,7 +174,7 @@ collect/cycle/translation/migration/backup 设置 `MemoryHigh=512M/MemoryMax=768
 
 worker 不使用 shell `exec`，而是后台启动子进程、等待并在 SIGTERM 时发送 TERM 后 drain；退出时总是释放 per-service lock。per-service pid lock 在进程已经不存在时可安全回收；lease/stale recovery 可由 `CLOUD_STALE_RECOVERY_COMMAND` 注入，凭据不得出现在命令行。
 
-Caddyfile 的路径规则是 fail-closed：只有 landing/assets、登录/恢复提交和最小 `/api/livez` 进入相应后端；`/app` 与所有其他 `/api`（包括 `/api/health`）等私有前缀统一反代，由后端会话判定；`/api/readyz` 仅本机监控直接访问，外部请求显式 404；未匹配路径也交给 backend，由 backend 按会话返回 302/401/404，避免新增静态资产意外公开。登录请求使用更小 body 上限和短超时作辅助限制，真正的 per-IP/account 限流必须由后端执行。代理全局 body 上限 2 MiB、连接/读写超时，并写入 noindex 与安全 headers。标准 Caddy 自动签发 `zixin.space` 证书，DNS/A 记录和 VPS 公网地址由上线操作单独完成。
+代理路径规则是 fail-closed：只有 landing/assets、登录/恢复提交和最小 `/api/livez` 进入相应后端；`/app` 与所有其他 `/api`（包括 `/api/health`）等私有前缀统一反代，由后端会话判定；`/api/readyz` 仅本机直接访问，外部请求显式 404；未匹配路径也交给 backend，由 backend 按会话返回 302/401/404，避免新增静态资产意外公开。登录请求使用更小 body 上限和短超时作辅助限制，真正的 per-IP/account 限流必须由后端执行。代理全局 body 上限 2 MiB、连接/读写超时，并写入 noindex 与安全 headers。Nginx 的 `deploy/cloud/nginx/radar.zixin.space.tls.conf` 只匹配 `radar.zixin.space`，不会改变其它站点；Caddy 的 `deploy/cloud/caddy/Caddyfile` 仍按原路径工作。
 
 ## 验收清单
 
@@ -155,16 +183,18 @@ sudo bash scripts/cloud/status.sh
 sudo ss -ltnp                       # 只应见 22/80/443，以及 loopback 的 3000/5432
 sudo ufw status verbose
 sudo -u trendexploring bash -c 'test "$(stat -c %a /etc/trend-exploring/trend-exploring.env)" = 600'
-curl --fail --max-time 5 https://zixin.space/api/livez
-curl -i https://zixin.space/             # landing 可读
-curl -i https://zixin.space/login        # 登录页可读
-curl -i https://zixin.space/app          # 未登录必须 302 -> /login，由后端返回
-curl -i https://zixin.space/api/health   # 未登录必须 401/403，由后端返回
+curl --fail --max-time 5 https://radar.zixin.space/api/livez
+curl -i https://radar.zixin.space/             # landing 可读
+curl -i https://radar.zixin.space/login        # 登录页可读
+curl -i https://radar.zixin.space/app          # 未登录必须 302 -> /login，由后端返回
+curl -i https://radar.zixin.space/api/health   # 未登录必须 401/403，由后端返回
+curl -i https://radar.zixin.space/api/readyz   # 外部必须 404
+curl --fail --max-time 5 http://127.0.0.1:3000/api/readyz  # 主机内部才读详细 readiness
 ```
 
-观察 `journalctl -u trend-exploring-server -u trend-exploring-collect -u trend-exploring-cycle -u trend-exploring-translation`，确认没有 DATABASE_URL、cookie secret、GPG 私钥或恢复码。Caddy 和应用日志由 `/etc/logrotate.d/trend-exploring` 分别按日压缩，最多保留 14 份。
+观察 `journalctl -u trend-exploring-server -u trend-exploring-collect -u trend-exploring-cycle -u trend-exploring-translation`，确认没有 DATABASE_URL、cookie secret、GPG 私钥或恢复码。Nginx/Caddy 和应用日志由 `/etc/logrotate.d/trend-exploring` 分别按日压缩，最多保留 14 份。
 
-卸载只移除 unit、Caddy/logrotate wiring，默认保留 `/etc/trend-exploring`、release、数据库和加密备份：
+卸载只移除 unit、代理/logrotate wiring，默认保留 `/etc/trend-exploring`、release、数据库和加密备份；不会自动删除其它 Nginx/Caddy 站点：
 
 ```bash
 sudo bash scripts/cloud/uninstall.sh --dry-run

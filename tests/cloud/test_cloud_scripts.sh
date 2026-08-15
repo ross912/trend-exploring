@@ -49,6 +49,8 @@ grep -q '/api/auth/recovery' deploy/cloud/caddy/Caddyfile
 grep -q 'path /app\* /api\*' deploy/cloud/caddy/Caddyfile
 grep -q 'CLOUD_PUBLIC_DEPLOYMENT=1' config/cloud/trend-exploring.env.example
 grep -q 'TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128' config/cloud/trend-exploring.env.example
+grep -q 'CLOUD_PROXY=nginx' config/cloud/trend-exploring.env.example
+grep -q 'NGINX_DOMAIN=radar.zixin.space' config/cloud/trend-exploring.env.example
 grep -q 'auth peppers must be provisioned' scripts/cloud/preflight_ubuntu.sh scripts/cloud/lib/runtime.sh
 grep -q 'unexpected existing UFW ALLOW' scripts/cloud/configure_ufw.sh
 grep -q '1572864' scripts/cloud/preflight_ubuntu.sh
@@ -83,6 +85,22 @@ for migration in \
   grep -q "schema/postgres/${migration}" scripts/local/bootstrap_radar.rb
 done
 ! grep -qi 'basicauth' deploy/cloud/caddy/Caddyfile
+grep -q 'server_name __TREND_EXPLORING_DOMAIN__' deploy/cloud/nginx/radar.zixin.space.http.conf
+grep -q 'server_name __TREND_EXPLORING_DOMAIN__' deploy/cloud/nginx/radar.zixin.space.tls.conf
+grep -q 'ssl_certificate /etc/letsencrypt/live/__TREND_EXPLORING_DOMAIN__/fullchain.pem' deploy/cloud/nginx/radar.zixin.space.tls.conf
+grep -q 'location = /api/readyz { return 404; }' deploy/cloud/nginx/radar.zixin.space.tls.conf
+grep -q 'location = /readyz { return 404; }' deploy/cloud/nginx/radar.zixin.space.tls.conf
+grep -q 'client_max_body_size 2m' deploy/cloud/nginx/radar.zixin.space.tls.conf
+grep -q 'client_max_body_size 128k' deploy/cloud/nginx/radar.zixin.space.tls.conf
+grep -q 'X-Forwarded-Proto \$scheme' deploy/cloud/nginx/trend-exploring-proxy.conf
+grep -q 'X-Forwarded-For \$proxy_add_x_forwarded_for' deploy/cloud/nginx/trend-exploring-proxy.conf
+grep -q 'CLOUD_PROXY:-caddy' scripts/cloud/install.sh
+grep -q -- '--proxy caddy|nginx' scripts/cloud/install.sh
+grep -q 'systemctl enable nginx' scripts/cloud/install.sh
+nginx_plan="$(scripts/cloud/install.sh --repo-root "${root}" --dry-run --skip-packages --proxy nginx --domain radar.zixin.space 2>/dev/null)"
+grep -q 'nginx' <<< "${nginx_plan}"
+grep -q 'radar.zixin.space' <<< "${nginx_plan}"
+! grep -q 'apt-get.*caddy' <<< "${nginx_plan}"
 
 tmp_root="$(mktemp -d)"
 env CLOUD_ENV_FILE="${tmp_root}/missing.env" CLOUD_PUBLIC_DEPLOYMENT=1 \

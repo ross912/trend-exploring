@@ -19,7 +19,8 @@ done
 if ((dry_run || !confirm)); then
   cat <<'PLAN'
 uninstall plan (no changes made): stop/disable trend-exploring units, remove
-their unit files and Caddy/logrotate wiring; keep /etc/trend-exploring,
+their unit files and proxy/logrotate wiring; keep existing Nginx/Caddy sites,
+/etc/trend-exploring,
 /var/lib/trend-exploring, /var/backups/trend-exploring, and releases.
 Pass --confirm on the VPS. --remove-user additionally deletes the dedicated
 service account after services are stopped.

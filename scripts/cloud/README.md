@@ -1,6 +1,6 @@
 # 低配 Ubuntu 云端验证与上线包
 
-生产上线顺序、认证边界、systemd/Caddy、UFW/swap、发布/回滚和备份请先读
+生产上线顺序、认证边界、systemd、Nginx/Caddy、UFW/swap、发布/回滚和备份请先读
 [云端上线手册](../../docs/cloud-deployment.md)。本目录的 `install.sh`、
 `deploy_release.sh`、`backup.sh` 等脚本默认只做预检或 dry-run；不会连接
 VPS/DNS，也不会在没有显式确认时改防火墙、swap 或服务 wiring。
@@ -16,6 +16,8 @@ VPS/DNS，也不会在没有显式确认时改防火墙、swap 或服务 wiring�
 - PostgreSQL 只监听服务器本机；不要向公网开放 5432。
 - 云环境必须显式设置 `CLOUD_PUBLIC_DEPLOYMENT=1`、`PUBLIC_UNAUTHENTICATED_MODE=0`、`AUTH_REQUIRED_FOR_APP=1`、`PUBLISH_API_ENABLED=0`；任何匿名/local-development 值都会被 worker 拒绝。
 - SSH 安全组只允许管理者当前出口 IP，优先使用密钥认证并禁用 root 密码登录。
+- Nginx 模式只接管显式的 `NGINX_DOMAIN` 站点；现有 `zixin.space` 与
+  `sg.zixin.space` 配置不会被覆盖。Caddy 模式仍兼容旧的 Caddyfile。
 - 不在仓库、命令历史或对话中保存密码、私钥、云 API key 或完整数据库 URL。
 - `verify_postgresql.sh` 只接受经人工确认的空白、可丢弃数据库；发现任何用户 relation 会拒绝执行。
 - 2 GiB 内存只用于 PostgreSQL、迁移和轻量测试；大型模型、搜索引擎、对象存储与应用服务不要同时部署在该实例。
@@ -52,7 +54,7 @@ disposable migration 验证，不覆盖生产调优。
 
 云 env 模板还必须把现有 LocalRuntime 指向系统 PostgreSQL Unix socket
 （`LOCAL_PGSOCKET=/var/run/postgresql`、`LOCAL_PGPORT=5432`，global/personal
-database 与 `/usr/bin`），并限制 `TRUSTED_PROXY_CIDRS` 为本机 Caddy 的
+database 与 `/usr/bin`），并限制 `TRUSTED_PROXY_CIDRS` 为本机反代的
 `127.0.0.1/32,::1/128`。`backup.sh` 对 global 与 personal 两库分别加密，
 `verify_backup.sh` 只读校验 manifest/checksum/GPG packet，`restore_backup.sh`
 默认只做 disposable restore 计划。

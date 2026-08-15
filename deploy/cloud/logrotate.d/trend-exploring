@@ -21,3 +21,17 @@
     copytruncate
     su root adm
 }
+
+# Nginx is optional and may coexist with the existing Caddy/other sites.  The
+# files are marked missingok so this stanza is harmless when CLOUD_PROXY=caddy.
+/var/log/nginx/trend-exploring.access.log /var/log/nginx/trend-exploring.error.log {
+    daily
+    rotate 14
+    size 20M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su root adm
+}
