@@ -30,7 +30,7 @@ end
 begin
   tables = query(psql, host, port, user, global_db, "SELECT to_regclass('local_radar_snapshot'), to_regclass('local_source_item_version'), to_regclass('local_report_schedule_slot'), to_regclass('weak_signal_run')").fetch(0)
   result["global_database"] = { "status" => "ok", "database" => global_db, "tables" => { "radar" => tables[0], "archive" => tables[1], "reports" => tables[2], "weak_signal" => tables[3] } }
-  marker_rows = query(psql, host, port, user, global_db, "SELECT table_name FROM information_schema.tables WHERE table_name IN ('local_collection_batch','local_report_summary_run','weak_signal_run','local_article_archive','local_article_translation_run') ORDER BY table_name")
+  marker_rows = query(psql, host, port, user, global_db, "SELECT table_name FROM information_schema.tables WHERE table_name IN ('local_collection_batch','local_report_summary_run','weak_signal_run','local_article_archive','local_article_translation_run','local_metadata_translation_run','local_translation_batch_job','local_translation_batch_attempt') ORDER BY table_name")
   result["migrations"] = { "status" => "ok", "applied_relations" => marker_rows.flatten }
   latest_ingest = query(psql, host, port, user, global_db, "SELECT COALESCE(MAX(captured_at)::text, ''), COUNT(*) FROM local_source_capture").fetch(0)
   result["latest_ingest"] = { "last_captured_at" => latest_ingest[0], "capture_count" => latest_ingest[1].to_i }
@@ -41,8 +41,12 @@ begin
   end
   weak = query(psql, host, port, user, global_db, "SELECT COALESCE(status, 'not_run'), COALESCE(as_of::text, ''), COUNT(c.run_id) FROM weak_signal_run r LEFT JOIN weak_signal_candidate c ON c.run_id = r.run_id GROUP BY r.run_id, r.status, r.as_of ORDER BY r.as_of DESC LIMIT 1")
   result["weak_signal"] = weak.empty? ? { "status" => "not_run" } : { "status" => weak.dig(0, 0), "as_of" => weak.dig(0, 1), "candidate_count" => weak.dig(0, 2).to_i }
-  fulltext = query(psql, host, port, user, global_db, "SELECT (SELECT COUNT(*) FROM local_article_archive), (SELECT COUNT(*) FROM local_article_translation_run WHERE state='pending'), (SELECT COUNT(*) FROM local_article_translation_run WHERE state='succeeded'), (SELECT COUNT(*) FROM local_article_translation_run WHERE state IN ('failed','credential_blocked','budget_blocked')), (SELECT COUNT(*) FROM local_metadata_translation_run WHERE state='pending'), (SELECT COUNT(*) FROM local_metadata_translation_run WHERE state='succeeded'), (SELECT COUNT(*) FROM local_metadata_translation_run WHERE state IN ('failed','credential_blocked','budget_blocked'))").fetch(0)
+  fulltext = query(psql, host, port, user, global_db, "SELECT (SELECT COUNT(*) FROM local_article_archive), (SELECT COUNT(*) FROM local_article_translation_run WHERE state='pending'), (SELECT COUNT(*) FROM local_article_translation_run WHERE state='succeeded'), (SELECT COUNT(*) FROM local_article_translation_run WHERE state IN ('failed','credential_blocked','budget_blocked')), (SELECT COUNT(*) FROM local_metadata_translation_run WHERE state='pending'), (SELECT COUNT(*) FROM local_metadata_translation_run WHERE state='succeeded'), (SELECT COUNT(*) FROM local_metadata_translation_run WHERE state IN ('failed','credential_blocked','budget_blocked','interrupted'))").fetch(0)
   result["fulltext"] = { "archived_count" => fulltext[0].to_i, "pending_fulltext_translation_count" => fulltext[1].to_i, "fulltext_translated_count" => fulltext[2].to_i, "fulltext_blocked_or_failed_count" => fulltext[3].to_i, "pending_metadata_translation_count" => fulltext[4].to_i, "metadata_translated_count" => fulltext[5].to_i, "metadata_blocked_or_failed_count" => fulltext[6].to_i }
+  if marker_rows.flatten.include?("local_translation_batch_job")
+    batch = query(psql, host, port, user, global_db, "SELECT COUNT(*) FILTER (WHERE state='running'), COUNT(*) FILTER (WHERE state='succeeded'), COUNT(*) FILTER (WHERE state IN ('failed','blocked','interrupted')) FROM local_translation_batch_job").fetch(0)
+    result["translation"] = { "running_jobs" => batch[0].to_i, "succeeded_jobs" => batch[1].to_i, "failed_or_interrupted_jobs" => batch[2].to_i }
+  end
   key_path = LocalRuntime.deepseek_secret_file
   result["deepseek"] = { "model" => "deepseek-v4-pro", "credential_status" => (File.file?(key_path) && (File.stat(key_path).mode & 0o777) == 0o600 ? "configured" : "not_configured") }
 rescue StandardError => error
