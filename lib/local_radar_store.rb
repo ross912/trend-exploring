@@ -1527,6 +1527,7 @@ class LocalRadarStore
            AND target_language=#{literal(run.fetch("target_language"))}
            AND provider=#{literal(run.fetch("provider"))}
            AND model=#{literal(run.fetch("model"))}
+           #{prompt_schema ? "AND prompt_version=#{literal(run.fetch('prompt_version'))}" : ""}
            AND status='translated'
          ORDER BY created_at DESC, artifact_id ASC
          LIMIT 2

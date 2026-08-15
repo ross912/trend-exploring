@@ -43,31 +43,46 @@ END $$;
 -- Bind every metadata artifact to the prompt/version that produced it.  The
 -- pre-024 table keyed artifacts only by provider/model, which meant a later
 -- prompt could not coexist with (or be distinguished from) an older output.
-ALTER TABLE local_translation_artifact
-  ADD COLUMN IF NOT EXISTS prompt_version text;
+--
+-- This upgrade deliberately performs no row mutation on the append-only
+-- artifact relation; 016 installs a trigger that rejects such a write.  When
+-- the column is absent, PostgreSQL's ADD COLUMN ... DEFAULT ... NOT NULL
+-- supplies one immutable legacy value without issuing row UPDATE triggers.
+-- That default is the historical fact for this table: before 024 there was no
+-- prompt dimension, so all retained artifacts belong to metadata-translation-v1.
+-- New callers may either provide prompt_version explicitly or rely on this
+-- default; an already-present column is never backfilled or silently replaced.
+DO $$
+DECLARE
+  prompt_attnum smallint;
+  prompt_type oid;
+  prompt_not_null boolean;
+  prompt_has_null boolean;
+BEGIN
+  SELECT a.attnum, a.atttypid, a.attnotnull
+    INTO prompt_attnum, prompt_type, prompt_not_null
+    FROM pg_attribute a
+   WHERE a.attrelid = 'local_translation_artifact'::regclass
+     AND a.attname = 'prompt_version'
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
 
-UPDATE local_translation_artifact t
-   SET prompt_version = COALESCE(
-     NULLIF(btrim(t.prompt_version), ''),
-     (
-       SELECT r.prompt_version
-         FROM local_metadata_translation_run r
-        WHERE r.source_version_id = t.source_version_id
-          AND r.item_key = t.item_key
-          AND r.source_content_hash = t.original_content_hash
-          AND r.target_language = t.target_language
-          AND r.provider = t.provider
-          AND r.model = t.model
-        ORDER BY r.created_at ASC, r.run_id ASC
-        LIMIT 1
-     ),
-     'legacy-metadata-translation-v0'
-   )
- WHERE t.prompt_version IS NULL OR btrim(t.prompt_version) = '';
-
-ALTER TABLE local_translation_artifact
-  ALTER COLUMN prompt_version SET DEFAULT 'metadata-translation-v1',
-  ALTER COLUMN prompt_version SET NOT NULL;
+  IF prompt_attnum IS NULL THEN
+    EXECUTE 'ALTER TABLE local_translation_artifact ADD COLUMN prompt_version text DEFAULT ''metadata-translation-v1'' NOT NULL';
+  ELSE
+    IF prompt_type <> 'text'::regtype THEN
+      RAISE EXCEPTION 'unsupported local_translation_artifact.prompt_version type %; restore the pre-024 backup and convert the column explicitly', format_type(prompt_type, NULL);
+    END IF;
+    IF NOT prompt_not_null THEN
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM local_translation_artifact WHERE prompt_version IS NULL)'
+        INTO prompt_has_null;
+      IF prompt_has_null THEN
+        RAISE EXCEPTION 'local_translation_artifact.prompt_version contains NULL values; 024 refuses to rewrite append-only artifacts. Restore the pre-024 backup or append replacement artifacts with an explicit prompt_version, then rerun 024';
+      END IF;
+      EXECUTE 'ALTER TABLE local_translation_artifact ALTER COLUMN prompt_version SET NOT NULL';
+    END IF;
+  END IF;
+END $$;
 
 -- Replace the pre-024 uniqueness key with one that includes prompt_version.
 -- Resolve the generated legacy constraint name instead of assuming a server
@@ -75,6 +90,8 @@ ALTER TABLE local_translation_artifact
 DO $$
 DECLARE
   legacy_constraint text;
+  lineage_constraint text;
+  lineage_definition text;
 BEGIN
   SELECT c.conname
     INTO legacy_constraint
@@ -83,15 +100,31 @@ BEGIN
      AND c.contype = 'u'
      AND pg_get_constraintdef(c.oid) = 'UNIQUE (item_key, target_language, original_content_hash, provider, model)'
    LIMIT 1;
+  IF legacy_constraint IS NOT NULL
+     AND EXISTS (
+       SELECT 1
+         FROM pg_constraint c
+        WHERE c.conrelid = 'local_translation_artifact'::regclass
+          AND c.contype = 'u'
+          AND pg_get_constraintdef(c.oid) = 'UNIQUE (item_key, target_language, original_content_hash, provider, model)'
+          AND c.conname <> legacy_constraint
+     ) THEN
+    RAISE EXCEPTION 'ambiguous legacy local_translation_artifact uniqueness; restore the pre-024 backup and resolve constraints explicitly';
+  END IF;
   IF legacy_constraint IS NOT NULL THEN
     EXECUTE format('ALTER TABLE local_translation_artifact DROP CONSTRAINT %I', legacy_constraint);
   END IF;
-  IF NOT EXISTS (
-    SELECT 1
-      FROM pg_constraint
-     WHERE conrelid = 'local_translation_artifact'::regclass
-       AND conname = 'local_translation_artifact_lineage_unique'
-  ) THEN
+  SELECT c.conname, pg_get_constraintdef(c.oid)
+    INTO lineage_constraint, lineage_definition
+    FROM pg_constraint c
+   WHERE c.conrelid = 'local_translation_artifact'::regclass
+     AND c.conname = 'local_translation_artifact_lineage_unique'
+   LIMIT 1;
+  IF lineage_constraint IS NOT NULL
+     AND lineage_definition <> 'UNIQUE (item_key, target_language, original_content_hash, provider, model, prompt_version)' THEN
+    RAISE EXCEPTION 'local_translation_artifact_lineage_unique has an unsupported definition; restore the pre-024 backup and resolve the constraint explicitly';
+  END IF;
+  IF lineage_constraint IS NULL THEN
     ALTER TABLE local_translation_artifact
       ADD CONSTRAINT local_translation_artifact_lineage_unique
       UNIQUE (item_key, target_language, original_content_hash, provider, model, prompt_version);
