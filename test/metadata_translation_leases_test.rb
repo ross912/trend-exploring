@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "open3"
 require "securerandom"
+require "tempfile"
 require_relative "../lib/local_radar_store"
 
 class MetadataTranslationLeasesTest < Minitest::Test
@@ -131,6 +132,49 @@ class MetadataTranslationLeasesTest < Minitest::Test
     end
   end
 
+  def test_024_upgrades_historical_marker_shape_without_preflight_shortcut
+    database = disposable_database("historical_marker")
+    personal_database = disposable_database("historical_personal")
+    begin
+      run_migrations(database, %w[
+        011_local_radar.sql 012_breadth_discovery.sql 013_local_report_ledger.sql
+        014_local_report_summary.sql 015_local_weak_signal.sql 016_local_fulltext_translation.sql
+        017_raw_archive_immutability.sql 018_multilingual_concepts.sql 019_world_change_candidates.sql
+        020_signal_lifecycle.sql 021_report_claim_gate.sql 022_report_summary_repair.sql 023_summary_run_leases.sql
+      ])
+      run_migrations(personal_database, %w[personal/001_personal_memory.sql personal/002_conversation_ledger.sql])
+      store = store_for(database)
+      seed_source(store: store)
+      version = store.source_item_versions(item_key: "item").fetch(0)
+      store.save_translation_artifact!(artifact: artifact_for_version(version))
+      before_hash = artifact_payload_hash(database)
+
+      run_git_migration(database, "f122fdf", "schema/postgres/024_metadata_translation_leases.sql")
+      assert_equal 1, scalar_on(database, "SELECT COUNT(*) FROM local_translation_lease_schema_meta WHERE schema_version = '024_metadata_translation_leases_v1'")
+      assert_equal 0, scalar_on(database, "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'local_translation_artifact' AND column_name = 'prompt_version'")
+
+      success, output = verify_backup_stats(database, personal_database)
+      refute success
+      assert_match(/partial 024 schema/i, output)
+
+      run_migration(database, "024_metadata_translation_leases.sql")
+      assert_equal before_hash, artifact_payload_hash(database)
+      assert_equal "metadata-translation-v1", scalar_text_on(database, "SELECT prompt_version FROM local_translation_artifact")
+      assert_equal 1, scalar_on(database, "SELECT COUNT(*) FROM pg_constraint WHERE conrelid = 'local_translation_artifact'::regclass AND conname = 'local_translation_artifact_lineage_unique'")
+      assert_equal 1, scalar_on(database, "SELECT COUNT(*) FROM pg_trigger WHERE tgrelid = 'local_translation_artifact'::regclass AND tgname = 'local_translation_artifact_immutable_trigger' AND NOT tgenabled = 'D'")
+      success, output = verify_backup_stats(database, personal_database)
+      assert success
+      assert_match(/post_024/, output)
+
+      run_migration(database, "024_metadata_translation_leases.sql")
+      assert_equal before_hash, artifact_payload_hash(database)
+      assert_equal "metadata-translation-v1", scalar_text_on(database, "SELECT prompt_version FROM local_translation_artifact")
+    ensure
+      drop_disposable_database(database)
+      drop_disposable_database(personal_database)
+    end
+  end
+
   def test_024_refuses_an_early_schema_without_016
     database = disposable_database("early_schema")
     begin
@@ -222,6 +266,26 @@ class MetadataTranslationLeasesTest < Minitest::Test
 
   def run_migration(database, file)
     run!([bin("psql"), "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(ROOT, "schema/postgres", file)])
+  end
+
+  def run_git_migration(database, revision, file)
+    sql, stderr, status = Open3.capture3("git", "show", "#{revision}:#{file}", chdir: ROOT)
+    raise stderr unless status.success?
+    Tempfile.create(["metadata-translation-", ".sql"]) do |migration|
+      migration.write(sql)
+      migration.flush
+      run!([bin("psql"), "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", migration.path])
+    end
+  end
+
+  def verify_backup_stats(database, personal_database)
+    Tempfile.create(["verify-backup-", ".json"]) do |stats|
+      args = ["ruby", File.join(ROOT, "scripts/local/verify_backup.rb"), "--write-stats", stats.path,
+              "--psql", bin("psql"), "--global-database", database, "--personal-database", personal_database,
+              "--host", host, "--port", port, "--user", user]
+      stdout, stderr, status = Open3.capture3(*args)
+      [status.success?, "#{stderr}\n#{stdout}"]
+    end
   end
 
   def artifact_for_version(version)

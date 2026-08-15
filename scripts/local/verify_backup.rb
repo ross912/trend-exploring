@@ -56,7 +56,12 @@ GLOBAL_023_COLUMNS = {
 }.freeze
 GLOBAL_024_RELATIONS = %w[local_translation_batch_job local_translation_batch_attempt local_translation_lease_schema_meta].freeze
 GLOBAL_024_COLUMNS = {
-  "local_metadata_translation_run" => %w[lease_owner lease_expires_at heartbeat_at]
+  "local_metadata_translation_run" => %w[lease_owner lease_expires_at heartbeat_at],
+  # The 024 marker/lease tables can exist after a failed historical bootstrap
+  # while the artifact prompt dimension is still absent.  Treat that shape as
+  # partial so backup/restore never labels it post-024 and then queries a
+  # column that is not present.
+  "local_translation_artifact" => %w[prompt_version]
 }.freeze
 PERSONAL_002_RELATIONS = %w[
   conversation_thread
