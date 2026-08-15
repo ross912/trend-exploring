@@ -87,6 +87,107 @@ function renderArchive(archive) {
   $("#archive-policies").innerHTML = policies.length ? policies.map((policy) => `<article class="source-pill"><div class="source-pill-head"><strong>${escapeHtml(policy.source_name || policy.source_id)}</strong><span>${policy.rights_scope === "full_archive" ? "全文归档" : policy.rights_scope === "excerpt_only" ? "元数据/短摘要" : "仅链接"}</span></div><div class="source-pill-meta"><span>${policy.rights_scope === "full_archive" ? `许可：${escapeHtml(policy.permission_basis)} · 核验 ${escapeHtml(policy.permission_verified_at)}` : "未登记全文许可，不请求文章页"}</span></div></article>`).join("") : '<div class="empty-state">尚无来源保存政策记录。</div>';
 }
 
+let translationPollTimer = null;
+let translationLastJobId = null;
+
+function translationQueueLabel(queue) {
+  const labels = { pending: "待处理", running: "处理中", succeeded: "已完成", failed: "失败", blocked: "受阻", credential_blocked: "凭据未配置", budget_blocked: "预算受限", interrupted: "中断待恢复" };
+  return Object.entries(queue || {}).map(([state, count]) => `${labels[state] || state} ${count}`).join(" · ") || "暂无队列记录";
+}
+
+function renderTranslationStatus(payload) {
+  const button = $("#translation-run-button");
+  const statusNode = $("#translation-status");
+  const progress = $("#translation-progress");
+  if (!button || !statusNode || !progress) return;
+  const active = payload && payload.active_job;
+  const queue = payload && payload.queue || {};
+  const budget = payload && payload.daily_budget || {};
+  const eligible = payload && payload.eligible_pending || {};
+  const job = active || (payload && payload.job);
+  const total = Number(job && (job.queued_count || job.requested_count) || 0);
+  const examined = Number(job && job.examined_count || 0);
+  const ratio = total > 0 ? Math.min(examined / total, 1) : (active ? 0 : 1);
+  progress.max = total > 0 ? total : 1;
+  progress.value = total > 0 ? examined : ratio;
+  progress.setAttribute("aria-valuetext", `${examined}/${total || "待定"} 项`);
+  button.disabled = Boolean(active);
+  button.setAttribute("aria-busy", active ? "true" : "false");
+  if (active) {
+    translationLastJobId = active.job_id;
+    statusNode.textContent = `翻译进行中：${examined}/${total || "待定"} 项 · 成功 ${job.translated_count || 0} · 失败 ${job.failed_count || 0} · 每日预算 ${budget.used || 0}/${budget.limit || 200000} 字符`;
+  } else {
+    const state = payload && payload.status === "pending" ? "有待处理条目" : "当前没有运行中的翻译任务";
+    statusNode.textContent = `${state} · eligible ${eligible.count || 0} 项 / ${eligible.input_chars || 0} 字符 · ${translationQueueLabel(queue)} · 今日预算剩余 ${budget.remaining ?? "未提供"} 字符`;
+  }
+  const alert = $("#translation-alert");
+  if (alert && !active && payload && payload.status === "error") {
+    alert.hidden = false;
+    alert.textContent = payload.error || "翻译状态读取失败";
+  } else if (alert && !active) {
+    alert.hidden = true;
+    alert.textContent = "";
+  }
+}
+
+function scheduleTranslationPoll() {
+  if (translationPollTimer) return;
+  translationPollTimer = window.setInterval(async () => {
+    try {
+      const payload = await fetchJson("/api/translations/status");
+      renderTranslationStatus(payload);
+      if (!payload.active_job) {
+        window.clearInterval(translationPollTimer);
+        translationPollTimer = null;
+        await loadRadar();
+      }
+    } catch (error) {
+      const alert = $("#translation-alert");
+      if (alert) { alert.hidden = false; alert.textContent = `翻译状态读取失败：${error.message}`; }
+    }
+  }, 2000);
+}
+
+async function loadTranslationStatus() {
+  try {
+    const payload = await fetchJson("/api/translations/status");
+    renderTranslationStatus(payload);
+    if (payload.active_job) scheduleTranslationPoll();
+  } catch (error) {
+    const statusNode = $("#translation-status");
+    const alert = $("#translation-alert");
+    if (statusNode) statusNode.textContent = "翻译状态暂不可用";
+    if (alert) { alert.hidden = false; alert.textContent = `无法读取翻译队列：${error.message}`; }
+  }
+}
+
+async function startTranslation() {
+  const button = $("#translation-run-button");
+  const statusNode = $("#translation-status");
+  const alert = $("#translation-alert");
+  if (!button) return;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  if (alert) { alert.hidden = true; alert.textContent = ""; }
+  if (statusNode) statusNode.textContent = "正在排队翻译外文标题和短摘要…";
+  try {
+    const response = await fetchJson("/api/translations/run", { method: "POST", body: JSON.stringify({}) });
+    translationLastJobId = response.job?.job_id || null;
+    if (statusNode) statusNode.textContent = `已排队翻译任务 ${translationLastJobId || ""}，正在等待 worker…`;
+    scheduleTranslationPoll();
+  } catch (error) {
+    if (error.status === 409 && error.payload) {
+      renderTranslationStatus({ status: "running", active_job: error.payload.job, queue: {}, eligible_pending: {}, daily_budget: {} });
+      scheduleTranslationPoll();
+    } else {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+      if (statusNode) statusNode.textContent = "翻译任务未启动";
+      if (alert) { alert.hidden = false; alert.textContent = `无法开始翻译：${error.message}`; }
+    }
+  }
+}
+
 function renderExploration(exploration) {
   const latest = exploration && exploration.latest_batch;
   const items = (exploration && exploration.items) || [];
@@ -369,11 +470,13 @@ async function submitConversation(event) {
 }
 
 function tick() { $("#clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
-$("#refresh-button").addEventListener("click", () => { loadRadar(); loadReports(); loadWeakSignals(); loadWorldChangeSurfaces(); });
+$("#refresh-button").addEventListener("click", () => { loadRadar(); loadReports(); loadWeakSignals(); loadWorldChangeSurfaces(); loadTranslationStatus(); });
+$("#translation-run-button").addEventListener("click", startTranslation);
 $("#conversation-form").addEventListener("submit", submitConversation);
 tick();
 setInterval(tick, 1000);
 loadRadar();
+loadTranslationStatus();
 loadReports();
 loadWeakSignals();
 loadWorldChangeSurfaces();

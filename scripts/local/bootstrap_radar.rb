@@ -36,6 +36,7 @@ run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "
 run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/021_report_claim_gate.sql")]) if File.file?(File.join(root, "schema/postgres/021_report_claim_gate.sql"))
 run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/022_report_summary_repair.sql")]) if File.file?(File.join(root, "schema/postgres/022_report_summary_repair.sql"))
 run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/023_summary_run_leases.sql")]) if File.file?(File.join(root, "schema/postgres/023_summary_run_leases.sql"))
+run!([psql, "-X", "-v", "ON_ERROR_STOP=1", "-h", host, "-p", port, "-U", user, "-d", database, "-f", File.join(root, "schema/postgres/024_metadata_translation_leases.sql")]) if File.file?(File.join(root, "schema/postgres/024_metadata_translation_leases.sql"))
 
 store = LocalRadarStore.new(psql: psql, host: host, port: port, database: database, user: user)
 if ENV.fetch("LOCAL_RESET_DEMO", "0") == "1"

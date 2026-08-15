@@ -96,6 +96,12 @@
             <p>每个来源都明确区分元数据/短摘要与已获许可的正文全文。没有核验许可时不会抓取文章页；这不是抓取失败。原语言内容永远保留，中文只作为独立机器译文。</p>
             <div class="coverage-summary" id="archive-summary" aria-label="原文与翻译摘要"></div>
             <p class="coverage-note" id="archive-note">正在读取保存权限与处理进度…</p>
+            <div class="translation-controls" aria-label="外文元数据翻译">
+              <button class="refresh-button translation-run-button" id="translation-run-button" type="button">开始翻译外文标题和短摘要</button>
+              <div class="translation-status" id="translation-status" role="status" aria-live="polite">正在读取翻译队列…</div>
+              <progress class="translation-progress" id="translation-progress" max="1" value="0" aria-label="翻译进度"></progress>
+              <div class="translation-alert" id="translation-alert" role="alert" aria-live="assertive" hidden></div>
+            </div>
           </div>
           <div class="source-roster" id="archive-policies" aria-live="polite"><div class="loading-state">正在读取来源保存级别…</div></div>
         </section>

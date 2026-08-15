@@ -3,6 +3,11 @@
 
 require "json"
 require "webrick"
+require "rbconfig"
+require "uri"
+require "fileutils"
+require "tmpdir"
+require "securerandom"
 require_relative "../../lib/local_radar_store"
 require_relative "../../lib/local_report_ledger"
 require_relative "../../lib/weak_signal_store"
@@ -10,6 +15,7 @@ require_relative "../../lib/conversation_service"
 require_relative "../../lib/world_change_store"
 require_relative "../../lib/multilingual_concept_store"
 require_relative "../../lib/signal_lifecycle_store"
+require_relative "../../lib/local_runtime"
 
 root = File.expand_path("../..", __dir__)
 public_root = File.join(root, "app/public")
@@ -24,6 +30,9 @@ port = Integer(ENV.fetch("PORT", "3000"))
 # Conversation replay is intentionally owner-bound to the server process. The
 # browser may supply a turn id only; it can never select an owner principal.
 CONVERSATION_ID_PATTERN = /\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\z/.freeze
+TRANSLATION_LIMIT_MAX = 100
+TRANSLATION_DAILY_CHARS_MAX = 200_000
+TRANSLATION_JOB_OWNER_PATTERN = /\Atranslation-api-[A-Za-z0-9_.:-]{1,120}\z/.freeze
 
 server = WEBrick::HTTPServer.new(
   Port: port,
@@ -38,6 +47,41 @@ json_response = lambda do |response, payload, status = 200|
   response["Cache-Control"] = "no-store"
   response["X-Content-Type-Options"] = "nosniff"
   response.body = JSON.generate(payload)
+end
+
+translation_loopback_request = lambda do |request|
+  peer = begin
+    request.peeraddr[3].to_s
+  rescue StandardError
+    ""
+  end
+  next false unless %w[127.0.0.1 ::1 0:0:0:0:0:0:0:1 localhost].include?(peer)
+  origin = request["origin"].to_s.strip
+  next true if origin.empty?
+  begin
+    parsed = URI.parse(origin)
+    parsed.scheme == "http" && %w[localhost 127.0.0.1 [::1] ::1].include?(parsed.host.to_s)
+  rescue URI::InvalidURIError
+    false
+  end
+end
+
+translation_spawn = lambda do |job_id, owner_id, limit, daily_limit|
+  worker = File.expand_path("translation_worker.rb", File.join(root, "scripts/local"))
+  state_dir = ENV.fetch("LOCAL_STATE_DIR", LocalRuntime.state_dir)
+  log_dir = File.join(state_dir, "logs")
+  FileUtils.mkdir_p(log_dir, mode: 0o700)
+  stdout_path = File.join(log_dir, "translation-api-worker.log")
+  stderr_path = File.join(log_dir, "translation-api-worker.error.log")
+  env = {
+    "LOCAL_TRANSLATION_JOB_ID" => job_id.to_s,
+    "LOCAL_TRANSLATION_OWNER" => owner_id.to_s
+  }
+  pid = Process.spawn(env, RbConfig.ruby, worker, "--limit", limit.to_s,
+                      "--daily-character-limit", daily_limit.to_s,
+                      out: stdout_path, err: stderr_path, close_others: true)
+  Process.detach(pid)
+  pid
 end
 
 server.mount_proc "/api/health" do |request, response|
@@ -67,6 +111,86 @@ server.mount_proc "/api/archive/status" do |request, response|
   end
   json_response.call(response, store.archive_summary)
 rescue LocalRadarStore::Error => error
+  json_response.call(response, { "error" => error.message }, 503)
+end
+
+server.mount_proc "/api/translations/status" do |request, response|
+  if request.request_method != "GET"
+    json_response.call(response, { "error" => "method not allowed" }, 405)
+    next
+  end
+  unless translation_loopback_request.call(request)
+    json_response.call(response, { "error" => "loopback origin required" }, 403)
+    next
+  end
+  json_response.call(response, store.translation_status(daily_character_limit: [Integer(ENV.fetch("LOCAL_DEEPSEEK_DAILY_CHARACTER_LIMIT", TRANSLATION_DAILY_CHARS_MAX.to_s)), TRANSLATION_DAILY_CHARS_MAX].min))
+rescue ArgumentError, LocalRadarStore::Error => error
+  json_response.call(response, { "error" => error.message }, 503)
+end
+
+server.mount_proc "/api/translations/run" do |request, response|
+  if request.request_method != "POST"
+    json_response.call(response, { "error" => "method not allowed" }, 405)
+    next
+  end
+  unless translation_loopback_request.call(request)
+    json_response.call(response, { "error" => "loopback origin required" }, 403)
+    next
+  end
+  content_type = request["content-type"].to_s.split(";", 2).first.to_s.strip.downcase
+  unless content_type == "application/json"
+    json_response.call(response, { "error" => "content-type must be application/json" }, 415)
+    next
+  end
+  if request.body.to_s.bytesize > 16_000
+    json_response.call(response, { "error" => "payload too large" }, 413)
+    next
+  end
+  payload = request.body.to_s.empty? ? {} : JSON.parse(request.body.to_s)
+  raise JSON::ParserError, "payload must be an object" unless payload.is_a?(Hash)
+  unknown = payload.keys.map(&:to_s) - %w[limit daily_character_limit]
+  raise KeyError, "unknown payload field" unless unknown.empty?
+  default_limit = [Integer(ENV.fetch("LOCAL_TRANSLATION_LIMIT", TRANSLATION_LIMIT_MAX.to_s)), TRANSLATION_LIMIT_MAX].min
+  default_daily_limit = [Integer(ENV.fetch("LOCAL_DEEPSEEK_DAILY_CHARACTER_LIMIT", TRANSLATION_DAILY_CHARS_MAX.to_s)), TRANSLATION_DAILY_CHARS_MAX].min
+  limit = payload.key?("limit") ? payload.fetch("limit") : payload.fetch(:limit, default_limit)
+  daily_limit = if payload.key?("daily_character_limit")
+                  payload.fetch("daily_character_limit")
+                else
+                  payload.fetch(:daily_character_limit, default_daily_limit)
+                end
+  raise ArgumentError, "limit must be an integer" unless limit.is_a?(Integer)
+  raise ArgumentError, "daily_character_limit must be an integer" unless daily_limit.is_a?(Integer)
+  limit = Integer(limit)
+  daily_limit = Integer(daily_limit)
+  raise ArgumentError, "limit must be between 1 and #{default_limit}" unless limit.between?(1, default_limit)
+  raise ArgumentError, "daily_character_limit must be between 1 and #{default_daily_limit}" unless daily_limit.between?(1, default_daily_limit)
+  active = store.active_translation_batch_job
+  if active
+    json_response.call(response, { "status" => "active", "job" => active }, 409)
+    next
+  end
+  owner = "translation-api-#{Process.pid}-#{SecureRandom.hex(5)}"
+  job_id = store.start_translation_batch_job!(limit: limit, daily_character_limit: daily_limit, owner: owner)
+  begin
+    pid = translation_spawn.call(job_id, owner, limit, daily_limit)
+  rescue StandardError => error
+    begin
+      store.finish_translation_batch_job!(job_id: job_id, owner: owner, state: "failed", error_reason: "worker spawn failed")
+    rescue StandardError
+      nil
+    end
+    raise LocalRadarStore::Error, "translation worker could not be started: #{error.message}"
+  end
+  json_response.call(response, { "status" => "queued", "job" => { "job_id" => job_id, "owner_id" => owner, "pid" => pid, "requested_limit" => limit, "daily_character_limit" => daily_limit }, "status_url" => "/api/translations/status" }, 202)
+rescue JSON::ParserError, KeyError, ArgumentError => error
+  json_response.call(response, { "error" => error.message }, 400)
+rescue LocalRadarStore::Error => error
+  if error.message.include?("already active")
+    json_response.call(response, { "status" => "active", "error" => error.message, "job" => store.active_translation_batch_job }, 409)
+  else
+    json_response.call(response, { "error" => error.message }, 503)
+  end
+rescue StandardError => error
   json_response.call(response, { "error" => error.message }, 503)
 end
 

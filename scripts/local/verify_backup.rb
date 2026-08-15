@@ -17,12 +17,15 @@ TABLES = {
     "local_article_archive" => "SELECT archive_id, source_version_id, body_hash, body_chars, archived_at::text FROM local_article_archive ORDER BY archive_id",
     "local_article_translation_run" => "SELECT run_id, archive_id, state, source_body_hash, prompt_tokens, completion_tokens FROM local_article_translation_run ORDER BY run_id",
     "local_metadata_translation_run" => "SELECT run_id, source_version_id, item_key, state, source_content_hash, prompt_tokens, completion_tokens FROM local_metadata_translation_run ORDER BY run_id",
+    "local_translation_batch_job" => "SELECT job_id, singleton_key, owner_id, state, requested_limit, daily_character_limit, queued_count, examined_count, translated_count, failed_count, blocked_count, input_chars, error_reason, started_at::text, heartbeat_at::text, lease_expires_at::text, finished_at::text, created_at::text, updated_at::text FROM local_translation_batch_job ORDER BY job_id",
+    "local_translation_batch_attempt" => "SELECT attempt_id, job_id, run_id, owner_id, event, error_reason, input_chars, created_at::text FROM local_translation_batch_attempt ORDER BY attempt_id",
     "local_report_summary_run" => "SELECT run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state, started_at::text, finished_at::text, error_reason, created_at::text, updated_at::text, lease_owner, lease_expires_at::text, heartbeat_at::text FROM local_report_summary_run ORDER BY run_id",
     "local_report_summary_artifact" => "SELECT artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, generation_attempt_count, repaired, repair_from_receipt_id, created_at::text FROM local_report_summary_artifact ORDER BY artifact_id",
     "provider_response_receipt" => "SELECT receipt_id, run_id, provider, model, prompt_version, exchange_id, canonical_request_hash, raw_response_hash, http_status, request_id, captured_at::text, status, response_available, error_code, error_message, attempt_ordinal, exchange_kind, repair_from_receipt_id, created_at::text FROM provider_response_receipt ORDER BY receipt_id",
     "report_claim_gate_schema_meta" => "SELECT schema_version, installed_at::text FROM report_claim_gate_schema_meta ORDER BY schema_version",
     "report_summary_repair_schema_meta" => "SELECT schema_version, installed_at::text FROM report_summary_repair_schema_meta ORDER BY schema_version",
-    "report_summary_lease_schema_meta" => "SELECT schema_version, installed_at::text FROM report_summary_lease_schema_meta ORDER BY schema_version"
+    "report_summary_lease_schema_meta" => "SELECT schema_version, installed_at::text FROM report_summary_lease_schema_meta ORDER BY schema_version",
+    "local_translation_lease_schema_meta" => "SELECT schema_version, installed_at::text FROM local_translation_lease_schema_meta ORDER BY schema_version"
   },
   "personal" => {
     "memory_entry" => "SELECT memory_entry_id, subject_key, memory_kind, text, recorded_at::text, supersedes_entry_id, status, evidence_version_ids::text, source FROM memory_entry ORDER BY memory_entry_id",
@@ -51,6 +54,10 @@ GLOBAL_023_RELATIONS = %w[report_summary_lease_schema_meta].freeze
 GLOBAL_023_COLUMNS = {
   "local_report_summary_run" => %w[lease_owner lease_expires_at heartbeat_at]
 }.freeze
+GLOBAL_024_RELATIONS = %w[local_translation_batch_job local_translation_batch_attempt local_translation_lease_schema_meta].freeze
+GLOBAL_024_COLUMNS = {
+  "local_metadata_translation_run" => %w[lease_owner lease_expires_at heartbeat_at]
+}.freeze
 PERSONAL_002_RELATIONS = %w[
   conversation_thread
   conversation_turn
@@ -70,6 +77,7 @@ POST_021_REPORT_SUMMARY_RUN_QUERY = "SELECT run_id, edition_id, idempotency_key,
 POST_021_REPORT_SUMMARY_ARTIFACT_QUERY = "SELECT artifact_id, run_id, edition_id, input_hash, provider, model, prompt_version, overview::text, key_changes::text, uncertainties::text, output_hash, claim_gate_status, provider_receipt_id, created_at::text FROM local_report_summary_artifact ORDER BY artifact_id".freeze
 POST_021_PROVIDER_RECEIPT_QUERY = "SELECT receipt_id, run_id, provider, model, prompt_version, exchange_id, canonical_request_hash, raw_response_hash, http_status, request_id, captured_at::text, status, response_available, error_code, error_message, created_at::text FROM provider_response_receipt ORDER BY receipt_id".freeze
 POST_022_REPORT_SUMMARY_RUN_QUERY = "SELECT run_id, edition_id, idempotency_key, input_hash, provider, model, prompt_version, retry_policy_version, state, started_at::text, finished_at::text, error_reason, created_at::text, updated_at::text FROM local_report_summary_run ORDER BY run_id".freeze
+POST_024_METADATA_TRANSLATION_RUN_QUERY = "SELECT run_id, source_version_id, item_key, state, source_content_hash, prompt_tokens, completion_tokens, lease_owner, lease_expires_at::text, heartbeat_at::text FROM local_metadata_translation_run ORDER BY run_id".freeze
 
 options = { mode: "verify", manifest: nil, expected_stats: nil, dump_dir: nil, global_database: ENV["LOCAL_PGDATABASE"], personal_database: ENV["PERSONAL_PGDATABASE"], host: ENV["LOCAL_PGHOST"], port: ENV["LOCAL_PGPORT"], user: ENV["LOCAL_PGUSER"], psql: ENV["LOCAL_PSQL"] }
 OptionParser.new do |parser|
@@ -157,7 +165,21 @@ def schema_states(options)
                    elsif global_023_features.none?
                      "post_022"
                    else
-                     raise "global database has a partial 023 schema; refusing backup verification"
+      raise "global database has a partial 023 schema; refusing backup verification"
+                   end
+  end
+  if global_state == "post_023"
+    global_024_relation_flags = GLOBAL_024_RELATIONS.to_h { |relation| [relation, relation_present?(options, options.fetch(:global_database), relation)] }
+    global_024_column_flags = GLOBAL_024_COLUMNS.each_with_object({}) do |(relation, columns), result|
+      columns.each { |column| result["#{relation}.#{column}"] = column_present?(options, options.fetch(:global_database), relation, column) }
+    end
+    global_024_features = global_024_relation_flags.values + global_024_column_flags.values
+    global_state = if global_024_features.all?
+                     "post_024"
+                   elsif global_024_features.none?
+                     "post_023"
+                   else
+                     raise "global database has a partial 024 schema; refusing backup verification"
                    end
   end
 
@@ -181,15 +203,23 @@ def table_definitions(options, database, role, schema_state)
     GLOBAL_021_RELATIONS.each { |relation| definitions.delete(relation) }
     GLOBAL_022_RELATIONS.each { |relation| definitions.delete(relation) }
     GLOBAL_023_RELATIONS.each { |relation| definitions.delete(relation) }
+    GLOBAL_024_RELATIONS.each { |relation| definitions.delete(relation) }
   elsif role == "global" && schema_state == "post_021"
     definitions["local_report_summary_run"] = POST_021_REPORT_SUMMARY_RUN_QUERY
     definitions["local_report_summary_artifact"] = POST_021_REPORT_SUMMARY_ARTIFACT_QUERY
     definitions["provider_response_receipt"] = POST_021_PROVIDER_RECEIPT_QUERY
     GLOBAL_022_RELATIONS.each { |relation| definitions.delete(relation) }
     GLOBAL_023_RELATIONS.each { |relation| definitions.delete(relation) }
+    GLOBAL_024_RELATIONS.each { |relation| definitions.delete(relation) }
   elsif role == "global" && schema_state == "post_022"
     definitions["local_report_summary_run"] = POST_022_REPORT_SUMMARY_RUN_QUERY
     definitions.delete("report_summary_lease_schema_meta")
+    GLOBAL_023_RELATIONS.each { |relation| definitions.delete(relation) }
+    GLOBAL_024_RELATIONS.each { |relation| definitions.delete(relation) }
+  elsif role == "global" && schema_state == "post_023"
+    GLOBAL_024_RELATIONS.each { |relation| definitions.delete(relation) }
+  elsif role == "global" && schema_state == "post_024"
+    definitions["local_metadata_translation_run"] = POST_024_METADATA_TRANSLATION_RUN_QUERY
   elsif role == "personal" && schema_state == "pre_002"
     PERSONAL_002_RELATIONS.each { |relation| definitions.delete(relation) }
   end
@@ -221,7 +251,9 @@ def inferred_schema_states(table_stats)
   global_tables = table_stats.fetch("global", {}).keys
   personal_tables = table_stats.fetch("personal", {}).keys
   {
-    "global" => if GLOBAL_023_RELATIONS.all? { |relation| global_tables.include?(relation) }
+    "global" => if GLOBAL_024_RELATIONS.all? { |relation| global_tables.include?(relation) }
+                  "post_024"
+                elsif GLOBAL_023_RELATIONS.all? { |relation| global_tables.include?(relation) }
                   "post_023"
                 elsif GLOBAL_022_RELATIONS.all? { |relation| global_tables.include?(relation) }
                   "post_022"

@@ -14,6 +14,9 @@ require_relative "local_runtime"
 class LocalRadarStore
   class Error < StandardError; end
   SUMMARY_LIMIT = 320
+  METADATA_TRANSLATION_MAX_LIMIT = 100
+  METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT = 200_000
+  METADATA_TRANSLATION_LEASE_SECONDS = 15 * 60
   DISCOVERY_BASES = %w[editorial_feed topic_query locale_headlines].freeze
   ANALYSIS_POLICIES = %w[signal_eligible exploration_only].freeze
 
@@ -1327,8 +1330,13 @@ class LocalRadarStore
 
   def metadata_translation_candidates(limit: 20, daily_character_limit: 200_000)
     return translation_candidates(limit: limit) unless relation_exists?("local_metadata_translation_run")
+    recover_stale_metadata_translation_runs! if metadata_translation_lease_schema_available?
+    requested_limit = Integer(limit)
+    raise Error, "metadata translation limit must be between 1 and #{METADATA_TRANSLATION_MAX_LIMIT}" unless requested_limit.between?(1, METADATA_TRANSLATION_MAX_LIMIT)
+    configured_daily_limit = Integer(daily_character_limit)
+    raise Error, "metadata translation daily character limit must be between 1 and #{METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT}" unless configured_daily_limit.between?(1, METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT)
     used = query("SELECT COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed')").fetch(0).to_i
-    remaining = [Integer(daily_character_limit) - used, 0].max
+    remaining = [configured_daily_limit - used, 0].max
     return [] if remaining.zero?
     items = query(<<~SQL).map do |row|
       SELECT r.run_id, v.version_id, v.item_key, v.source_id, v.source_name, v.language,
@@ -1336,7 +1344,7 @@ class LocalRadarStore
              v.source_url, v.published_at::text, v.fetched_at::text, v.content_hash, r.input_chars
         FROM local_metadata_translation_run r
         JOIN local_source_item_version v ON v.version_id=r.source_version_id
-       WHERE r.state IN ('pending','failed','credential_blocked','budget_blocked')
+       WHERE r.state IN ('pending','failed','credential_blocked','budget_blocked','interrupted')
          AND r.attempt_count < 3
          AND NOT EXISTS (
            SELECT 1 FROM local_translation_artifact t WHERE t.item_key=r.item_key
@@ -1344,7 +1352,7 @@ class LocalRadarStore
              AND t.provider=r.provider AND t.model=r.model AND t.status='translated'
          )
        ORDER BY v.created_at DESC, r.run_id ASC
-       LIMIT #{Integer(limit)}
+       LIMIT #{requested_limit}
     SQL
       row_to_hash(row, %w[translation_run_id version_id item_key source_id source_name language region publisher_name publisher_url source_kind title summary source_url published_at fetched_at content_hash input_chars]).tap { |item| item["input_chars"] = item.fetch("input_chars").to_i }
     end
@@ -1352,27 +1360,286 @@ class LocalRadarStore
     items.take_while { |item| total += item.fetch("input_chars"); total <= remaining }
   end
 
-  def start_metadata_translation!(run_id:)
-    rows = execute("UPDATE local_metadata_translation_run SET state='running',attempt_count=attempt_count+1,started_at=now(),finished_at=NULL,error_reason='',updated_at=now() WHERE run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked') RETURNING run_id")
-    raise Error, "metadata translation run is not claimable" if rows.empty?
+  def start_metadata_translation!(run_id:, owner: nil, lease_seconds: METADATA_TRANSLATION_LEASE_SECONDS, job_id: nil)
+    owner_id = normalized_translation_owner(owner)
+    seconds = Integer(lease_seconds)
+    raise Error, "metadata translation lease duration must be positive" unless seconds.positive?
+    if metadata_translation_lease_schema_available?
+      rows = execute(<<~SQL)
+        UPDATE local_metadata_translation_run
+           SET state='running', attempt_count=attempt_count+1, started_at=now(),
+               finished_at=NULL, error_reason='', lease_owner=#{literal(owner_id)},
+               heartbeat_at=now(), lease_expires_at=now() + (#{seconds} * interval '1 second'), updated_at=now()
+         WHERE run_id=#{literal(run_id)}
+           AND state IN ('pending','failed','credential_blocked','budget_blocked','interrupted')
+         RETURNING run_id
+      SQL
+      raise Error, "metadata translation run is not claimable" if rows.empty?
+      record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "claimed") if job_id
+    else
+      rows = execute("UPDATE local_metadata_translation_run SET state='running',attempt_count=attempt_count+1,started_at=now(),finished_at=NULL,error_reason='',updated_at=now() WHERE run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked') RETURNING run_id")
+      raise Error, "metadata translation run is not claimable" if rows.empty?
+    end
     true
   end
 
-  def block_metadata_translation_for_credentials!(run_id:, reason:)
-    rows = execute("UPDATE local_metadata_translation_run SET state='credential_blocked',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked') RETURNING run_id")
+  def block_metadata_translation_for_credentials!(run_id:, reason:, owner: nil, job_id: nil)
+    owner_id = normalized_translation_owner(owner)
+    where = if metadata_translation_lease_schema_available?
+              "run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked','interrupted')"
+            else
+              "run_id=#{literal(run_id)} AND state IN ('pending','failed','credential_blocked','budget_blocked')"
+            end
+    rows = execute("UPDATE local_metadata_translation_run SET state='credential_blocked',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),updated_at=now() WHERE #{where} RETURNING run_id")
     raise Error, "metadata translation run cannot be credential-blocked" if rows.empty?
+    record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "blocked", error_reason: reason) if job_id
     true
   end
 
-  def finish_metadata_translation!(run_id:, result:)
+  def finish_metadata_translation!(run_id:, result:, artifact: nil, owner: nil, job_id: nil)
     usage = result.fetch("usage", {})
-    execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'")
+    owner_id = normalized_translation_owner(owner)
+    if artifact && metadata_translation_lease_schema_available?
+      transaction do
+        assert_metadata_translation_owner!(run_id: run_id, owner_id: owner_id)
+        save_translation_artifact!(artifact: artifact)
+        rows = execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),heartbeat_at=now(),lease_expires_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} RETURNING run_id")
+        raise Error, "metadata translation run is no longer owned" if rows.empty?
+        record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "succeeded", input_chars: artifact_input_chars(artifact)) if job_id
+      end
+    else
+      rows = execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'#{metadata_translation_lease_schema_available? ? " AND lease_owner=#{literal(owner_id)}" : ""} RETURNING run_id")
+      raise Error, "metadata translation run is no longer owned" if rows.empty?
+      record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "succeeded") if job_id
+    end
     true
   end
 
-  def fail_metadata_translation!(run_id:, reason:)
-    execute("UPDATE local_metadata_translation_run SET state='failed',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'")
+  def fail_metadata_translation!(run_id:, reason:, owner: nil, job_id: nil)
+    owner_id = normalized_translation_owner(owner)
+    rows = execute("UPDATE local_metadata_translation_run SET state='failed',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),heartbeat_at=now(),lease_expires_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'#{metadata_translation_lease_schema_available? ? " AND lease_owner=#{literal(owner_id)}" : ""} RETURNING run_id")
+    raise Error, "metadata translation run is no longer owned" if rows.empty?
+    record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "failed", error_reason: reason) if job_id
     true
+  end
+
+  # A heartbeat is deliberately owner-bound.  A stale/non-expired run can be
+  # observed by another process, but it cannot be renewed or completed by it.
+  def heartbeat_metadata_translation!(run_id:, owner:, lease_seconds: METADATA_TRANSLATION_LEASE_SECONDS, job_id: nil)
+    owner_id = normalized_translation_owner(owner)
+    seconds = Integer(lease_seconds)
+    rows = execute("UPDATE local_metadata_translation_run SET heartbeat_at=now(),lease_expires_at=now() + (#{seconds} * interval '1 second'),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} RETURNING run_id")
+    raise Error, "metadata translation run heartbeat is not owned" if rows.empty?
+    record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "heartbeat") if job_id
+    true
+  end
+
+  # Reconcile a running row after a crash.  The artifact is accepted only when
+  # its immutable lineage/provider fields match the run exactly.  A valid
+  # artifact wins even when the lease is still fresh (the provider may have
+  # committed immediately before the process died); without one, only an
+  # expired lease can be interrupted/requeued.
+  def recover_stale_metadata_translation_runs!(now: nil, owner: "translation-recovery")
+    return [] unless metadata_translation_lease_schema_available?
+    owner_id = normalized_translation_owner(owner)
+    now_literal = now ? literal(now) : "now()"
+    run_ids = query("SELECT run_id FROM local_metadata_translation_run WHERE state='running' ORDER BY started_at, run_id").map(&:to_s)
+    run_ids.map do |run_id|
+      reconcile_metadata_translation_run!(run_id: run_id, owner: owner_id, force_expired: false, now: now) ? run_id : nil
+    end.compact
+  end
+
+  def reconcile_metadata_translation_run!(run_id:, owner: "translation-recovery", force_expired: false, now: nil)
+    return false unless metadata_translation_lease_schema_available?
+    owner_id = normalized_translation_owner(owner)
+    tx_now = now ? literal(now) : "now()"
+    transaction do
+      row = query(<<~SQL).fetch(0, nil)
+        SELECT run_id, source_version_id, item_key, source_content_hash, target_language, provider, model,
+               state, lease_expires_at::text
+          FROM local_metadata_translation_run
+         WHERE run_id=#{literal(run_id)}
+         FOR UPDATE
+      SQL
+      next false unless row
+      values = row.split("\t", -1)
+      run = row_to_hash(row, %w[run_id source_version_id item_key source_content_hash target_language provider model state lease_expires_at])
+      next false unless run.fetch("state") == "running"
+      artifact_rows = query(<<~SQL)
+        SELECT artifact_id, source_version_id, item_key, source_language, target_language,
+               original_content_hash, provider, model, status
+          FROM local_translation_artifact
+         WHERE source_version_id=#{literal(run.fetch("source_version_id"))}
+           AND item_key=#{literal(run.fetch("item_key"))}
+           AND original_content_hash=#{literal(run.fetch("source_content_hash"))}
+           AND target_language=#{literal(run.fetch("target_language"))}
+           AND provider=#{literal(run.fetch("provider"))}
+           AND model=#{literal(run.fetch("model"))}
+           AND status='translated'
+         ORDER BY created_at DESC, artifact_id ASC
+         LIMIT 2
+         FOR SHARE
+      SQL
+      artifact_valid = artifact_rows.any? do |artifact_row|
+        artifact = row_to_hash(artifact_row, %w[artifact_id source_version_id item_key source_language target_language original_content_hash provider model status])
+        artifact.fetch("source_version_id") == run.fetch("source_version_id") &&
+          artifact.fetch("item_key") == run.fetch("item_key") &&
+          artifact.fetch("original_content_hash") == run.fetch("source_content_hash") &&
+          artifact.fetch("target_language") == run.fetch("target_language") &&
+          artifact.fetch("provider") == run.fetch("provider") &&
+          artifact.fetch("model") == run.fetch("model") && artifact.fetch("status") == "translated"
+      end
+      if artifact_valid
+        execute("UPDATE local_metadata_translation_run SET state='succeeded',error_reason='',finished_at=#{tx_now},heartbeat_at=#{tx_now},lease_expires_at=#{tx_now},updated_at=#{tx_now} WHERE run_id=#{literal(run_id)} AND state='running'")
+        record_translation_batch_attempt_for_run!(run_id: run_id, owner_id: owner_id, event: "reconciled")
+        next true
+      end
+      expired = force_expired || query("SELECT lease_expires_at < #{tx_now} FROM local_metadata_translation_run WHERE run_id=#{literal(run_id)}").fetch(0) == "t"
+      next false unless expired
+      execute("UPDATE local_metadata_translation_run SET state='interrupted',error_reason='worker lease expired before artifact commit',finished_at=#{tx_now},heartbeat_at=#{tx_now},lease_expires_at=#{tx_now},updated_at=#{tx_now} WHERE run_id=#{literal(run_id)} AND state='running'")
+      record_translation_batch_attempt_for_run!(run_id: run_id, owner_id: owner_id, event: "interrupted", error_reason: "worker lease expired before artifact commit")
+      true
+    end
+  end
+
+  # Public queue/budget view used by both the API and the CLI.  It intentionally
+  # reports no provider credential values or prompt content.
+  def translation_status(daily_character_limit: METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT)
+    return { "status" => "not_available" } unless relation_exists?("local_metadata_translation_run")
+    limit = Integer(daily_character_limit)
+    limit = METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT if limit > METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT
+    recover_stale_metadata_translation_runs! if metadata_translation_lease_schema_available?
+    queue = query("SELECT state, COUNT(*) FROM local_metadata_translation_run GROUP BY state ORDER BY state").to_h do |row|
+      state, count = row.split("\t", -1)
+      [state, count.to_i]
+    end
+    eligible = query(<<~SQL).fetch(0).split("\t", -1)
+      SELECT COUNT(*), COALESCE(SUM(input_chars),0)
+        FROM local_metadata_translation_run
+       WHERE state IN ('pending','failed','budget_blocked','credential_blocked','interrupted')
+         AND attempt_count < 3
+    SQL
+    pending_only = query("SELECT COUNT(*), COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE state='pending' AND attempt_count < 3").fetch(0).split("\t", -1)
+    budget = query("SELECT COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed')").fetch(0).to_i
+    active = active_translation_batch_job
+    last_update_sql = if metadata_translation_lease_schema_available?
+                        "SELECT GREATEST(COALESCE((SELECT MAX(updated_at) FROM local_metadata_translation_run), now()), COALESCE((SELECT MAX(updated_at) FROM local_translation_batch_job), now()))::text"
+                      else
+                        "SELECT COALESCE(MAX(updated_at), now())::text FROM local_metadata_translation_run"
+                      end
+    last_update = query(last_update_sql).fetch(0)
+    {
+      "status" => active ? "running" : (queue.fetch("pending", 0).positive? ? "pending" : "idle"),
+      "queue" => queue,
+      "eligible_pending" => { "count" => eligible.fetch(0).to_i, "input_chars" => eligible.fetch(1).to_i },
+      "eligible_pending_count" => eligible.fetch(0).to_i,
+      "eligible_pending_chars" => eligible.fetch(1).to_i,
+      "pending" => { "count" => pending_only.fetch(0).to_i, "input_chars" => pending_only.fetch(1).to_i },
+      "pending_count" => pending_only.fetch(0).to_i,
+      "pending_input_chars" => pending_only.fetch(1).to_i,
+      "active_job" => active,
+      "daily_budget" => { "limit" => limit, "used" => budget, "remaining" => [limit - budget, 0].max },
+      "daily_budget_used" => budget,
+      "daily_budget_remaining" => [limit - budget, 0].max,
+      "last_updated_at" => last_update,
+      "last_update" => last_update,
+      "fulltext_boundary" => "metadata-only title and short summary translation; full text remains rights-gated in local_article_archive"
+    }
+  rescue LocalRadarStore::Error
+    raise
+  rescue StandardError => error
+    raise Error, "translation status failed: #{error.message}"
+  end
+
+  def active_translation_batch_job
+    return nil unless relation_exists?("local_translation_batch_job")
+    recover_stale_translation_batch_jobs!
+    rows = query(<<~SQL)
+      SELECT job_id, singleton_key, owner_id, state, requested_limit, daily_character_limit,
+             queued_count, examined_count, translated_count, failed_count, blocked_count,
+             input_chars, error_reason, started_at::text, heartbeat_at::text,
+             lease_expires_at::text, finished_at::text, updated_at::text
+        FROM local_translation_batch_job
+       WHERE singleton_key='metadata' AND state='running'
+       ORDER BY started_at DESC, job_id DESC
+       LIMIT 1
+    SQL
+    return nil if rows.empty?
+    row_to_hash(rows.fetch(0), %w[job_id singleton_key owner_id state requested_limit daily_character_limit queued_count examined_count translated_count failed_count blocked_count input_chars error_reason started_at heartbeat_at lease_expires_at finished_at updated_at]).tap do |job|
+      %w[requested_limit daily_character_limit queued_count examined_count translated_count failed_count blocked_count input_chars].each { |key| job[key] = job.fetch(key).to_i }
+    end
+  end
+
+  def recover_stale_translation_batch_jobs!(now: nil)
+    return [] unless relation_exists?("local_translation_batch_job")
+    now_literal = now ? literal(now) : "now()"
+    rows = execute(<<~SQL)
+      UPDATE local_translation_batch_job
+         SET state='interrupted', error_reason='worker lease expired before batch completion',
+             finished_at=#{now_literal}, heartbeat_at=#{now_literal}, lease_expires_at=#{now_literal}, updated_at=#{now_literal}
+       WHERE singleton_key='metadata' AND state='running' AND lease_expires_at < #{now_literal}
+       RETURNING job_id
+    SQL
+    rows
+  end
+
+  def start_translation_batch_job!(limit:, daily_character_limit:, owner: nil, job_id: nil)
+    requested_limit = Integer(limit)
+    raise Error, "metadata translation limit must be between 1 and #{METADATA_TRANSLATION_MAX_LIMIT}" unless requested_limit.between?(1, METADATA_TRANSLATION_MAX_LIMIT)
+    budget = Integer(daily_character_limit)
+    raise Error, "metadata translation daily character limit must be between 1 and #{METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT}" unless budget.between?(1, METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT)
+    owner_id = normalized_translation_owner(owner)
+    id = job_id.to_s.empty? ? "metadata-translation-#{Time.now.utc.strftime('%Y%m%dT%H%M%S%6NZ')}-#{SecureRandom.hex(6)}" : job_id.to_s
+    recover_stale_translation_batch_jobs!
+    # Reconcile expired item leases before attempting the singleton insert;
+    # the partial unique index still protects against races.
+    recover_stale_metadata_translation_runs!(owner: owner_id)
+    transaction do
+      rows = execute(<<~SQL)
+        INSERT INTO local_translation_batch_job
+          (job_id, singleton_key, owner_id, state, requested_limit, daily_character_limit)
+        VALUES (#{literal(id)}, 'metadata', #{literal(owner_id)}, 'running', #{requested_limit}, #{budget})
+        RETURNING job_id
+      SQL
+      raise Error, "translation batch job is already active" if rows.empty?
+      id
+    end
+  rescue LocalRadarStore::Error => error
+    raise unless error.message.include?("duplicate key") || error.message.include?("already active")
+    raise Error, "translation batch job is already active"
+  end
+
+  def heartbeat_translation_batch_job!(job_id:, owner:, lease_seconds: METADATA_TRANSLATION_LEASE_SECONDS)
+    owner_id = normalized_translation_owner(owner)
+    seconds = Integer(lease_seconds)
+    rows = execute("UPDATE local_translation_batch_job SET heartbeat_at=now(),lease_expires_at=now() + (#{seconds} * interval '1 second'),updated_at=now() WHERE job_id=#{literal(job_id)} AND state='running' AND owner_id=#{literal(owner_id)} RETURNING job_id")
+    raise Error, "translation batch job heartbeat is not owned" if rows.empty?
+    true
+  end
+
+  def update_translation_batch_job!(job_id:, owner:, counters: {})
+    owner_id = normalized_translation_owner(owner)
+    allowed = %w[queued_count examined_count translated_count failed_count blocked_count input_chars]
+    assignments = allowed.select { |key| counters.key?(key) }.map { |key| "#{key}=#{Integer(counters.fetch(key))}" }
+    assignments << "updated_at=now()"
+    rows = execute("UPDATE local_translation_batch_job SET #{assignments.join(', ')} WHERE job_id=#{literal(job_id)} AND state='running' AND owner_id=#{literal(owner_id)} RETURNING job_id")
+    raise Error, "translation batch job update is not owned" if rows.empty?
+    true
+  end
+
+  def finish_translation_batch_job!(job_id:, owner:, state: "succeeded", counters: {}, error_reason: "")
+    raise Error, "invalid translation batch job terminal state" unless %w[succeeded failed blocked interrupted].include?(state.to_s)
+    owner_id = normalized_translation_owner(owner)
+    allowed = %w[queued_count examined_count translated_count failed_count blocked_count input_chars]
+    assignments = allowed.select { |key| counters.key?(key) }.map { |key| "#{key}=#{Integer(counters.fetch(key))}" }
+    assignments += ["state=#{literal(state)}", "error_reason=#{literal(error_reason.to_s[0, 1000])}", "finished_at=now()", "heartbeat_at=now()", "lease_expires_at=now()", "updated_at=now()"]
+    rows = execute("UPDATE local_translation_batch_job SET #{assignments.join(', ')} WHERE job_id=#{literal(job_id)} AND state='running' AND owner_id=#{literal(owner_id)} RETURNING job_id")
+    raise Error, "translation batch job finish is not owned" if rows.empty?
+    true
+  end
+
+  def fail_translation_batch_job!(job_id:, owner:, reason:)
+    finish_translation_batch_job!(job_id: job_id, owner: owner, state: "failed", error_reason: reason)
   end
 
   def save_translation_artifact!(artifact:)
@@ -2620,5 +2887,57 @@ class LocalRadarStore
 
   def relation_exists?(name)
     query("SELECT to_regclass(#{literal(name)}) IS NOT NULL").fetch(0, "f") == "t"
+  end
+
+  def metadata_translation_lease_schema_available?
+    return true if @metadata_translation_lease_schema_available == true
+    required = query(<<~SQL).fetch(0, "0").to_i
+      SELECT COUNT(*)
+        FROM information_schema.columns
+       WHERE table_name='local_metadata_translation_run'
+         AND column_name IN ('lease_owner','heartbeat_at','lease_expires_at')
+    SQL
+    @metadata_translation_lease_schema_available = required == 3 && relation_exists?("local_translation_batch_job")
+  rescue LocalRadarStore::Error
+    false
+  end
+
+  def normalized_translation_owner(owner)
+    value = owner.to_s.strip
+    value = "translation-worker-#{Process.pid}" if value.empty?
+    raise Error, "translation owner is invalid" unless value.match?(/\A[A-Za-z0-9_.:-]{1,160}\z/)
+    value
+  end
+
+  def assert_metadata_translation_owner!(run_id:, owner_id:)
+    rows = query("SELECT run_id FROM local_metadata_translation_run WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} FOR UPDATE")
+    raise Error, "metadata translation run is no longer owned" if rows.empty?
+    true
+  end
+
+  def artifact_input_chars(artifact)
+    Integer(artifact.fetch("input_chars", 0))
+  rescue KeyError, ArgumentError, TypeError
+    0
+  end
+
+  def record_translation_batch_attempt!(job_id:, run_id:, owner_id:, event:, error_reason: "", input_chars: 0)
+    execute(<<~SQL)
+      INSERT INTO local_translation_batch_attempt
+        (attempt_id, job_id, run_id, owner_id, event, error_reason, input_chars)
+      VALUES (#{literal("#{job_id}-#{run_id}-#{event}-#{SecureRandom.hex(5)}")}, #{literal(job_id)}, #{literal(run_id)},
+              #{literal(owner_id)}, #{literal(event)}, #{literal(error_reason.to_s[0, 1000])}, #{Integer(input_chars)})
+    SQL
+  end
+
+  def record_translation_batch_attempt_for_run!(run_id:, owner_id:, event:, error_reason: "")
+    job = query("SELECT job_id FROM local_translation_batch_job WHERE state='running' ORDER BY started_at DESC, job_id DESC LIMIT 1").fetch(0, nil)
+    job_literal = job ? literal(job) : "NULL"
+    execute(<<~SQL)
+      INSERT INTO local_translation_batch_attempt
+        (attempt_id, job_id, run_id, owner_id, event, error_reason)
+      VALUES (#{literal("reconcile-#{run_id}-#{event}-#{SecureRandom.hex(5)}")}, #{job_literal}, #{literal(run_id)},
+              #{literal(owner_id)}, #{literal(event)}, #{literal(error_reason.to_s[0, 1000])})
+    SQL
   end
 end

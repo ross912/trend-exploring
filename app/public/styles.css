@@ -435,3 +435,10 @@ h2 { font-size: clamp(1.9rem, 3.2vw, 3rem); }
   .trend-card { background: #0b1314; color: var(--paper); }
   .conversation-form textarea { background: #0b1314; color: var(--ink); }
 }
+
+.translation-controls { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 14px; }
+.translation-run-button { min-height: 44px; }
+.translation-run-button:disabled { cursor: wait; opacity: .62; }
+.translation-status { margin-top: 10px; color: var(--ink-soft); font-family: var(--mono); font-size: .6rem; line-height: 1.5; }
+.translation-progress { display: block; width: 100%; height: 8px; margin-top: 8px; accent-color: var(--accent); }
+.translation-alert { margin-top: 8px; border-left: 3px solid var(--danger); padding: 7px 9px; color: var(--danger); font-family: var(--mono); font-size: .58rem; line-height: 1.45; }

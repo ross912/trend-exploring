@@ -5,10 +5,12 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 label="com.trendexploring.local-cycle"
 server_label="com.trendexploring.local-server"
 collect_label="com.trendexploring.local-collect"
+translation_label="com.trendexploring.local-translation"
 agent_dir="${LOCAL_LAUNCH_AGENT_DIR:-${HOME:-/tmp}/Library/LaunchAgents}"
 plist="${agent_dir}/${label}.plist"
 server_plist="${agent_dir}/${server_label}.plist"
 collect_plist="${agent_dir}/${collect_label}.plist"
+translation_plist="${agent_dir}/${translation_label}.plist"
 state_dir="${LOCAL_STATE_DIR:-${HOME:-/tmp}/Library/Application Support/TrendExploring}"
 mkdir -p "${agent_dir}" "${state_dir}/logs"
 
@@ -43,9 +45,9 @@ cleanup_deploy_lock() { rm -rf "${deploy_lock}"; }
 trap cleanup_deploy_lock EXIT INT TERM
 
 if [[ "${disaster_override}" != "1" ]]; then
-  active_processes="$(pgrep -f 'run_launchd_(collect|cycle|server)\.sh' 2>/dev/null || true)"
+  active_processes="$(pgrep -f 'run_launchd_(collect|cycle|server|translation)\.sh' 2>/dev/null || true)"
   [[ -z "${active_processes}" ]] || preflight_fail "active launchd process detected (pids: ${active_processes//$'\n'/ })"
-  for active_lock in "${lock_root}/collect.lock" "${lock_root}/cycle.lock" "${lock_root}/server.lock"; do
+  for active_lock in "${lock_root}/collect.lock" "${lock_root}/cycle.lock" "${lock_root}/server.lock" "${lock_root}/translation.lock" "${lock_root}/translation.launch.lock"; do
     [[ ! -e "${active_lock}" ]] || preflight_fail "active runtime lock detected (${active_lock})"
   done
 
@@ -79,6 +81,12 @@ if [[ "${disaster_override}" != "1" ]]; then
       fi
       [[ -z "${running_summary}" ]] || preflight_fail "non-expired summary run is active (run ids: ${running_summary//$'\n'/ })"
     fi
+    translation_relation="$(PGCONNECT_TIMEOUT=2 "${summary_psql}" -XAtq -w -h "${summary_host}" -p "${summary_port}" -U "${summary_user}" -d "${summary_database}" -c "SELECT to_regclass('local_translation_batch_job') IS NOT NULL" 2>/dev/null || true)"
+    [[ -n "${translation_relation}" ]] || preflight_fail "translation batch state is unavailable from local database"
+    if [[ "${translation_relation}" == "t" ]]; then
+      running_translation="$(PGCONNECT_TIMEOUT=2 "${summary_psql}" -XAtq -w -h "${summary_host}" -p "${summary_port}" -U "${summary_user}" -d "${summary_database}" -c "SELECT job_id FROM local_translation_batch_job WHERE state='running' AND lease_expires_at > now() ORDER BY started_at, job_id" 2>/dev/null || true)"
+      [[ -z "${running_translation}" ]] || preflight_fail "non-expired translation job is active (job ids: ${running_translation//$'\n'/ })"
+    fi
   fi
 fi
 
@@ -110,6 +118,7 @@ mv "${app_stage}" "${app_dir}"
 cycle_wrapper="${app_dir}/scripts/local/run_launchd_cycle.sh"
 server_wrapper="${app_dir}/scripts/local/run_launchd_server.sh"
 collect_wrapper="${app_dir}/scripts/local/run_launchd_collect.sh"
+translation_wrapper="${app_dir}/scripts/local/run_launchd_translation.sh"
 
 cat > "${plist}.tmp" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -127,7 +136,7 @@ cat > "${plist}.tmp" <<EOF
   <key>WorkingDirectory</key><string>${app_dir}</string>
 </dict></plist>
 EOF
-chmod 700 "${cycle_wrapper}" "${server_wrapper}" "${collect_wrapper}"
+chmod 700 "${cycle_wrapper}" "${server_wrapper}" "${collect_wrapper}" "${translation_wrapper}"
 mv "${plist}.tmp" "${plist}"
 cat > "${server_plist}.tmp" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -160,18 +169,34 @@ cat > "${collect_plist}.tmp" <<EOF
 </dict></plist>
 EOF
 mv "${collect_plist}.tmp" "${collect_plist}"
+cat > "${translation_plist}.tmp" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${translation_label}</string>
+  <key>ProgramArguments</key><array><string>${translation_wrapper}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>3600</integer>
+  <key>StandardOutPath</key><string>${state_dir}/logs/translation.log</string>
+  <key>StandardErrorPath</key><string>${state_dir}/logs/translation.error.log</string>
+  <key>WorkingDirectory</key><string>${app_dir}</string>
+</dict></plist>
+EOF
+mv "${translation_plist}.tmp" "${translation_plist}"
 if [[ "${LOCAL_SKIP_LAUNCHCTL:-0}" != "1" ]] && command -v launchctl >/dev/null 2>&1; then
   launchctl bootout "gui/$(id -u)" "${plist}" >/dev/null 2>&1 || true
   launchctl bootout "gui/$(id -u)" "${server_plist}" >/dev/null 2>&1 || true
   launchctl bootout "gui/$(id -u)" "${collect_plist}" >/dev/null 2>&1 || true
+  launchctl bootout "gui/$(id -u)" "${translation_plist}" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "${plist}"
   launchctl bootstrap "gui/$(id -u)" "${server_plist}"
   launchctl bootstrap "gui/$(id -u)" "${collect_plist}"
+  launchctl bootstrap "gui/$(id -u)" "${translation_plist}"
 fi
 # On macOS, plutil validates the generated launchd topology without loading
 # secrets or making network calls.  Non-macOS environments still receive the
 # deterministic plist files for review.
 if command -v plutil >/dev/null 2>&1; then
-  plutil -lint "${plist}" "${server_plist}" "${collect_plist}" >/dev/null
+  plutil -lint "${plist}" "${server_plist}" "${collect_plist}" "${translation_plist}" >/dev/null
 fi
-printf '%s\n' "${plist}" "${server_plist}" "${collect_plist}"
+printf '%s\n' "${plist}" "${server_plist}" "${collect_plist}" "${translation_plist}"

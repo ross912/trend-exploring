@@ -13,21 +13,19 @@ if [[ -z "${state_dir}" ]]; then
   fi
 fi
 lock_root="${state_dir}/locks"
-lock_dir="${lock_root}/collect.lock"
 mkdir -p "${lock_root}"
 if [[ -e "${state_dir}/deploy.lock" ]]; then
-  echo "collect refused: deployment lock is active (${state_dir}/deploy.lock)" >&2
+  echo "translation refused: deployment lock is active (${state_dir}/deploy.lock)" >&2
   exit 75
 fi
-if ! mkdir "${lock_dir}" 2>/dev/null; then
-  echo "collect refused: active collect lock (${lock_dir})" >&2
+if ! mkdir "${lock_root}/translation.launch.lock" 2>/dev/null; then
+  echo "translation refused: active launch wrapper lock" >&2
   exit 75
 fi
-printf '%s\n' "$$" > "${lock_dir}/pid"
-cleanup_lock() { rm -rf "${lock_dir}"; }
+printf '%s\n' "$$" > "${lock_root}/translation.launch.lock/pid"
+cleanup_lock() { rm -rf "${lock_root}/translation.launch.lock"; }
 trap cleanup_lock EXIT INT TERM
+
 eval "$(bash "${project_root}/scripts/local/start_postgres.sh" --env)"
 ruby "${project_root}/scripts/local/bootstrap_radar.rb" >/dev/null
-ruby "${project_root}/scripts/local/bootstrap_personal_memory.rb" >/dev/null
-ruby "${project_root}/scripts/local/ingest_sources.rb"
-exec ruby "${project_root}/scripts/local/archive_and_translate.rb"
+ruby "${project_root}/scripts/local/translation_worker.rb"
