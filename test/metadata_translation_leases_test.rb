@@ -102,6 +102,35 @@ class MetadataTranslationLeasesTest < Minitest::Test
     end
   end
 
+  def test_024_promotes_existing_nonnull_prompt_column_to_not_null
+    database = disposable_database("nonnull_prompt")
+    begin
+      run_migrations(database, %w[011_local_radar.sql 012_breadth_discovery.sql 016_local_fulltext_translation.sql 017_raw_archive_immutability.sql])
+      store = store_for(database)
+      seed_source(store: store)
+      version = store.source_item_versions(item_key: "item").fetch(0)
+      sql_on(database, "ALTER TABLE local_translation_artifact ADD COLUMN prompt_version text")
+      sql_on(database, <<~SQL)
+        INSERT INTO local_translation_artifact
+          (artifact_id, source_version_id, item_key, source_language, target_language,
+           original_content_hash, provider, model, prompt_version, translated_title,
+           translated_summary, validation_status, status, error_reason)
+        VALUES ('nonnull-artifact', '#{version.fetch("version_id")}', '#{version.fetch("item_key")}',
+                '#{version.fetch("language")}', 'zh-CN', '#{version.fetch("content_hash")}',
+                'deepseek', 'deepseek-v4-pro', 'legacy-prompt-v7', '标题', '摘要',
+                'mechanical_pass', 'translated', '')
+      SQL
+      before_hash = artifact_payload_hash(database)
+
+      run_migration(database, "024_metadata_translation_leases.sql")
+      assert_equal before_hash, artifact_payload_hash(database)
+      assert_equal "legacy-prompt-v7", scalar_text_on(database, "SELECT prompt_version FROM local_translation_artifact")
+      assert_equal 1, scalar_on(database, "SELECT COUNT(*) FROM pg_attribute WHERE attrelid = 'local_translation_artifact'::regclass AND attname = 'prompt_version' AND attnotnull")
+    ensure
+      drop_disposable_database(database)
+    end
+  end
+
   def test_024_refuses_an_early_schema_without_016
     database = disposable_database("early_schema")
     begin
