@@ -55,6 +55,7 @@ class TranslationRunner
             "source_language" => item.fetch("language"),
             "target_language" => @target_language,
             "original_content_hash" => item.fetch("content_hash"),
+            "prompt_version" => item.fetch("prompt_version", "metadata-translation-v1"),
             "provider" => result.fetch("provider"),
             "model" => result.fetch("model"),
             "translated_title" => result.fetch("translated_title"),

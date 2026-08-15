@@ -1335,11 +1335,12 @@ class LocalRadarStore
     raise Error, "metadata translation limit must be between 1 and #{METADATA_TRANSLATION_MAX_LIMIT}" unless requested_limit.between?(1, METADATA_TRANSLATION_MAX_LIMIT)
     configured_daily_limit = Integer(daily_character_limit)
     raise Error, "metadata translation daily character limit must be between 1 and #{METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT}" unless configured_daily_limit.between?(1, METADATA_TRANSLATION_DAILY_CHARACTER_LIMIT)
-    used = query("SELECT COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed')").fetch(0).to_i
+    used = query("SELECT COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed','interrupted')").fetch(0).to_i
     remaining = [configured_daily_limit - used, 0].max
     return [] if remaining.zero?
+    artifact_prompt_clause = translation_artifact_prompt_schema_available? ? " AND t.prompt_version=r.prompt_version" : ""
     items = query(<<~SQL).map do |row|
-      SELECT r.run_id, v.version_id, v.item_key, v.source_id, v.source_name, v.language,
+      SELECT r.run_id, r.prompt_version, v.version_id, v.item_key, v.source_id, v.source_name, v.language,
              v.region, v.publisher_name, v.publisher_url, v.source_kind, v.title, v.summary,
              v.source_url, v.published_at::text, v.fetched_at::text, v.content_hash, r.input_chars
         FROM local_metadata_translation_run r
@@ -1349,12 +1350,12 @@ class LocalRadarStore
          AND NOT EXISTS (
            SELECT 1 FROM local_translation_artifact t WHERE t.item_key=r.item_key
              AND t.original_content_hash=r.source_content_hash AND t.target_language='zh-CN'
-             AND t.provider=r.provider AND t.model=r.model AND t.status='translated'
+             AND t.provider=r.provider AND t.model=r.model#{artifact_prompt_clause} AND t.status='translated'
          )
        ORDER BY v.created_at DESC, r.run_id ASC
        LIMIT #{requested_limit}
     SQL
-      row_to_hash(row, %w[translation_run_id version_id item_key source_id source_name language region publisher_name publisher_url source_kind title summary source_url published_at fetched_at content_hash input_chars]).tap { |item| item["input_chars"] = item.fetch("input_chars").to_i }
+      row_to_hash(row, %w[translation_run_id prompt_version version_id item_key source_id source_name language region publisher_name publisher_url source_kind title summary source_url published_at fetched_at content_hash input_chars]).tap { |item| item["input_chars"] = item.fetch("input_chars").to_i }
     end
     total = 0
     items.take_while { |item| total += item.fetch("input_chars"); total <= remaining }
@@ -1397,27 +1398,77 @@ class LocalRadarStore
   end
 
   def finish_metadata_translation!(run_id:, result:, artifact: nil, owner: nil, job_id: nil)
+    return commit_metadata_translation_success!(run_id: run_id, result: result, artifact: artifact, owner: owner, job_id: job_id) if artifact && metadata_translation_lease_schema_available?
+
     usage = result.fetch("usage", {})
     owner_id = normalized_translation_owner(owner)
-    if artifact && metadata_translation_lease_schema_available?
-      transaction do
-        assert_metadata_translation_owner!(run_id: run_id, owner_id: owner_id)
-        save_translation_artifact!(artifact: artifact)
-        rows = execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),heartbeat_at=now(),lease_expires_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} RETURNING run_id")
-        raise Error, "metadata translation run is no longer owned" if rows.empty?
-        record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "succeeded", input_chars: artifact_input_chars(artifact)) if job_id
+    save_translation_artifact!(artifact: artifact) if artifact
+    rows = execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'#{metadata_translation_lease_schema_available? ? " AND lease_owner=#{literal(owner_id)} AND lease_expires_at > now()" : ""} RETURNING run_id")
+    raise Error, "metadata translation run is no longer owned" if rows.empty?
+    record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "succeeded") if job_id
+    true
+  end
+
+  # Persist the immutable artifact and terminal queue state as one transaction.
+  # The run row is locked and its source/prompt/provider lineage is read from
+  # the database, never trusted from the provider response or caller payload.
+  def commit_metadata_translation_success!(run_id:, result:, artifact:, owner: nil, job_id: nil)
+    raise Error, "translation artifact is required for metadata success" unless artifact.is_a?(Hash)
+    owner_id = normalized_translation_owner(owner)
+    usage = result.fetch("usage", {})
+    transaction do
+      row = query(<<~SQL).fetch(0, nil)
+        SELECT run_id, source_version_id, item_key, source_content_hash,
+               target_language, provider, model, prompt_version, lease_owner,
+               lease_expires_at::text
+          FROM local_metadata_translation_run
+         WHERE run_id=#{literal(run_id)}
+           AND state='running'
+           AND lease_owner=#{literal(owner_id)}
+           AND lease_expires_at > now()
+         FOR UPDATE
+      SQL
+      raise Error, "metadata translation run is no longer owned or lease expired" unless row
+      run = row_to_hash(row, %w[run_id source_version_id item_key source_content_hash target_language provider model prompt_version lease_owner lease_expires_at])
+
+      source_row = query(<<~SQL).fetch(0, nil)
+        SELECT version_id, item_key, language, content_hash
+          FROM local_source_item_version
+         WHERE version_id=#{literal(run.fetch("source_version_id"))}
+           AND item_key=#{literal(run.fetch("item_key"))}
+         FOR SHARE
+      SQL
+      raise Error, "metadata translation run source lineage is invalid" unless source_row
+      source = row_to_hash(source_row, %w[version_id item_key language content_hash])
+      expected = {
+        "source_version_id" => run.fetch("source_version_id"),
+        "item_key" => run.fetch("item_key"),
+        "original_content_hash" => run.fetch("source_content_hash"),
+        "target_language" => run.fetch("target_language"),
+        "provider" => run.fetch("provider"),
+        "model" => run.fetch("model"),
+        "prompt_version" => run.fetch("prompt_version"),
+        "source_language" => source.fetch("language")
+      }
+      mismatches = expected.each_with_object([]) do |(key, value), result_keys|
+        result_keys << key unless artifact.fetch(key, "").to_s == value.to_s
       end
-    else
-      rows = execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'#{metadata_translation_lease_schema_available? ? " AND lease_owner=#{literal(owner_id)}" : ""} RETURNING run_id")
-      raise Error, "metadata translation run is no longer owned" if rows.empty?
-      record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "succeeded") if job_id
+      raise Error, "translation artifact lineage mismatch: #{mismatches.join(',')}" unless mismatches.empty?
+      raise Error, "metadata translation run content hash is not source-version bound" unless source.fetch("content_hash") == run.fetch("source_content_hash")
+
+      save_translation_artifact!(artifact: artifact)
+      rows = execute("UPDATE local_metadata_translation_run SET state='succeeded',prompt_tokens=#{Integer(usage.fetch("prompt_tokens",0))},completion_tokens=#{Integer(usage.fetch("completion_tokens",0))},finished_at=now(),heartbeat_at=now(),lease_expires_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} AND lease_expires_at > now() RETURNING run_id")
+      raise Error, "metadata translation run lease expired before commit" if rows.empty?
+      record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "succeeded", input_chars: artifact_input_chars(artifact)) if job_id
     end
     true
+  rescue KeyError => error
+    raise Error, "translation artifact lineage is incomplete: #{error.message}"
   end
 
   def fail_metadata_translation!(run_id:, reason:, owner: nil, job_id: nil)
     owner_id = normalized_translation_owner(owner)
-    rows = execute("UPDATE local_metadata_translation_run SET state='failed',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),heartbeat_at=now(),lease_expires_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'#{metadata_translation_lease_schema_available? ? " AND lease_owner=#{literal(owner_id)}" : ""} RETURNING run_id")
+    rows = execute("UPDATE local_metadata_translation_run SET state='failed',error_reason=#{literal(reason.to_s[0,1000])},finished_at=now(),heartbeat_at=now(),lease_expires_at=now(),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running'#{metadata_translation_lease_schema_available? ? " AND lease_owner=#{literal(owner_id)} AND lease_expires_at > now()" : ""} RETURNING run_id")
     raise Error, "metadata translation run is no longer owned" if rows.empty?
     record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "failed", error_reason: reason) if job_id
     true
@@ -1428,7 +1479,7 @@ class LocalRadarStore
   def heartbeat_metadata_translation!(run_id:, owner:, lease_seconds: METADATA_TRANSLATION_LEASE_SECONDS, job_id: nil)
     owner_id = normalized_translation_owner(owner)
     seconds = Integer(lease_seconds)
-    rows = execute("UPDATE local_metadata_translation_run SET heartbeat_at=now(),lease_expires_at=now() + (#{seconds} * interval '1 second'),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} RETURNING run_id")
+    rows = execute("UPDATE local_metadata_translation_run SET heartbeat_at=now(),lease_expires_at=now() + (#{seconds} * interval '1 second'),updated_at=now() WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} AND lease_expires_at > now() RETURNING run_id")
     raise Error, "metadata translation run heartbeat is not owned" if rows.empty?
     record_translation_batch_attempt!(job_id: job_id, run_id: run_id, owner_id: owner_id, event: "heartbeat") if job_id
     true
@@ -1455,7 +1506,7 @@ class LocalRadarStore
     tx_now = now ? literal(now) : "now()"
     transaction do
       row = query(<<~SQL).fetch(0, nil)
-        SELECT run_id, source_version_id, item_key, source_content_hash, target_language, provider, model,
+        SELECT run_id, source_version_id, item_key, source_content_hash, target_language, provider, model, prompt_version,
                state, lease_expires_at::text
           FROM local_metadata_translation_run
          WHERE run_id=#{literal(run_id)}
@@ -1463,11 +1514,12 @@ class LocalRadarStore
       SQL
       next false unless row
       values = row.split("\t", -1)
-      run = row_to_hash(row, %w[run_id source_version_id item_key source_content_hash target_language provider model state lease_expires_at])
+      run = row_to_hash(row, %w[run_id source_version_id item_key source_content_hash target_language provider model prompt_version state lease_expires_at])
       next false unless run.fetch("state") == "running"
+      prompt_schema = translation_artifact_prompt_schema_available?
       artifact_rows = query(<<~SQL)
         SELECT artifact_id, source_version_id, item_key, source_language, target_language,
-               original_content_hash, provider, model, status
+               original_content_hash, provider, model#{prompt_schema ? ", prompt_version" : ""}, status
           FROM local_translation_artifact
          WHERE source_version_id=#{literal(run.fetch("source_version_id"))}
            AND item_key=#{literal(run.fetch("item_key"))}
@@ -1481,13 +1533,18 @@ class LocalRadarStore
          FOR SHARE
       SQL
       artifact_valid = artifact_rows.any? do |artifact_row|
-        artifact = row_to_hash(artifact_row, %w[artifact_id source_version_id item_key source_language target_language original_content_hash provider model status])
+        artifact_keys = %w[artifact_id source_version_id item_key source_language target_language original_content_hash provider model]
+        artifact_keys << "prompt_version" if prompt_schema
+        artifact_keys << "status"
+        artifact = row_to_hash(artifact_row, artifact_keys)
         artifact.fetch("source_version_id") == run.fetch("source_version_id") &&
           artifact.fetch("item_key") == run.fetch("item_key") &&
           artifact.fetch("original_content_hash") == run.fetch("source_content_hash") &&
           artifact.fetch("target_language") == run.fetch("target_language") &&
           artifact.fetch("provider") == run.fetch("provider") &&
-          artifact.fetch("model") == run.fetch("model") && artifact.fetch("status") == "translated"
+          artifact.fetch("model") == run.fetch("model") &&
+          (!prompt_schema || artifact.fetch("prompt_version") == run.fetch("prompt_version")) &&
+          artifact.fetch("status") == "translated"
       end
       if artifact_valid
         execute("UPDATE local_metadata_translation_run SET state='succeeded',error_reason='',finished_at=#{tx_now},heartbeat_at=#{tx_now},lease_expires_at=#{tx_now},updated_at=#{tx_now} WHERE run_id=#{literal(run_id)} AND state='running'")
@@ -1520,7 +1577,7 @@ class LocalRadarStore
          AND attempt_count < 3
     SQL
     pending_only = query("SELECT COUNT(*), COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE state='pending' AND attempt_count < 3").fetch(0).split("\t", -1)
-    budget = query("SELECT COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed')").fetch(0).to_i
+    budget = query("SELECT COALESCE(SUM(input_chars),0) FROM local_metadata_translation_run WHERE started_at >= date_trunc('day', now()) AND state IN ('running','succeeded','failed','interrupted')").fetch(0).to_i
     active = active_translation_batch_job
     last_update_sql = if metadata_translation_lease_schema_available?
                         "SELECT GREATEST(COALESCE((SELECT MAX(updated_at) FROM local_metadata_translation_run), now()), COALESCE((SELECT MAX(updated_at) FROM local_translation_batch_job), now()))::text"
@@ -1643,23 +1700,28 @@ class LocalRadarStore
   end
 
   def save_translation_artifact!(artifact:)
+    prompt_schema = translation_artifact_prompt_schema_available?
     required = %w[artifact_id source_version_id item_key source_language target_language original_content_hash provider model translated_title translated_summary validation_status status]
+    required << "prompt_version" if prompt_schema
     missing = required.reject { |key| artifact.key?(key) && !artifact.fetch(key).to_s.empty? }
     raise Error, "translation artifact fields missing: #{missing.join(',')}" unless missing.empty?
+    columns = "artifact_id, source_version_id, item_key, source_language, target_language, original_content_hash, provider, model#{prompt_schema ? ", prompt_version" : ""}, translated_title, translated_summary, validation_status, status, error_reason, created_at"
+    values = "#{literal(artifact.fetch("artifact_id"))}, #{literal(artifact.fetch("source_version_id"))}, #{literal(artifact.fetch("item_key"))}, #{literal(artifact.fetch("source_language"))}, #{literal(artifact.fetch("target_language"))}, #{literal(artifact.fetch("original_content_hash"))}, #{literal(artifact.fetch("provider"))}, #{literal(artifact.fetch("model"))}#{prompt_schema ? ", #{literal(artifact.fetch("prompt_version"))}" : ""}, #{literal(artifact.fetch("translated_title"))}, #{literal(artifact.fetch("translated_summary"))}, #{literal(artifact.fetch("validation_status"))}, #{literal(artifact.fetch("status"))}, #{literal(artifact.fetch("error_reason", ""))}, now()"
+    conflict_key = "item_key, target_language, original_content_hash, provider, model#{prompt_schema ? ", prompt_version" : ""}"
     execute(<<~SQL)
       INSERT INTO local_translation_artifact
-        (artifact_id, source_version_id, item_key, source_language, target_language, original_content_hash, provider, model,
-         translated_title, translated_summary, validation_status, status, error_reason, created_at)
-      VALUES (#{literal(artifact.fetch("artifact_id"))}, #{literal(artifact.fetch("source_version_id"))}, #{literal(artifact.fetch("item_key"))}, #{literal(artifact.fetch("source_language"))},
-              #{literal(artifact.fetch("target_language"))}, #{literal(artifact.fetch("original_content_hash"))}, #{literal(artifact.fetch("provider"))},
-              #{literal(artifact.fetch("model"))}, #{literal(artifact.fetch("translated_title"))}, #{literal(artifact.fetch("translated_summary"))},
-              #{literal(artifact.fetch("validation_status"))}, #{literal(artifact.fetch("status"))}, #{literal(artifact.fetch("error_reason", ""))}, now())
-      ON CONFLICT (item_key, target_language, original_content_hash, provider, model) DO NOTHING
+        (#{columns})
+      VALUES (#{values})
+      ON CONFLICT (#{conflict_key}) DO NOTHING
     SQL
-    rows = query("SELECT artifact_id, source_version_id, translated_title, translated_summary, validation_status, status, error_reason FROM local_translation_artifact WHERE item_key=#{literal(artifact.fetch("item_key"))} AND target_language=#{literal(artifact.fetch("target_language"))} AND original_content_hash=#{literal(artifact.fetch("original_content_hash"))} AND provider=#{literal(artifact.fetch("provider"))} AND model=#{literal(artifact.fetch("model"))}")
+    prompt_select = prompt_schema ? ", prompt_version" : ""
+    rows = query("SELECT artifact_id, source_version_id, translated_title, translated_summary, validation_status, status, error_reason#{prompt_select} FROM local_translation_artifact WHERE item_key=#{literal(artifact.fetch("item_key"))} AND target_language=#{literal(artifact.fetch("target_language"))} AND original_content_hash=#{literal(artifact.fetch("original_content_hash"))} AND provider=#{literal(artifact.fetch("provider"))} AND model=#{literal(artifact.fetch("model"))}#{prompt_schema ? " AND prompt_version=#{literal(artifact.fetch("prompt_version"))}" : ""}")
     raise Error, "translation artifact was not persisted" if rows.empty?
     actual = rows.fetch(0).split("\t", -1)
-    expected = %w[artifact_id source_version_id translated_title translated_summary validation_status status].map { |key| artifact.fetch(key).to_s } + [artifact.fetch("error_reason", "").to_s]
+    expected_keys = %w[artifact_id source_version_id translated_title translated_summary validation_status status]
+    expected_keys << "error_reason"
+    expected_keys << "prompt_version" if prompt_schema
+    expected = expected_keys.map { |key| artifact.fetch(key, "").to_s }
     raise Error, "translation artifact immutable payload differs" unless actual == expected
     artifact
   rescue KeyError, ArgumentError, TypeError => error
@@ -2902,6 +2964,20 @@ class LocalRadarStore
     false
   end
 
+  def translation_artifact_prompt_schema_available?
+    return true if @translation_artifact_prompt_schema_available == true
+
+    present = query(<<~SQL).fetch(0, "0").to_i
+      SELECT COUNT(*)
+        FROM information_schema.columns
+       WHERE table_name='local_translation_artifact'
+         AND column_name='prompt_version'
+    SQL
+    @translation_artifact_prompt_schema_available = present == 1
+  rescue LocalRadarStore::Error
+    false
+  end
+
   def normalized_translation_owner(owner)
     value = owner.to_s.strip
     value = "translation-worker-#{Process.pid}" if value.empty?
@@ -2910,7 +2986,7 @@ class LocalRadarStore
   end
 
   def assert_metadata_translation_owner!(run_id:, owner_id:)
-    rows = query("SELECT run_id FROM local_metadata_translation_run WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} FOR UPDATE")
+    rows = query("SELECT run_id FROM local_metadata_translation_run WHERE run_id=#{literal(run_id)} AND state='running' AND lease_owner=#{literal(owner_id)} AND lease_expires_at > now() FOR UPDATE")
     raise Error, "metadata translation run is no longer owned" if rows.empty?
     true
   end

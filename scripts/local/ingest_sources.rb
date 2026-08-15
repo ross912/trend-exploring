@@ -124,7 +124,12 @@ if items.empty?
 end
 translation_result = { "status" => "not_requested", "translated_count" => 0, "failed_count" => 0, "blocked_count" => 0 }
 if ENV.fetch("LOCAL_TRANSLATE_LIVE", "1") == "1"
-  translation_result = TranslationRunner.new(store: store, provider: TranslationProvider::DeepSeek.new).run(limit: Integer(ENV.fetch("LOCAL_TRANSLATION_LIMIT", "20")))
+  translation_daily_character_limit = Integer(ENV.fetch("LOCAL_DEEPSEEK_DAILY_CHARACTER_LIMIT", "200000"))
+  abort "LOCAL_DEEPSEEK_DAILY_CHARACTER_LIMIT must be between 1 and 200000" unless translation_daily_character_limit.between?(1, 200_000)
+  translation_result = TranslationRunner.new(store: store, provider: TranslationProvider::DeepSeek.new).run(
+    limit: Integer(ENV.fetch("LOCAL_TRANSLATION_LIMIT", "20")),
+    daily_character_limit: translation_daily_character_limit
+  )
 end
 signal_batch_items = items.select { |item| item.fetch("analysis_policy", "signal_eligible").to_s == "signal_eligible" }
 prior_signal_radar = signal_batch_items.empty? ? store.stored_signal_projection : nil
