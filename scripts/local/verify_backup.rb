@@ -176,13 +176,17 @@ end
 def table_definitions(options, database, role, schema_state)
   definitions = TABLES.fetch(role).dup
   if role == "global" && schema_state == "pre_021"
+    definitions["local_report_summary_run"] = POST_021_REPORT_SUMMARY_RUN_QUERY
     definitions["local_report_summary_artifact"] = LEGACY_REPORT_SUMMARY_ARTIFACT_QUERY
     GLOBAL_021_RELATIONS.each { |relation| definitions.delete(relation) }
+    GLOBAL_022_RELATIONS.each { |relation| definitions.delete(relation) }
+    GLOBAL_023_RELATIONS.each { |relation| definitions.delete(relation) }
   elsif role == "global" && schema_state == "post_021"
     definitions["local_report_summary_run"] = POST_021_REPORT_SUMMARY_RUN_QUERY
     definitions["local_report_summary_artifact"] = POST_021_REPORT_SUMMARY_ARTIFACT_QUERY
     definitions["provider_response_receipt"] = POST_021_PROVIDER_RECEIPT_QUERY
-    definitions.delete("report_summary_repair_schema_meta")
+    GLOBAL_022_RELATIONS.each { |relation| definitions.delete(relation) }
+    GLOBAL_023_RELATIONS.each { |relation| definitions.delete(relation) }
   elsif role == "global" && schema_state == "post_022"
     definitions["local_report_summary_run"] = POST_022_REPORT_SUMMARY_RUN_QUERY
     definitions.delete("report_summary_lease_schema_meta")
