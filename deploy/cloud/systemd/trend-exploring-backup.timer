@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Trend Exploring encrypted backup at 03:00 Asia Shanghai
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=90s
+Unit=trend-exploring-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,32 @@
+[Unit]
+Description=Trend Exploring PostgreSQL migration (advisory locked)
+After=postgresql.service
+Requires=postgresql.service
+ConditionPathExists=/opt/trend-exploring/current
+ConditionPathExists=/etc/trend-exploring/enable-migrations
+
+[Service]
+Type=oneshot
+User=trendexploring
+Group=trendexploring
+WorkingDirectory=/opt/trend-exploring/current
+EnvironmentFile=-/etc/trend-exploring/trend-exploring.env
+Environment=HOME=/var/lib/trend-exploring
+Environment=LOCAL_STATE_DIR=/var/lib/trend-exploring
+StateDirectory=trend-exploring
+StateDirectoryMode=0750
+ExecStart=/usr/local/libexec/trend-exploring/run_migration.sh
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStartSec=45min
+TimeoutStopSec=90s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/trend-exploring /var/log/trend-exploring
+UMask=0077
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=64
+LimitNOFILE=4096

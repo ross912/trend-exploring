@@ -1,0 +1,23 @@
+/var/log/trend-exploring/*.log {
+    daily
+    rotate 14
+    size 20M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su trendexploring trendexploring
+}
+
+/var/log/caddy/trend-exploring.access.log {
+    daily
+    rotate 14
+    size 20M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su root adm
+}

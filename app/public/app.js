@@ -89,6 +89,25 @@ function renderArchive(archive) {
 
 let translationPollTimer = null;
 let translationLastJobId = null;
+let authRedirected = false;
+let authMode = "unknown";
+
+function readCookie(name) {
+  const prefix = `${encodeURIComponent(name)}=`;
+  const pair = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
+  if (!pair) return "";
+  const value = pair.slice(prefix.length);
+  try { return decodeURIComponent(value); } catch (_error) { return value; }
+}
+
+function redirectToLoginOnce() {
+  if (authRedirected) return;
+  if (authMode === "local_disabled") return;
+  const currentPath = window.location.pathname || "";
+  if (currentPath === "/login" || currentPath === "/login.html") return;
+  authRedirected = true;
+  window.location.assign("/login");
+}
 
 function translationQueueLabel(queue) {
   const labels = { pending: "待处理", running: "处理中", succeeded: "已完成", failed: "失败", blocked: "受阻", credential_blocked: "凭据未配置", budget_blocked: "预算受限", interrupted: "中断待恢复" };
@@ -393,11 +412,72 @@ function renderRadar(payload) {
 }
 
 async function fetchJson(path, options = {}) {
-  const response = await fetch(path, { headers: { "Accept": "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}) }, ...options });
+  const { skipAuthRedirect = false, ...requestOptions } = options;
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  const headers = new Headers(requestOptions.headers || {});
+  headers.set("Accept", "application/json");
+  if (requestOptions.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    // The cloud middleware validates this double-submit token for every write.
+    headers.set("X-CSRF-Token", readCookie("zixin_csrf"));
+  }
+  const response = await fetch(path, {
+    ...requestOptions,
+    method,
+    headers,
+    credentials: requestOptions.credentials || "same-origin"
+  });
   let payload;
   try { payload = await response.json(); } catch (_error) { payload = { error: `HTTP ${response.status}` }; }
-  if (!response.ok) throw Object.assign(new Error(payload.error || `HTTP ${response.status}`), { status: response.status, payload });
+  if (!response.ok) {
+    const message = payload && typeof payload === "object" ? payload.error : null;
+    const error = Object.assign(new Error(message || `HTTP ${response.status}`), { status: response.status, payload });
+    if (response.status === 401 && !skipAuthRedirect && String(path).startsWith("/api/")) redirectToLoginOnce();
+    throw error;
+  }
   return payload;
+}
+
+async function loadAuthSession() {
+  const button = $("#logout-button");
+  if (!button) return;
+  try {
+    const payload = await fetchJson("/api/auth/session", { skipAuthRedirect: true });
+    authMode = payload && payload.auth_mode ? payload.auth_mode : (payload && payload.authenticated ? "required" : "unknown");
+    const authenticated = payload && payload.authenticated === true;
+    const localDisabled = authMode === "local_disabled";
+    button.hidden = localDisabled || !authenticated;
+  } catch (error) {
+    button.hidden = true;
+    if (error.status === 401) {
+      authMode = "required";
+      redirectToLoginOnce();
+    }
+  }
+}
+
+async function logout() {
+  const button = $("#logout-button");
+  const status = $("#logout-status");
+  if (!button || authMode === "local_disabled") {
+    if (button) button.hidden = true;
+    return;
+  }
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  if (status) { status.hidden = false; status.textContent = "正在退出…"; }
+  try {
+    await fetchJson("/api/auth/logout", { method: "POST", skipAuthRedirect: true });
+    window.location.assign("/");
+  } catch (error) {
+    if (error.status === 401) {
+      window.location.assign("/");
+      return;
+    }
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    if (status) status.textContent = "退出暂不可用，请稍后再试。";
+  }
 }
 
 async function loadReports() {
@@ -470,11 +550,13 @@ async function submitConversation(event) {
 }
 
 function tick() { $("#clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
+$("#logout-button").addEventListener("click", logout);
 $("#refresh-button").addEventListener("click", () => { loadRadar(); loadReports(); loadWeakSignals(); loadWorldChangeSurfaces(); loadTranslationStatus(); });
 $("#translation-run-button").addEventListener("click", startTranslation);
 $("#conversation-form").addEventListener("submit", submitConversation);
 tick();
 setInterval(tick, 1000);
+loadAuthSession();
 loadRadar();
 loadTranslationStatus();
 loadReports();

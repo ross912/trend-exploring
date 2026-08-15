@@ -1,0 +1,10 @@
+[Unit]
+Description=Optional Trend Exploring migration timer (disabled by default)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Asia/Shanghai
+Persistent=true
+Unit=trend-exploring-migration.service
+
+[Install]
+WantedBy=timers.target

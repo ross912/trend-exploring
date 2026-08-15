@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f2f0e8">
+    <meta name="description" content="登录 zixin.space 个人观察台。">
+    <title>登录 / zixin.space</title>
+    <link rel="stylesheet" href="/login.css">
+  </head>
+  <body>
+    <div class="login-page">
+      <header class="login-header">
+        <a class="login-brand" href="/landing.html" aria-label="返回 zixin.space 公开入口">zixin.space</a>
+        <span class="login-index">ACCOUNT ACCESS</span>
+      </header>
+
+      <main class="login-main">
+        <section class="login-context" aria-labelledby="login-title">
+          <p class="eyebrow">个人观察台访问确认</p>
+          <h1 id="login-title">继续看<br><span>已归档的现场。</span></h1>
+          <p>这是一个单账号入口。登录后，服务端会把你带回完整观察台。</p>
+          <p class="context-note">公开入口只负责转交访问确认。</p>
+        </section>
+
+        <section class="login-panel" aria-label="登录表单">
+          <form id="login-form" method="post" action="/api/auth/login" data-endpoint="/api/auth/login" autocomplete="on">
+            <input type="hidden" name="mode" value="password">
+            <div class="form-heading">
+              <p class="form-kicker" id="form-mode-label">PASSWORD ACCESS</p>
+              <p class="form-boundary">字段只用于本次访问确认。</p>
+            </div>
+
+            <div class="field-group">
+              <label for="account">账号</label>
+              <input id="account" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="128" aria-describedby="account-help">
+              <p class="field-help" id="account-help">使用已配置的账号标识。</p>
+            </div>
+
+            <div class="field-group" id="password-group">
+              <label for="password">密码</label>
+              <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" aria-describedby="password-help">
+              <p class="field-help" id="password-help">密码不会显示在页面上。</p>
+            </div>
+
+            <div class="field-group" id="recovery-group" hidden>
+              <label for="recovery-code">恢复码</label>
+              <input id="recovery-code" name="recovery_code" type="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="160" inputmode="text" aria-describedby="recovery-help" disabled>
+              <p class="field-help" id="recovery-help">输入一次性恢复码，服务端会验证它是否仍可用。</p>
+              <label for="new-password">设置新密码</label>
+              <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="256" aria-describedby="new-password-help" disabled>
+              <p class="field-help" id="new-password-help">新密码至少 12 个字符。</p>
+              <label for="new-password-confirm">确认新密码</label>
+              <input id="new-password-confirm" name="new_password_confirm" type="password" autocomplete="new-password" minlength="12" maxlength="256" aria-describedby="new-password-confirm-help" disabled>
+              <p class="field-help" id="new-password-confirm-help">再次输入新密码以确认。</p>
+            </div>
+
+            <div class="form-status" id="login-status" role="status" aria-live="polite"></div>
+            <div class="form-error" id="login-error" role="alert" aria-live="assertive" hidden></div>
+
+            <button class="submit-button" id="login-submit" type="submit">
+              <span class="submit-label">进入观察台</span>
+              <span class="submit-arrow" aria-hidden="true">↗</span>
+            </button>
+
+            <button class="mode-toggle" id="mode-toggle" type="button" aria-controls="recovery-group" aria-expanded="false">使用恢复码恢复访问</button>
+            <p class="form-footnote">需要帮助时，请使用已保存的恢复码；不要在这里粘贴其他敏感资料。</p>
+          </form>
+        </section>
+      </main>
+
+      <footer class="login-footer">
+        <span>ACCESS IS SERVER-VALIDATED</span>
+        <a href="/landing.html">返回公开入口</a>
+      </footer>
+    </div>
+    <script src="/login.js" defer></script>
+  </body>
+</html>

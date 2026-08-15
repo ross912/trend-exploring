@@ -1,0 +1,35 @@
+[Unit]
+Description=Trend Exploring authenticated web server
+Wants=network-online.target
+After=network-online.target postgresql.service
+ConditionPathExists=/opt/trend-exploring/current
+
+[Service]
+Type=simple
+User=trendexploring
+Group=trendexploring
+WorkingDirectory=/opt/trend-exploring/current
+EnvironmentFile=-/etc/trend-exploring/trend-exploring.env
+Environment=HOME=/var/lib/trend-exploring
+Environment=LOCAL_STATE_DIR=/var/lib/trend-exploring
+StateDirectory=trend-exploring
+StateDirectoryMode=0750
+ExecStart=/usr/local/libexec/trend-exploring/run_server.sh
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=60s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/trend-exploring /var/log/trend-exploring
+UMask=0077
+MemoryHigh=400M
+MemoryMax=512M
+TasksMax=32
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

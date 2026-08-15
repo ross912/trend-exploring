@@ -29,6 +29,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--copper); outlin
 .brand-mark i:nth-child(2) { height: 16px; background: var(--copper); }
 .brand-mark i:nth-child(3) { height: 12px; background: var(--acid); }
 .header-meta { display: flex; align-items: center; gap: 20px; color: var(--ink-soft); font-family: var(--mono); font-size: .67rem; letter-spacing: .08em; }
+.logout-button { border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--ink-soft); padding: 6px 9px; cursor: pointer; font-family: var(--mono); font-size: .59rem; letter-spacing: .06em; }
+.logout-button:hover { border-color: var(--teal); color: var(--teal); }
+.logout-button:disabled { cursor: wait; opacity: .6; }
+.logout-status { color: var(--ink-soft); font-family: var(--mono); font-size: .56rem; letter-spacing: .04em; }
 .live-chip { display: inline-flex; align-items: center; gap: 7px; }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px rgba(24,120,117,.13); }
 .live-dot.error { background: var(--copper); box-shadow: 0 0 0 4px rgba(180,92,63,.13); }

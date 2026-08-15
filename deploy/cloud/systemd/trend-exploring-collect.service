@@ -1,0 +1,31 @@
+[Unit]
+Description=Trend Exploring source collection batch
+Wants=network-online.target
+After=network-online.target postgresql.service
+ConditionPathExists=/opt/trend-exploring/current
+
+[Service]
+Type=oneshot
+User=trendexploring
+Group=trendexploring
+WorkingDirectory=/opt/trend-exploring/current
+EnvironmentFile=-/etc/trend-exploring/trend-exploring.env
+Environment=HOME=/var/lib/trend-exploring
+Environment=LOCAL_STATE_DIR=/var/lib/trend-exploring
+StateDirectory=trend-exploring
+StateDirectoryMode=0750
+ExecStart=/usr/local/libexec/trend-exploring/run_collect.sh
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStartSec=30min
+TimeoutStopSec=90s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/trend-exploring /var/log/trend-exploring
+UMask=0077
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=64
+LimitNOFILE=4096

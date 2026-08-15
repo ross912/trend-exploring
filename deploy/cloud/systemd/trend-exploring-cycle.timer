@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Trend Exploring report cycles at Asia Shanghai boundaries
+
+[Timer]
+OnCalendar=*-*-* 08:05:00 Asia/Shanghai
+OnCalendar=*-*-* 19:05:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=90s
+Unit=trend-exploring-cycle.service
+
+[Install]
+WantedBy=timers.target

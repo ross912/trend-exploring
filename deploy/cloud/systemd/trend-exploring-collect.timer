@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Trend Exploring collection at 07:55 and 18:55 Asia Shanghai
+
+[Timer]
+OnCalendar=*-*-* 07:55:00 Asia/Shanghai
+OnCalendar=*-*-* 18:55:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=90s
+Unit=trend-exploring-collect.service
+
+[Install]
+WantedBy=timers.target

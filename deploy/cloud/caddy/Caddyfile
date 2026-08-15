@@ -1,0 +1,140 @@
+{
+	# Caddy manages the public TLS certificate for zixin.space.  DNS and VPS
+	# changes are intentionally outside this repository's deployment scripts.
+	auto_https prefer_wildcard
+}
+
+zixin.space {
+	# Public surface: landing page, login page/submission and the minimum live
+	# probe. Session and application authorization is performed by the backend;
+	# Caddy does not duplicate it with BasicAuth.
+	root * /opt/trend-exploring/current/app/public
+	@home path /
+	handle @home {
+		rewrite * /landing.html
+		file_server
+	}
+	@landing {
+		path /landing.html /landing.css /landing.js /login.html /login.css /login.js /assets/landing-hero-v1.webp
+	}
+	handle @landing {
+		file_server
+	}
+
+	@login_page {
+		path /login
+		method GET
+	}
+	handle @login_page {
+		rewrite * /login.html
+		file_server
+	}
+
+	@login_post {
+		path /login /login/* /session /session/* /api/auth/login /api/auth/login/* /api/auth/recover /api/auth/recover/* /api/auth/recovery /api/auth/recovery/*
+		method POST
+	}
+	handle @login_post {
+		# Standard Caddy has no stateful rate-limit module. These short timeouts
+		# and a smaller body cap are an auxiliary guard; the backend must enforce
+		# per-IP/account login and recovery rate limits.
+		request_body {
+			max_size 128KB
+		}
+		reverse_proxy 127.0.0.1:3000 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 10s
+				read_timeout 10s
+				write_timeout 10s
+			}
+		}
+	}
+
+	@livez path /api/livez
+	handle @livez {
+		reverse_proxy 127.0.0.1:3000 {
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 5s
+			}
+		}
+	}
+
+	# /api/readyz is for local monitoring only. External requests fall through
+	# to @private and therefore still require a backend session.
+	@internal_ready {
+		path /api/readyz
+		remote_ip 127.0.0.1 ::1
+	}
+	handle @internal_ready {
+		reverse_proxy 127.0.0.1:3000 {
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 5s
+			}
+		}
+	}
+
+	# Readiness includes dependency details and is never an Internet endpoint.
+	# The loopback handler above wins for local monitoring; all other peers get
+	# an explicit 404 instead of falling through to the backend catch-all.
+	@external_ready path /readyz /api/readyz
+	handle @external_ready {
+		respond "Not found" 404
+	}
+
+	# /app, all data APIs, and publish/admin actions reach the backend, which
+	# must reject requests without a valid session.  Do not add BasicAuth here:
+	# it would create a second credential system and leak policy into the proxy.
+	@private {
+		path /app* /api* /v1* /publish* /admin*
+	}
+	handle @private {
+		reverse_proxy 127.0.0.1:3000 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+				read_timeout 60s
+				write_timeout 60s
+			}
+		}
+	}
+
+	# Everything else is still handled by the backend. This lets authenticated
+	# app pages load /styles.css and /app.js while the backend's public_route and
+	# auth middleware decide whether a newly added path is 404 or unauthorized.
+	handle {
+		reverse_proxy 127.0.0.1:3000 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+				read_timeout 60s
+				write_timeout 60s
+			}
+		}
+	}
+
+	request_body {
+		max_size 2MB
+	}
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		X-Robots-Tag "noindex, nofollow, noarchive"
+		Cache-Control "no-store"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+	encode gzip zstd
+	log {
+		output file /var/log/caddy/trend-exploring.access.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+		format json
+	}
+}

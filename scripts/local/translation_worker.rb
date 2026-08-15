@@ -45,8 +45,20 @@ unless Dir.mkdir(lock_dir, 0o700)
   warn "translation worker refused: another translation worker is active"
   exit 75
 end
-File.write(File.join(lock_dir, "pid"), "#{Process.pid}\n", mode: "w", perm: 0o600)
-at_exit { FileUtils.rm_rf(lock_dir) }
+pid_path = File.join(lock_dir, "pid")
+File.write(pid_path, "#{Process.pid}\n", mode: "w", perm: 0o600)
+cleanup_owned_lock = lambda do
+  begin
+    owner_pid = File.read(pid_path).to_s.strip.to_i if File.file?(pid_path)
+    FileUtils.rm_rf(lock_dir) if owner_pid == Process.pid
+  rescue StandardError
+    # Never mask the worker's actual exit status with cleanup diagnostics.
+    nil
+  end
+end
+at_exit { cleanup_owned_lock.call }
+Signal.trap("TERM") { exit 143 }
+Signal.trap("INT") { exit 130 }
 
 begin
   store = LocalRadarStore.new
