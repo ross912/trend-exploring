@@ -146,7 +146,7 @@ server.mount_proc "/api/translations/run" do |request, response|
     json_response.call(response, { "error" => "payload too large" }, 413)
     next
   end
-  payload = request.body.to_s.empty? ? {} : JSON.parse(request.body.to_s)
+  payload = JSON.parse(request.body.to_s)
   raise JSON::ParserError, "payload must be an object" unless payload.is_a?(Hash)
   unknown = payload.keys.map(&:to_s) - %w[limit daily_character_limit]
   raise KeyError, "unknown payload field" unless unknown.empty?
