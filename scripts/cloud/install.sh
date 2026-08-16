@@ -149,6 +149,7 @@ else
     rm -f -- "${rendered}"
   }
   install_nginx_template "${nginx_template}" "${nginx_site}" 0644
+  install_nginx_template "${repo_root}/deploy/cloud/nginx/trend-exploring-proxy-base.conf" /etc/nginx/snippets/trend-exploring-proxy-base.conf 0644
   install_nginx_template "${repo_root}/deploy/cloud/nginx/trend-exploring-proxy.conf" /etc/nginx/snippets/trend-exploring-proxy.conf 0644
   install_nginx_template "${repo_root}/deploy/cloud/nginx/trend-exploring-proxy-short.conf" /etc/nginx/snippets/trend-exploring-proxy-short.conf 0644
   install_nginx_template "${repo_root}/deploy/cloud/nginx/trend-exploring-proxy-login.conf" /etc/nginx/snippets/trend-exploring-proxy-login.conf 0644

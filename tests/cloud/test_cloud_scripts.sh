@@ -92,8 +92,20 @@ grep -q 'location = /api/readyz { return 404; }' deploy/cloud/nginx/radar.zixin.
 grep -q 'location = /readyz { return 404; }' deploy/cloud/nginx/radar.zixin.space.tls.conf
 grep -q 'client_max_body_size 2m' deploy/cloud/nginx/radar.zixin.space.tls.conf
 grep -q 'client_max_body_size 128k' deploy/cloud/nginx/radar.zixin.space.tls.conf
-grep -q 'X-Forwarded-Proto \$scheme' deploy/cloud/nginx/trend-exploring-proxy.conf
-grep -q 'X-Forwarded-For \$proxy_add_x_forwarded_for' deploy/cloud/nginx/trend-exploring-proxy.conf
+grep -q 'trend-exploring-proxy-base.conf' deploy/cloud/nginx/trend-exploring-proxy.conf
+grep -q 'trend-exploring-proxy-base.conf' deploy/cloud/nginx/trend-exploring-proxy-short.conf
+grep -q 'trend-exploring-proxy-base.conf' deploy/cloud/nginx/trend-exploring-proxy-login.conf
+! grep -q 'trend-exploring-proxy.conf' deploy/cloud/nginx/trend-exploring-proxy-short.conf
+! grep -q 'trend-exploring-proxy.conf' deploy/cloud/nginx/trend-exploring-proxy-login.conf
+grep -q 'X-Forwarded-Proto \$scheme' deploy/cloud/nginx/trend-exploring-proxy-base.conf
+grep -q 'X-Forwarded-For \$proxy_add_x_forwarded_for' deploy/cloud/nginx/trend-exploring-proxy-base.conf
+grep -q 'proxy_read_timeout 60s' deploy/cloud/nginx/trend-exploring-proxy.conf
+grep -q 'proxy_read_timeout 5s' deploy/cloud/nginx/trend-exploring-proxy-short.conf
+grep -q 'proxy_read_timeout 10s' deploy/cloud/nginx/trend-exploring-proxy-login.conf
+[[ "$(grep -c '^proxy_.*_timeout ' deploy/cloud/nginx/trend-exploring-proxy.conf)" == 3 ]]
+[[ "$(grep -c '^proxy_.*_timeout ' deploy/cloud/nginx/trend-exploring-proxy-short.conf)" == 3 ]]
+[[ "$(grep -c '^proxy_.*_timeout ' deploy/cloud/nginx/trend-exploring-proxy-login.conf)" == 3 ]]
+grep -q 'trend-exploring-proxy-base.conf' scripts/cloud/install.sh
 grep -q 'CLOUD_PROXY:-caddy' scripts/cloud/install.sh
 grep -q -- '--proxy caddy|nginx' scripts/cloud/install.sh
 grep -q 'systemctl enable nginx' scripts/cloud/install.sh
