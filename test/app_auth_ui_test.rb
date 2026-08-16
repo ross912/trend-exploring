@@ -34,4 +34,11 @@ class AppAuthUiTest < Minitest::Test
     assert_includes @js, "/api/conversation/query"
     assert_operator @js.scan(/\bfetch\(/).length, :<=, 1, "API calls should go through fetchJson"
   end
+
+  def test_api_requests_are_serialized_without_poisoning_later_refreshes
+    assert_includes @js, "let apiRequestTail = Promise.resolve();"
+    assert_includes @js, "function queueApiRequest(request)"
+    assert_includes @js, "apiRequestTail = queued.catch(() => undefined);"
+    assert_match(/return queueApiRequest\(async \(\) => \{/, @js)
+  end
 end

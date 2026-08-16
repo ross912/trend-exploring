@@ -91,6 +91,17 @@ let translationPollTimer = null;
 let translationLastJobId = null;
 let authRedirected = false;
 let authMode = "unknown";
+// The cloud Ruby server launches one psql subprocess per API request. Keep
+// browser fan-out deterministic so the initial Promise.all calls do not race
+// those subprocess stream readers and turn otherwise healthy reads into 503s.
+let apiRequestTail = Promise.resolve();
+
+function queueApiRequest(request) {
+  const queued = apiRequestTail.then(request, request);
+  // A failed request must not poison the queue for later refreshes.
+  apiRequestTail = queued.catch(() => undefined);
+  return queued;
+}
 
 function readCookie(name) {
   const prefix = `${encodeURIComponent(name)}=`;
@@ -412,30 +423,32 @@ function renderRadar(payload) {
 }
 
 async function fetchJson(path, options = {}) {
-  const { skipAuthRedirect = false, ...requestOptions } = options;
-  const method = String(requestOptions.method || "GET").toUpperCase();
-  const headers = new Headers(requestOptions.headers || {});
-  headers.set("Accept", "application/json");
-  if (requestOptions.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-    // The cloud middleware validates this double-submit token for every write.
-    headers.set("X-CSRF-Token", readCookie("zixin_csrf"));
-  }
-  const response = await fetch(path, {
-    ...requestOptions,
-    method,
-    headers,
-    credentials: requestOptions.credentials || "same-origin"
+  return queueApiRequest(async () => {
+    const { skipAuthRedirect = false, ...requestOptions } = options;
+    const method = String(requestOptions.method || "GET").toUpperCase();
+    const headers = new Headers(requestOptions.headers || {});
+    headers.set("Accept", "application/json");
+    if (requestOptions.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      // The cloud middleware validates this double-submit token for every write.
+      headers.set("X-CSRF-Token", readCookie("zixin_csrf"));
+    }
+    const response = await fetch(path, {
+      ...requestOptions,
+      method,
+      headers,
+      credentials: requestOptions.credentials || "same-origin"
+    });
+    let payload;
+    try { payload = await response.json(); } catch (_error) { payload = { error: `HTTP ${response.status}` }; }
+    if (!response.ok) {
+      const message = payload && typeof payload === "object" ? payload.error : null;
+      const error = Object.assign(new Error(message || `HTTP ${response.status}`), { status: response.status, payload });
+      if (response.status === 401 && !skipAuthRedirect && String(path).startsWith("/api/")) redirectToLoginOnce();
+      throw error;
+    }
+    return payload;
   });
-  let payload;
-  try { payload = await response.json(); } catch (_error) { payload = { error: `HTTP ${response.status}` }; }
-  if (!response.ok) {
-    const message = payload && typeof payload === "object" ? payload.error : null;
-    const error = Object.assign(new Error(message || `HTTP ${response.status}`), { status: response.status, payload });
-    if (response.status === 401 && !skipAuthRedirect && String(path).startsWith("/api/")) redirectToLoginOnce();
-    throw error;
-  }
-  return payload;
 }
 
 async function loadAuthSession() {
