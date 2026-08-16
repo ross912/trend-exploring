@@ -1040,37 +1040,62 @@ class LocalRadarStore
 
   def ingest_source_items!(items:)
     inserted = 0
+    breadth = breadth_schema_available?
+    prepared_items = Array(items).map { |item| prepare_source_item_ingest(item) }
+    grouped_items = prepared_items.group_by { |prepared| [prepared.fetch(:item_key), prepared.fetch(:capture_id)] }
+    selected_items = []
+    rejected_groups = []
+    grouped_items.keys.sort_by { |item_key, capture_id| [item_key.to_s, capture_id.to_s] }.each do |group_key|
+      group = grouped_items.fetch(group_key)
+      fingerprints = group.map { |prepared| prepared.fetch(:projection_fingerprint) }.uniq.sort
+      if fingerprints.length > 1
+        item_key, capture_id = group_key
+        rejected_groups << {
+          "item_hash" => Digest::SHA256.hexdigest(item_key.to_s),
+          "capture_hash" => Digest::SHA256.hexdigest(capture_id.to_s),
+          "rejected_count" => group.length
+        }
+        next
+      end
+      # Equal immutable projections are exact duplicates for the version
+      # guard.  Pick a stable representative so differing non-projection
+      # metadata cannot make replay behavior depend on input order.
+      selected_items << group.min_by { |prepared| prepared.fetch(:raw_input_fingerprint) }
+    end
+    unless rejected_groups.empty?
+      audit = {
+        "rejected_groups" => rejected_groups.sort_by { |entry| [entry.fetch("item_hash"), entry.fetch("capture_hash")] },
+        "rejected_count" => rejected_groups.sum { |entry| entry.fetch("rejected_count") }
+      }
+      warn "source item ingest rejected ambiguous groups: #{JSON.generate(audit)}"
+    end
     transaction do
-      Array(items).each do |item|
-        source_id = item.fetch("source_id")
-        capture_at = item.fetch("capture_captured_at", item.fetch("fetched_at"))
-        fetched_at = item.fetch("fetched_at", capture_at)
-        capture_body_hash = item.fetch("capture_body_hash", "").to_s
-        # Direct fixture callers predate capture metadata. Keep that API
-        # compatible while ensuring HTTP Fetcher rows always carry the real
-        # feed-body hash.
-        capture_body_hash = Digest::SHA256.hexdigest([source_id, item.fetch("capture_source_url", item.fetch("source_url")), capture_at].join("\u0000")) if capture_body_hash.empty?
-        capture_id = item.fetch("capture_id", "").to_s
-        capture_id = Digest::SHA256.hexdigest([source_id, capture_body_hash, capture_at].join("\u0000")) if capture_id.empty?
-        item_key = item.fetch("item_key")
-        source_kind = item.fetch("source_kind", "configured")
-        contract = normalize_item_contract(item, source_kind: source_kind)
-        validate_item_registry_contract!(source_id: source_id, contract: contract) if breadth_schema_available?
-        capture_source_url = item.fetch("capture_source_url", item.fetch("source_url"))
-        rights_scope = item.fetch("rights_scope", "excerpt_only")
-        capture_http_status = Integer(item.fetch("capture_http_status", 200))
-        capture_content_type = item.fetch("capture_content_type", "")
-        capture_content_bytes = Integer(item.fetch("capture_content_bytes", 0))
-        capture_storage_status = item.fetch("capture_storage_status", "metadata_only")
-        capture_storage_uri = item.fetch("capture_storage_uri", "")
-        title = item.fetch("title").to_s
-        summary = persisted_summary(item.fetch("summary"))
-        source_url = item.fetch("source_url").to_s
-        content_hash = content_hash_for(title: title, summary: summary, source_url: source_url)
-        publisher_id = item.fetch("publisher_id", "").to_s
-        publisher_identity_status = item.fetch("publisher_identity_status", publisher_id.empty? ? "unresolved" : "configured").to_s
-        publisher_name = item.fetch("publisher_name", item.fetch("source_name", "")).to_s
-        publisher_url = item.fetch("publisher_url", item.fetch("source_url", "")).to_s
+      selected_items.sort_by { |prepared| [prepared.fetch(:item_key).to_s, prepared.fetch(:capture_id).to_s] }.each do |prepared|
+        item = prepared.fetch(:item)
+        source_id = prepared.fetch(:source_id)
+        capture_at = prepared.fetch(:capture_at)
+        fetched_at = prepared.fetch(:fetched_at)
+        capture_body_hash = prepared.fetch(:capture_body_hash)
+        capture_id = prepared.fetch(:capture_id)
+        item_key = prepared.fetch(:item_key)
+        source_kind = prepared.fetch(:source_kind)
+        contract = prepared.fetch(:contract)
+        validate_item_registry_contract!(source_id: source_id, contract: contract) if breadth
+        capture_source_url = prepared.fetch(:capture_source_url)
+        rights_scope = prepared.fetch(:rights_scope)
+        capture_http_status = prepared.fetch(:capture_http_status)
+        capture_content_type = prepared.fetch(:capture_content_type)
+        capture_content_bytes = prepared.fetch(:capture_content_bytes)
+        capture_storage_status = prepared.fetch(:capture_storage_status)
+        capture_storage_uri = prepared.fetch(:capture_storage_uri)
+        title = prepared.fetch(:title)
+        summary = prepared.fetch(:summary)
+        source_url = prepared.fetch(:source_url)
+        content_hash = prepared.fetch(:content_hash)
+        publisher_id = prepared.fetch(:publisher_id)
+        publisher_identity_status = prepared.fetch(:publisher_identity_status)
+        publisher_name = prepared.fetch(:publisher_name)
+        publisher_url = prepared.fetch(:publisher_url)
         ensure_capture!(
           capture_id: capture_id, source_id: source_id, source_url: capture_source_url,
           source_kind: source_kind, rights_scope: rights_scope, captured_at: capture_at,
@@ -1078,7 +1103,7 @@ class LocalRadarStore
           content_bytes: capture_content_bytes, body_hash: capture_body_hash,
           storage_status: capture_storage_status, storage_uri: capture_storage_uri
         )
-        item_insert_sql = if breadth_schema_available?
+        item_insert_sql = if breadth
           <<~SQL
             INSERT INTO local_source_item
               (item_key, source_id, source_name, language, region, publisher_name, publisher_url, publisher_id, publisher_identity_status, source_kind, capture_id,
@@ -2022,6 +2047,100 @@ class LocalRadarStore
   end
 
   private
+
+  # Normalize the immutable projection once before opening the ingest
+  # transaction.  This lets the batch reject only ambiguous duplicate groups
+  # while retaining the existing database guards for conflicts with rows
+  # already persisted.
+  def prepare_source_item_ingest(item)
+    source_id = item.fetch("source_id")
+    capture_at = item.fetch("capture_captured_at", item.fetch("fetched_at"))
+    fetched_at = item.fetch("fetched_at", capture_at)
+    capture_body_hash = item.fetch("capture_body_hash", "").to_s
+    # Direct fixture callers predate capture metadata. Keep that API
+    # compatible while ensuring HTTP Fetcher rows carry the real feed hash.
+    capture_body_hash = Digest::SHA256.hexdigest([source_id, item.fetch("capture_source_url", item.fetch("source_url")), capture_at].join("\u0000")) if capture_body_hash.empty?
+    capture_id = item.fetch("capture_id", "").to_s
+    capture_id = Digest::SHA256.hexdigest([source_id, capture_body_hash, capture_at].join("\u0000")) if capture_id.empty?
+    item_key = item.fetch("item_key")
+    source_kind = item.fetch("source_kind", "configured")
+    contract = normalize_item_contract(item, source_kind: source_kind)
+    capture_source_url = item.fetch("capture_source_url", item.fetch("source_url"))
+    rights_scope = item.fetch("rights_scope", "excerpt_only")
+    capture_http_status = Integer(item.fetch("capture_http_status", 200))
+    capture_content_type = item.fetch("capture_content_type", "")
+    capture_content_bytes = Integer(item.fetch("capture_content_bytes", 0))
+    capture_storage_status = item.fetch("capture_storage_status", "metadata_only")
+    capture_storage_uri = item.fetch("capture_storage_uri", "")
+    title = item.fetch("title").to_s
+    summary = persisted_summary(item.fetch("summary"))
+    source_url = item.fetch("source_url").to_s
+    content_hash = content_hash_for(title: title, summary: summary, source_url: source_url)
+    publisher_id = item.fetch("publisher_id", "").to_s
+    publisher_identity_status = item.fetch("publisher_identity_status", publisher_id.empty? ? "unresolved" : "configured").to_s
+    publisher_name = item.fetch("publisher_name", item.fetch("source_name", "")).to_s
+    publisher_url = item.fetch("publisher_url", item.fetch("source_url", "")).to_s
+    projection = [
+      item_key.to_s, capture_id.to_s, source_id.to_s, item.fetch("source_name").to_s,
+      item.fetch("language").to_s, item.fetch("region", "未标注").to_s,
+      publisher_name, publisher_url, publisher_id, publisher_identity_status,
+      source_kind.to_s, contract.fetch("query_conditioned"), contract.fetch("discovery_basis"),
+      contract.fetch("analysis_policy"), contract.fetch("aggregator_id"), contract.fetch("locale_tag"),
+      contract.fetch("market_label"), contract.fetch("market_label_basis"), contract.fetch("query_topics"),
+      "capture_time", title, summary, source_url,
+      canonical_projection_timestamp(item.fetch("published_at")), canonical_projection_timestamp(fetched_at),
+      canonical_projection_timestamp(capture_at), content_hash
+    ]
+    {
+      item: item,
+      item_key: item_key,
+      capture_id: capture_id,
+      source_id: source_id,
+      capture_at: capture_at,
+      fetched_at: fetched_at,
+      capture_body_hash: capture_body_hash,
+      source_kind: source_kind,
+      contract: contract,
+      capture_source_url: capture_source_url,
+      rights_scope: rights_scope,
+      capture_http_status: capture_http_status,
+      capture_content_type: capture_content_type,
+      capture_content_bytes: capture_content_bytes,
+      capture_storage_status: capture_storage_status,
+      capture_storage_uri: capture_storage_uri,
+      title: title,
+      summary: summary,
+      source_url: source_url,
+      content_hash: content_hash,
+      publisher_id: publisher_id,
+      publisher_identity_status: publisher_identity_status,
+      publisher_name: publisher_name,
+      publisher_url: publisher_url,
+      projection_fingerprint: Digest::SHA256.hexdigest(JSON.generate(projection)),
+      raw_input_fingerprint: Digest::SHA256.hexdigest(JSON.generate(canonical_json(item)))
+    }
+  end
+
+  def canonical_projection_timestamp(value)
+    return nil if value.nil?
+
+    Time.parse(value.to_s).utc.iso8601(6)
+  rescue ArgumentError
+    value.to_s
+  end
+
+  def canonical_json(value)
+    case value
+    when Hash
+      value.keys.map(&:to_s).sort.each_with_object({}) do |key, result|
+        result[key] = canonical_json(value.key?(key) ? value[key] : value[key.to_sym])
+      end
+    when Array
+      value.map { |entry| canonical_json(entry) }
+    else
+      value
+    end
+  end
 
   # A batch with planned locale-frontier sources is an exploration-only
   # publication. It must carry an explicit reused_previous signal projection;

@@ -448,6 +448,42 @@ class LocalProductTest < Minitest::Test
     assert_raises(LocalRadarStore::Error) { @store.ingest_source_items!(items: [wrong_source]) }
   end
 
+  def test_ingest_deduplicates_exact_duplicate_item_key_capture_groups
+    key = "archive-exact-duplicate-#{Process.pid}-#{object_id}-#{rand(1_000_000)}"
+    item = archive_item(key: key, capture_id: "capture-#{key}", captured_at: "2026-08-08T13:00:00Z")
+
+    assert_equal 1, @store.ingest_source_items!(items: [item, item.dup])
+    assert_equal 1, @store.source_item_versions(item_key: key).length
+  end
+
+  def test_ingest_skips_ambiguous_group_but_persists_other_groups
+    ambiguous_key = "archive-ambiguous-#{Process.pid}-#{object_id}-#{rand(1_000_000)}"
+    valid_key = "archive-valid-#{Process.pid}-#{object_id}-#{rand(1_000_000)}"
+    ambiguous_capture = "capture-#{ambiguous_key}"
+    ambiguous_a = archive_item(key: ambiguous_key, capture_id: ambiguous_capture, captured_at: "2026-08-08T14:00:00Z", title: "版本 A")
+    ambiguous_b = ambiguous_a.merge("title" => "版本 B")
+    valid = archive_item(key: valid_key, capture_id: "capture-#{valid_key}", captured_at: "2026-08-08T14:01:00Z")
+
+    _stdout, stderr = capture_io do
+      assert_equal 1, @store.ingest_source_items!(items: [ambiguous_b, valid, ambiguous_a])
+    end
+    assert_empty @store.source_item_versions(item_key: ambiguous_key)
+    assert_equal 1, @store.source_item_versions(item_key: valid_key).length
+    assert_includes stderr, "source item ingest rejected ambiguous groups"
+    refute_includes stderr, "版本 A"
+    refute_includes stderr, "版本 B"
+  end
+
+  def test_ingest_existing_item_key_capture_conflict_still_fails_closed
+    key = "archive-existing-conflict-#{Process.pid}-#{object_id}-#{rand(1_000_000)}"
+    original = archive_item(key: key, capture_id: "capture-#{key}", captured_at: "2026-08-08T15:00:00Z")
+    @store.ingest_source_items!(items: [original])
+
+    conflict = original.merge("title" => "冲突版本")
+    assert_raises(LocalRadarStore::Error) { @store.ingest_source_items!(items: [conflict]) }
+    assert_equal 1, @store.source_item_versions(item_key: key).length
+  end
+
   def test_coverage_separates_editorial_query_and_observed_domain_facts
     suffix = "#{Process.pid}-#{object_id}-#{rand(1_000_000)}"
     editorial_a = "coverage-editorial-a-#{suffix}"
