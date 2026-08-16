@@ -59,6 +59,9 @@ grep -q '10485760' scripts/cloud/preflight_ubuntu.sh
 grep -q 'ROOT_USED_PERCENT' scripts/cloud/preflight_ubuntu.sh
 grep -q 'Signal.trap("TERM")' scripts/local/translation_worker.rb
 grep -q 'owner_pid == Process.pid' scripts/local/translation_worker.rb
+grep -q 'cloud_acquire_lock translation-wrapper' scripts/cloud/run_translation.sh
+! grep -q 'cloud_acquire_lock translation$' scripts/cloud/run_translation.sh
+grep -q 'lock_dir = File.join(lock_root, "translation.lock")' scripts/local/translation_worker.rb
 grep -q 'Everything else is still handled by the backend' deploy/cloud/caddy/Caddyfile
 grep -q '/styles.css and /app.js' deploy/cloud/caddy/Caddyfile
 grep -q '/assets/landing-hero-v1.webp' deploy/cloud/caddy/Caddyfile
@@ -122,6 +125,23 @@ env CLOUD_ENV_FILE="${tmp_root}/missing.env" CLOUD_PUBLIC_DEPLOYMENT=1 \
   CLOUD_DRY_RUN=1 CLOUD_RELEASE_ROOT="${root}" CLOUD_LOCK_ROOT="${tmp_root}/locks" \
   scripts/cloud/run_collect.sh >/dev/null
 [[ ! -e "${tmp_root}/locks/collect.lock" ]]
+env CLOUD_ENV_FILE="${tmp_root}/missing.env" CLOUD_PUBLIC_DEPLOYMENT=1 \
+  PUBLIC_UNAUTHENTICATED_MODE=0 AUTH_REQUIRED_FOR_APP=1 AUTH_MODE=required \
+  TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128 CLOUD_IDENTITY_PEPPER=test-id \
+  CLOUD_SESSION_PEPPER=test-session PUBLISH_API_ENABLED=0 \
+  CLOUD_DRY_RUN=1 CLOUD_RELEASE_ROOT="${root}" CLOUD_LOCK_ROOT="${tmp_root}/locks" \
+  scripts/cloud/run_translation.sh >/dev/null
+[[ ! -e "${tmp_root}/locks/translation-wrapper.lock" ]]
+[[ ! -e "${tmp_root}/locks/translation.lock" ]]
+translation_state="${tmp_root}/translation-state"
+if env LOCAL_STATE_DIR="${translation_state}" LOCAL_PSQL=/usr/bin/false \
+  LOCAL_PGSOCKET="${tmp_root}/missing-socket" LOCAL_PGPORT=1 LOCAL_PGUSER=test \
+  LOCAL_PGDATABASE=test DEEPSEEK_API_KEY_FILE="${tmp_root}/missing-key" \
+  ruby scripts/local/translation_worker.rb --limit 1 >/dev/null 2>&1; then
+  echo "translation worker unexpectedly passed an unavailable database" >&2
+  exit 1
+fi
+[[ ! -e "${translation_state}/locks/translation.lock" ]]
 env CLOUD_ENV_FILE="${tmp_root}/missing.env" CLOUD_PUBLIC_DEPLOYMENT=1 \
   PUBLIC_UNAUTHENTICATED_MODE=0 AUTH_REQUIRED_FOR_APP=1 AUTH_MODE=required \
   TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128 CLOUD_IDENTITY_PEPPER=test-id \
