@@ -11,6 +11,7 @@ require "open3"
 require "time"
 require "date"
 require "rbconfig"
+require_relative "../../lib/local_radar_store"
 require_relative "../../lib/local_report_ledger"
 require_relative "../../lib/local_runtime"
 require_relative "../../lib/weak_signal_store"
@@ -56,9 +57,44 @@ def slot_kind_for(now)
   nil
 end
 
+def persisted_collection_health(scheduled_at:)
+  latest = LocalRadarStore.new.exploration_summary.fetch("latest_batch", nil)
+  return { "status" => "missing", "degraded" => true, "reason" => "no persisted collection batch" } if latest.nil?
+
+  started_at = Time.iso8601(latest.fetch("started_at"))
+  freshness_floor = scheduled_at - (2 * 60 * 60)
+  fresh = started_at >= freshness_floor && started_at <= scheduled_at
+  planned = latest.fetch("planned_source_count", 0).to_i
+  attempted = latest.fetch("attempt_count", 0).to_i
+  failed = latest.fetch("failed_source_count", 0).to_i
+  terminal = latest.fetch("status", "").to_s
+  degraded = !fresh || terminal != "published" || failed.positive? || attempted < planned
+  reason = if !fresh
+             "persisted collection batch is stale for the report boundary"
+           elsif terminal != "published"
+             "persisted collection batch is not published"
+           elsif failed.positive?
+             "persisted collection batch has failed sources"
+           elsif attempted < planned
+             "persisted collection batch attempt denominator is incomplete"
+           else
+             ""
+           end
+  {
+    "status" => "observed", "source" => "persisted_collection_ledger",
+    "batch_id" => latest.fetch("batch_id"), "batch_status" => terminal,
+    "started_at" => latest.fetch("started_at"), "completed_at" => latest.fetch("completed_at"),
+    "planned_source_count" => planned, "attempt_count" => attempted,
+    "failed_source_count" => failed, "degraded" => degraded, "reason" => reason
+  }
+rescue LocalRadarStore::Error, KeyError, ArgumentError => error
+  { "status" => "failed", "degraded" => true, "reason" => "persisted collection health unavailable: #{error.message}" }
+end
+
 now = options.fetch(:now).getlocal(LOCAL_ZONE)
 kind = slot_kind_for(now)
 date = local_date_for(now)
+scheduled_at = kind && Time.new(date.year, date.month, date.day, kind == "morning" ? 8 : 19, 0, 0, LOCAL_ZONE)
 env = {
   "LOCAL_REPORT_DATE" => date.iso8601,
   "LOCAL_CYCLE_NOW" => now.iso8601(6)
@@ -76,6 +112,11 @@ if options.fetch(:ingest)
     result["status"] = "degraded"
     result["collection"]["degraded"] = true
   end
+elsif scheduled_at
+  # Cloud collection and report publication are separate timers.  Carry the
+  # immutable collection denominator across that process boundary instead of
+  # treating --skip-ingest as proof that coverage was complete.
+  result["collection"] = persisted_collection_health(scheduled_at: scheduled_at)
 end
 
 collection_payload = begin
@@ -83,14 +124,15 @@ collection_payload = begin
 rescue JSON::ParserError
   {}
 end
-collection_degraded = result.dig("collection", "status") == "failed" || Array(collection_payload["source_errors"]).any?
+collection_degraded = result.dig("collection", "degraded") == true ||
+                      result.dig("collection", "status") == "failed" ||
+                      Array(collection_payload["source_errors"]).any?
 result["collection"]["degraded"] = true if result["collection"] && collection_degraded
 result["status"] = "degraded" if collection_degraded
 
 ledger = LocalReportLedger.new
 ledger.generate_slots!(date: date, kinds: LocalReportLedger::KINDS)
 if kind
-  scheduled_at = Time.new(date.year, date.month, date.day, kind == "morning" ? 8 : 19, 0, 0, LOCAL_ZONE)
   # A cycle can never publish before the immutable scheduled boundary.  The
   # report cutoff is therefore the scheduled boundary itself: the 07:55/18:55
   # pre-collection has time to land before this publication transaction.

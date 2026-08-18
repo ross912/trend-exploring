@@ -66,6 +66,8 @@ class LocalOperationsTest < Minitest::Test
     first = JSON.parse(run!("run_scheduled_cycle.rb", "--now", "2026-08-13T08:05:00+08:00", "--skip-ingest"))
     second = JSON.parse(run!("run_scheduled_cycle.rb", "--now", "2026-08-13T08:14:00+08:00", "--skip-ingest"))
     assert_equal "published", first.dig("report", "status")
+    assert_equal true, first.dig("collection", "degraded")
+    assert_equal "missing", first.dig("collection", "status")
     assert_equal first.dig("report", "edition_id"), second.dig("report", "edition_id")
     assert_equal first.dig("weak_signal", "run_id"), second.dig("weak_signal", "run_id")
     delayed = JSON.parse(run!("run_scheduled_cycle.rb", "--now", "2026-08-14T08:20:00+08:00", "--skip-ingest"))
